@@ -1,0 +1,16 @@
+name: CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened] # these are the defaults - synchronize means 'commits pushed to PR'
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  golang-ci:
+    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@v5.1.0
+    with:
+      build-tags: '[""]'
+  semantic-titles:
+    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@v5.1.0
