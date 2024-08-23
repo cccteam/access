@@ -81,7 +81,7 @@ func TestAppUsers(t *testing.T) {
 			accessManager := NewMockManager(ctrl)
 			a := NewMockHandlerClient(accessManager)
 
-			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil, nil)
+			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil)
 			if err != nil {
 				t.Error(err)
 			}
@@ -200,7 +200,7 @@ func TestAppUser(t *testing.T) {
 				tt.prepare(accessManager)
 			}
 
-			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil, map[httpio.ParamType]string{paramUser: tt.args.username})
+			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramUser: tt.args.username})
 			if err != nil {
 				t.Error(err)
 			}
@@ -237,7 +237,6 @@ func TestApp_AddRole(t *testing.T) {
 	type args struct {
 		guarantorID string
 		body        string
-		sessionInfo *SessionInfo
 	}
 	tests := []struct {
 		name    string
@@ -290,7 +289,7 @@ func TestApp_AddRole(t *testing.T) {
 				tt.prepare(accessManager)
 			}
 
-			req, err := createHTTPRequest(http.MethodPost, strings.NewReader(tt.args.body), tt.args.sessionInfo, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID})
+			req, err := createHTTPRequest(http.MethodPost, strings.NewReader(tt.args.body), map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID})
 			if err != nil {
 				t.Error(err)
 			}
@@ -328,7 +327,6 @@ func TestApp_DeleteRole(t *testing.T) {
 	type args struct {
 		guarantorID string
 		role        string
-		sessionInfo *SessionInfo
 	}
 	tests := []struct {
 		name    string
@@ -378,7 +376,6 @@ func TestApp_DeleteRole(t *testing.T) {
 
 			req, err := createHTTPRequest(http.MethodPost,
 				http.NoBody,
-				tt.args.sessionInfo,
 				map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role},
 			)
 			if err != nil {
@@ -409,7 +406,6 @@ func TestAppAddRolePermissions(t *testing.T) {
 		guarantorID string
 		role        string
 		body        string
-		sessionInfo *SessionInfo
 	}
 	tests := []struct {
 		name    string
@@ -496,7 +492,6 @@ func TestAppAddRolePermissions(t *testing.T) {
 
 			req, err := createHTTPRequest(http.MethodPost,
 				strings.NewReader(tt.args.body),
-				tt.args.sessionInfo,
 				map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role},
 			)
 			if err != nil {
@@ -527,7 +522,6 @@ func TestAppAddRoleUsers(t *testing.T) {
 		guarantorID string
 		role        string
 		body        string
-		sessionInfo *SessionInfo
 	}
 	tests := []struct {
 		name    string
@@ -614,7 +608,6 @@ func TestAppAddRoleUsers(t *testing.T) {
 
 			req, err := createHTTPRequest(http.MethodPost,
 				strings.NewReader(tt.args.body),
-				tt.args.sessionInfo,
 				map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role},
 			)
 			if err != nil {
@@ -645,7 +638,6 @@ func TestApp_DeleteRoleUsers(t *testing.T) {
 		guarantorID string
 		role        string
 		body        string
-		sessionInfo *SessionInfo
 	}
 	tests := []struct {
 		name    string
@@ -732,7 +724,6 @@ func TestApp_DeleteRoleUsers(t *testing.T) {
 
 			req, err := createHTTPRequest(http.MethodPost,
 				strings.NewReader(tt.args.body),
-				tt.args.sessionInfo,
 				map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role},
 			)
 			if err != nil {
@@ -763,7 +754,6 @@ func TestApp_DeleteRolePermissions(t *testing.T) {
 		guarantorID string
 		role        string
 		body        string
-		sessionInfo *SessionInfo
 	}
 	tests := []struct {
 		name    string
@@ -847,7 +837,6 @@ func TestApp_DeleteRolePermissions(t *testing.T) {
 
 			req, err := createHTTPRequest(http.MethodPost,
 				strings.NewReader(tt.args.body),
-				tt.args.sessionInfo,
 				map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role},
 			)
 			if err != nil {
@@ -920,7 +909,7 @@ func TestApp_Roles(t *testing.T) {
 			accessManager := NewMockManager(ctrl)
 			a := NewMockHandlerClient(accessManager)
 
-			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID})
+			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID})
 			if err != nil {
 				t.Error(err)
 			}
@@ -1024,7 +1013,7 @@ func TestApp_RoleUsers(t *testing.T) {
 			accessManager := NewMockManager(ctrl)
 			a := NewMockHandlerClient(accessManager)
 
-			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role})
+			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role})
 			if err != nil {
 				t.Error(err)
 			}
@@ -1123,7 +1112,7 @@ func TestApp_RolePermissions(t *testing.T) {
 			accessManager := NewMockManager(ctrl)
 			a := NewMockHandlerClient(accessManager)
 
-			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role})
+			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role})
 			if err != nil {
 				t.Error(err)
 			}
@@ -1161,11 +1150,8 @@ func TestApp_RolePermissions(t *testing.T) {
 	}
 }
 
-func createHTTPRequest(method string, body io.Reader, sessionInfo *SessionInfo, urlParams map[httpio.ParamType]string) (*http.Request, error) {
+func createHTTPRequest(method string, body io.Reader, urlParams map[httpio.ParamType]string) (*http.Request, error) {
 	ctx := context.Background()
-	if sessionInfo != nil {
-		// ctx = context.WithValue(ctx, ctxSessionInfo, sessionInfo)
-	}
 	req, err := http.NewRequestWithContext(ctx, method, "", body)
 	if err != nil {
 		return nil, errors.Wrap(err, "http.NewRequestWithContext()")

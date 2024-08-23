@@ -1,11 +1,5 @@
 package access
 
-import (
-	"time"
-
-	"github.com/cccteam/ccc"
-)
-
 // PermissionsListFunc is a function that provides the list of app permissions for the users client
 type PermissionsListFunc func() []Permission
 
@@ -13,15 +7,5 @@ type PermissionsListFunc func() []Permission
 type UserAccess struct {
 	Name        string
 	Roles       map[Domain][]Role
-	Permissions map[Domain][]Permission
-}
-
-// SessionInfo struct contains information about a session
-type SessionInfo struct {
-	ID          ccc.UUID
-	Username    string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Expired     bool
 	Permissions map[Domain][]Permission
 }
