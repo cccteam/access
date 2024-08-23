@@ -21,6 +21,7 @@ type Client struct {
 	connConfig    *pgx.ConnConfig
 	domains       Domains
 	enforcerMu    sync.RWMutex
+	Enforcer      func() casbin.IEnforcer
 	enforcer      casbin.IEnforcer
 }
 
@@ -35,13 +36,14 @@ func New(domains Domains, connConfig *pgx.ConnConfig) (*Client, error) {
 		domains:    domains,
 		connConfig: connConfig,
 		enforcer:   enforcer,
-		// TODO: Add enforcerFunc back in for testing
 	}
+
+	c.Enforcer = c.e
 
 	return c, nil
 }
 
-func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) *HandlerClient {
+func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) Handlers {
 	return newHandler(c, validate, logHandler)
 }
 
@@ -56,7 +58,7 @@ func (c *Client) RequireAll(ctx context.Context, username User, domain Domain, p
 	}
 
 	for _, perm := range perms {
-		authorized, err := c.e().Enforce(username.Marshal(), domain.Marshal(), "*", perm.Marshal())
+		authorized, err := c.Enforcer().Enforce(username.Marshal(), domain.Marshal(), "*", perm.Marshal())
 		if err != nil {
 			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
 		}

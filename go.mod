@@ -9,6 +9,7 @@ require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/go-playground/validator/v10 v10.22.0
+	github.com/google/go-cmp v0.6.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/pckhoi/casbin-pgx-adapter/v3 v3.2.0
 	go.opentelemetry.io/otel v1.28.0

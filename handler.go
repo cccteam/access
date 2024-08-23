@@ -29,6 +29,8 @@ type HandlerClient struct {
 	handler  LogHandler
 }
 
+var _ Handlers = &HandlerClient{}
+
 func newHandler(client *Client, validate *validator.Validate, logHandler LogHandler) *HandlerClient {
 	return &HandlerClient{
 		manager:  client,

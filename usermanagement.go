@@ -22,7 +22,7 @@ func (c *Client) AddRoleUsers(ctx context.Context, users []User, role Role, doma
 	}
 
 	for _, username := range users {
-		if _, err := c.e().AddRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+		if _, err := c.Enforcer().AddRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), username)
 		}
 	}
@@ -41,7 +41,7 @@ func (c *Client) AddUserRoles(ctx context.Context, user User, roles []Role, doma
 	}
 
 	for _, role := range roles {
-		if _, err := c.e().AddRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+		if _, err := c.Enforcer().AddRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role, user)
 		}
 	}
@@ -58,7 +58,7 @@ func (c *Client) DeleteRoleUsers(ctx context.Context, users []User, role Role, d
 	}
 
 	for _, username := range users {
-		if _, err := c.e().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+		if _, err := c.Enforcer().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), username)
 		}
 	}
@@ -86,7 +86,7 @@ func (c *Client) DeleteUserRole(ctx context.Context, username User, role Role, d
 	_, span := otel.Tracer(name).Start(ctx, "Client.DeleteUserRole()")
 	defer span.End()
 
-	if _, err := c.e().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+	if _, err := c.Enforcer().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 		return errors.Wrapf(err, "casbin.SyncedEnforcer.DeleteRoleForUser(): role %q to %q", role.Marshal(), username)
 	}
 
@@ -160,12 +160,12 @@ func (c *Client) users(ctx context.Context, domains []Domain) ([]*UserAccess, er
 
 	var users []*UserAccess
 	userMap := make(map[string]bool)
-	roles, err := c.e().GetAllRoles()
+	roles, err := c.Enforcer().GetAllRoles()
 	if err != nil {
 		return nil, errors.Wrap(err, "enforcer.GetAllRoles()")
 	}
 
-	subjects, err := c.e().GetAllSubjects()
+	subjects, err := c.Enforcer().GetAllSubjects()
 	if err != nil {
 		return nil, errors.Wrap(err, "enforcer.GetAllSubjects()")
 	}
@@ -188,7 +188,7 @@ SUB:
 		userMap[username] = true
 	}
 	// now get the grouping policy and look for users in there
-	groupingPolicy, err := c.e().GetGroupingPolicy()
+	groupingPolicy, err := c.Enforcer().GetGroupingPolicy()
 	if err != nil {
 		return nil, errors.Wrap(err, "enforcer.GetGroupingPolicy()")
 	}
@@ -248,7 +248,7 @@ func (c *Client) userRoles(ctx context.Context, username User, domains []Domain)
 
 	userRoles := make(map[Domain][]Role)
 	for _, domain := range domains {
-		strRoles, err := c.e().GetRolesForUser(username.Marshal(), domain.Marshal())
+		strRoles, err := c.Enforcer().GetRolesForUser(username.Marshal(), domain.Marshal())
 		if err != nil {
 			return nil, errors.Wrapf(err, "casbin.SyncedEnforcer.GetRolesForUser(): user: %q", username)
 		}
@@ -289,7 +289,7 @@ func (c *Client) userPermissions(ctx context.Context, username User, domains []D
 
 	userPermissions := make(map[Domain][]Permission)
 	for _, domain := range domains {
-		strPerms, err := c.e().GetImplicitPermissionsForUser(username.Marshal(), domain.Marshal())
+		strPerms, err := c.Enforcer().GetImplicitPermissionsForUser(username.Marshal(), domain.Marshal())
 		if err != nil {
 			return nil, errors.Wrap(err, "enforcer.GetImplicitPermissionsForUser()")
 		}
@@ -322,7 +322,7 @@ func (c *Client) AddRole(ctx context.Context, domain Domain, role Role) error {
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
 	}
 
-	if _, err := c.e().AddGroupingPolicy(NoopUser, role.Marshal(), domain.Marshal()); err != nil {
+	if _, err := c.Enforcer().AddGroupingPolicy(NoopUser, role.Marshal(), domain.Marshal()); err != nil {
 		return errors.Wrap(err, "enforcer.AddGroupingPolicy()")
 	}
 
@@ -340,7 +340,7 @@ func (c *Client) Roles(ctx context.Context, domain Domain) ([]Role, error) {
 	}
 
 	// filter by domain
-	grouping, err := c.e().GetFilteredGroupingPolicy(2, domain.Marshal())
+	grouping, err := c.Enforcer().GetFilteredGroupingPolicy(2, domain.Marshal())
 	if err != nil {
 		return nil, errors.Wrap(err, "enforcer.GetFilteredGroupingPolicy()")
 	}
@@ -374,7 +374,7 @@ func (c *Client) DeleteRole(ctx context.Context, role Role, domain Domain) (bool
 		return false, httpio.NewBadRequestMessagef("Users assigned to the role. You cannot delete a role that has users assigned")
 	}
 
-	deleted, err := c.e().DeleteRole(role.Marshal())
+	deleted, err := c.Enforcer().DeleteRole(role.Marshal())
 	if err != nil {
 		return false, errors.Wrap(err, "enforcer.DeleteRole()")
 	}
@@ -408,7 +408,7 @@ func (c *Client) DeleteRolePermissions(ctx context.Context, permissions []Permis
 	}
 
 	for _, permission := range permissions {
-		if _, err := c.e().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), "*", permission.Marshal()); err != nil {
+		if _, err := c.Enforcer().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), "*", permission.Marshal()); err != nil {
 			return errors.Wrapf(err, "enforcer.RemoveFilteredPolicy() role=%q, domain=%q", role, domain)
 		}
 	}
@@ -420,7 +420,7 @@ func (c *Client) RoleUsers(ctx context.Context, role Role, domain Domain) ([]Use
 	_, span := otel.Tracer(name).Start(ctx, "Client.RoleUsers()")
 	defer span.End()
 
-	users, err := c.e().GetUsersForRole(role.Marshal(), domain.Marshal())
+	users, err := c.Enforcer().GetUsersForRole(role.Marshal(), domain.Marshal())
 	if err != nil {
 		return nil, errors.Wrap(err, "enforcer.GetUsersForRole()")
 	}
@@ -444,7 +444,7 @@ func (c *Client) RolePermissions(ctx context.Context, role Role, domain Domain) 
 		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
 	}
 
-	policies, err := c.e().GetFilteredPolicy(0, role.Marshal(), domain.Marshal())
+	policies, err := c.Enforcer().GetFilteredPolicy(0, role.Marshal(), domain.Marshal())
 	if err != nil {
 		return nil, errors.Wrap(err, "enforcer.GetFilteredPolicy()")
 	}
@@ -461,7 +461,7 @@ func (c *Client) addPolicy(ctx context.Context, permission Permission, role Role
 	_, span := otel.Tracer(name).Start(ctx, "Client.addPolicy()")
 	defer span.End()
 
-	if _, err := c.e().AddPolicy(role.Marshal(), domain.Marshal(), "*", permission.Marshal(), "allow"); err != nil {
+	if _, err := c.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), "*", permission.Marshal(), "allow"); err != nil {
 		return errors.Wrap(err, "enforcer.AddPolicy()")
 	}
 
@@ -472,7 +472,7 @@ func (c *Client) RoleExists(ctx context.Context, role Role, domain Domain) bool 
 	_, span := otel.Tracer(name).Start(ctx, "Client.RoleExists()")
 	defer span.End()
 
-	roles := c.e().GetRolesForUserInDomain(NoopUser, domain.Marshal())
+	roles := c.Enforcer().GetRolesForUserInDomain(NoopUser, domain.Marshal())
 
 	return slices.Contains(roles, role.Marshal())
 }
@@ -499,7 +499,7 @@ func (c *Client) hasUsersAssigned(ctx context.Context, role Role, domain Domain)
 	_, span := otel.Tracer(name).Start(ctx, "Client.hasUsersAssigned()")
 	defer span.End()
 
-	users, err := c.e().GetUsersForRole(role.Marshal(), domain.Marshal())
+	users, err := c.Enforcer().GetUsersForRole(role.Marshal(), domain.Marshal())
 	if err != nil {
 		return false, errors.Wrap(err, "enforcer.GetUsersForRole()")
 	}

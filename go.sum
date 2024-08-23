@@ -22,8 +22,6 @@ github.com/casbin/govaluate v1.2.0 h1:wXCXFmqyY+1RwiKfYo3jMKyrtZmOL3kHwaqDyCPOYa
 github.com/casbin/govaluate v1.2.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
 github.com/cccteam/ccc v0.1.0 h1:d5p/jhZio8mJc+do4hExYs/MvllcXoQK+ozLy2vjo4k=
 github.com/cccteam/ccc v0.1.0/go.mod h1:ulPTspUne8aQAWEgu2janwNWEFIcMSmc6cFjX6CT/4w=
-github.com/cccteam/ccc v0.2.0 h1:iStgMFvXertwrycL3SjIXmpBbGhcxiKS8o/can8Rwhg=
-github.com/cccteam/ccc v0.2.0/go.mod h1:zkI4y9rq2TJronMZdV8XedALLoyQan+rYkxpQ/7MBbc=
 github.com/cccteam/httpio v0.2.5 h1:+BtJxbVPB+s2dvEr8VsH4Jra8Bi8mtix6Tvf7SOs8R4=
 github.com/cccteam/httpio v0.2.5/go.mod h1:JlmpivlbZoAz+neReQv9ZATee88Rc6F/wooskUaxung=
 github.com/cccteam/logger v0.1.9 h1:wSPf/J9bTFqbPqr1I6fxfWBqRHrZTOSdPIfoqf5gHas=

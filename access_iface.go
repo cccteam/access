@@ -73,7 +73,7 @@ type Manager interface {
 	RequireAll(ctx context.Context, user User, domain Domain, permissions ...Permission) error
 
 	// Handlers returns the http.HandlerFunc for the access package
-	Handlers(validate *validator.Validate, handler LogHandler) *HandlerClient
+	Handlers(validate *validator.Validate, handler LogHandler) Handlers
 }
 
 type Domains interface {
