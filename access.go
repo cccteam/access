@@ -1,4 +1,4 @@
-// users handles authorization. It is a wrapper around casbin using an rbac model.
+// package access implements tools to manage access to resources. It is a wrapper around casbin using an rbac model.
 package access
 
 import (
