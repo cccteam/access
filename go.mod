@@ -4,7 +4,6 @@ go 1.22.5
 
 require (
 	github.com/casbin/casbin/v2 v2.98.0
-	github.com/cccteam/ccc v0.1.0
 	github.com/cccteam/httpio v0.2.5
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/errors/v5 v5.4.0
@@ -34,7 +33,6 @@ require (
 	github.com/go-playground/pkg/v5 v5.30.0 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-test/deep v1.1.1 // indirect
-	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect

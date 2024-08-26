@@ -199,10 +199,10 @@ func (mr *MockManagerMockRecorder) Domains(ctx any) *gomock.Call {
 }
 
 // Handlers mocks base method.
-func (m *MockManager) Handlers(validate *validator.Validate, handler access.LogHandler) *access.HandlerClient {
+func (m *MockManager) Handlers(validate *validator.Validate, handler access.LogHandler) access.Handlers {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Handlers", validate, handler)
-	ret0, _ := ret[0].(*access.HandlerClient)
+	ret0, _ := ret[0].(access.Handlers)
 	return ret0
 }
 
