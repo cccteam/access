@@ -8,17 +8,17 @@ import (
 )
 
 type Handlers interface {
-	Users() http.HandlerFunc
-	User() http.HandlerFunc
 	AddRole() http.HandlerFunc
 	AddRolePermissions() http.HandlerFunc
 	AddRoleUsers() http.HandlerFunc
-	DeleteRoleUsers() http.HandlerFunc
+	DeleteRole() http.HandlerFunc
 	DeleteRolePermissions() http.HandlerFunc
+	DeleteRoleUsers() http.HandlerFunc
+	RolePermissions() http.HandlerFunc
 	Roles() http.HandlerFunc
 	RoleUsers() http.HandlerFunc
-	RolePermissions() http.HandlerFunc
-	DeleteRole() http.HandlerFunc
+	User() http.HandlerFunc
+	Users() http.HandlerFunc
 }
 
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
