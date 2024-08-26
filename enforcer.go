@@ -10,33 +10,71 @@ import (
 	pgxadapter "github.com/pckhoi/casbin-pgx-adapter/v3"
 )
 
-func (c *Client) e() casbin.IEnforcer {
+func (c *Client) refreshEnforcer() casbin.IEnforcer {
+	if err := c.initEnforcer(); err != nil {
+		panic(err)
+	}
+
+	return c.loadPolicy()
+}
+
+func (c *Client) initEnforcer() error {
 	c.enforcerMu.RLock()
-	if c.adapterLoaded {
+	if c.enforcerInitialized {
 		defer c.enforcerMu.RUnlock()
 
-		return c.enforcer
+		return nil
 	}
 	c.enforcerMu.RUnlock()
 
-	// adapter needs to be loaded
 	c.enforcerMu.Lock()
 	defer c.enforcerMu.Unlock()
 
-	if c.adapterLoaded {
+	if c.enforcerInitialized {
+		// lost race for lock
+		return nil
+	}
+	// won race for lock
+
+	a, err := pgxadapter.NewAdapter(c.connConfig, pgxadapter.WithDatabase(c.connConfig.Database), pgxadapter.WithTableName("AccessPolicies"))
+	if err != nil {
+		return errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db")
+	}
+
+	c.enforcer.SetAdapter(a)
+
+	c.enforcerInitialized = true
+
+	return nil
+}
+
+func (c *Client) loadPolicy() casbin.IEnforcer {
+	c.policyMu.RLock()
+	if c.policyLoaded {
+		defer c.policyMu.RUnlock()
+
+		return c.enforcer
+	}
+	c.policyMu.RUnlock()
+
+	c.policyMu.Lock()
+	defer c.policyMu.Unlock()
+
+	if c.policyLoaded {
 		return c.enforcer
 	}
 
-	if err := loadAdapter(c.enforcer, c.connConfig, c.connConfig.Database); err != nil {
-		panic(err)
+	if err := c.enforcer.LoadPolicy(); err != nil {
+		panic(errors.Wrapf(err, "casbin.SyncedEnforcer.LoadPolicy()"))
 	}
-	c.adapterLoaded = true
+
+	c.policyLoaded = true
 
 	go func() {
 		time.Sleep(time.Minute)
-		c.enforcerMu.Lock()
-		c.adapterLoaded = false
-		c.enforcerMu.Unlock()
+		c.policyMu.Lock()
+		c.policyLoaded = false
+		c.policyMu.Unlock()
 	}()
 
 	return c.enforcer
@@ -51,10 +89,6 @@ func loadAdapter(enforcer casbin.IEnforcer, config *pgx.ConnConfig, dbName strin
 	// FIXME: The previous adapter is not closed, which is a resource leak.
 	//		we should not load the adapter more then once...
 	enforcer.SetAdapter(a)
-
-	if err := enforcer.LoadPolicy(); err != nil {
-		return errors.Wrapf(err, "casbin.SyncedEnforcer.LoadPolicy()")
-	}
 
 	return nil
 }

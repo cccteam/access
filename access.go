@@ -17,12 +17,16 @@ const name = "github.com/cccteam/access"
 
 // Client is the users client
 type Client struct {
-	adapterLoaded bool
-	connConfig    *pgx.ConnConfig
-	domains       Domains
-	enforcerMu    sync.RWMutex
-	Enforcer      func() casbin.IEnforcer
-	enforcer      casbin.IEnforcer
+	connConfig *pgx.ConnConfig
+	domains    Domains
+	Enforcer   func() casbin.IEnforcer
+
+	policyMu     sync.RWMutex
+	policyLoaded bool
+
+	enforcerMu          sync.RWMutex
+	enforcer            casbin.IEnforcer
+	enforcerInitialized bool
 }
 
 // New creates a new user client
@@ -38,7 +42,7 @@ func New(domains Domains, connConfig *pgx.ConnConfig) (*Client, error) {
 		enforcer:   enforcer,
 	}
 
-	c.Enforcer = c.e
+	c.Enforcer = c.refreshEnforcer
 
 	return c, nil
 }
