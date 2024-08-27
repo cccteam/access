@@ -19,26 +19,7 @@ import (
 
 const ViewRolePermissions Permission = "ViewRolePermissions"
 
-func NewMockHandlerClient(accessManager Manager) *HandlerClient {
-	a := &HandlerClient{
-		manager:  accessManager,
-		validate: validator.New(),
-		handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
-			return func(w http.ResponseWriter, r *http.Request) {
-				if err := handler(w, r); err != nil {
-					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
-				}
-			}
-		},
-	}
-
-	return a
-}
-
-// calls the Users() handler and returns a slice of users
-//
-// use this for reference purposes
-func TestAppUsers(t *testing.T) {
+func TestHandlerClient_Users(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -79,7 +60,18 @@ func TestAppUsers(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
-			a := NewMockHandlerClient(accessManager)
+
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			req, err := createHTTPRequest(http.MethodGet, http.NoBody, nil)
 			if err != nil {
@@ -89,7 +81,7 @@ func TestAppUsers(t *testing.T) {
 			tt.prepare(accessManager)
 			rr := httptest.NewRecorder()
 
-			a.Users().ServeHTTP(rr, req)
+			h.Users().ServeHTTP(rr, req)
 
 			// Check what the response code is. For 500 errors, execute this block
 			if rr.Code == http.StatusInternalServerError {
@@ -117,7 +109,7 @@ func TestAppUsers(t *testing.T) {
 	}
 }
 
-func TestAppUser(t *testing.T) {
+func TestHandlerClient_User(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -194,7 +186,18 @@ func TestAppUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
-			a := NewMockHandlerClient(accessManager)
+
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -206,7 +209,7 @@ func TestAppUser(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.User()).ServeHTTP(rr, req)
+			httpio.WithParams(h.User()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -231,7 +234,7 @@ func TestAppUser(t *testing.T) {
 	}
 }
 
-func TestApp_AddRole(t *testing.T) {
+func TestHandlerClient_AddRole(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -283,7 +286,17 @@ func TestApp_AddRole(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
 
-			a := NewMockHandlerClient(accessManager)
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -295,7 +308,7 @@ func TestApp_AddRole(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.AddRole()).ServeHTTP(rr, req)
+			httpio.WithParams(h.AddRole()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -321,7 +334,7 @@ func TestApp_AddRole(t *testing.T) {
 	}
 }
 
-func TestApp_DeleteRole(t *testing.T) {
+func TestHandlerClient_DeleteRole(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -368,7 +381,17 @@ func TestApp_DeleteRole(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
 
-			a := NewMockHandlerClient(accessManager)
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -383,7 +406,7 @@ func TestApp_DeleteRole(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.DeleteRole()).ServeHTTP(rr, req)
+			httpio.WithParams(h.DeleteRole()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -399,7 +422,7 @@ func TestApp_DeleteRole(t *testing.T) {
 	}
 }
 
-func TestAppAddRolePermissions(t *testing.T) {
+func TestHandlerClient_AddRolePermissions(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -484,7 +507,17 @@ func TestAppAddRolePermissions(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
 
-			a := NewMockHandlerClient(accessManager)
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -499,7 +532,7 @@ func TestAppAddRolePermissions(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.AddRolePermissions()).ServeHTTP(rr, req)
+			httpio.WithParams(h.AddRolePermissions()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -515,7 +548,7 @@ func TestAppAddRolePermissions(t *testing.T) {
 	}
 }
 
-func TestAppAddRoleUsers(t *testing.T) {
+func TestHandlerClient_AddRoleUsers(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -600,7 +633,17 @@ func TestAppAddRoleUsers(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
 
-			a := NewMockHandlerClient(accessManager)
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -615,7 +658,7 @@ func TestAppAddRoleUsers(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.AddRoleUsers()).ServeHTTP(rr, req)
+			httpio.WithParams(h.AddRoleUsers()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -631,7 +674,7 @@ func TestAppAddRoleUsers(t *testing.T) {
 	}
 }
 
-func TestApp_DeleteRoleUsers(t *testing.T) {
+func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -716,7 +759,17 @@ func TestApp_DeleteRoleUsers(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
 
-			a := NewMockHandlerClient(accessManager)
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -731,7 +784,7 @@ func TestApp_DeleteRoleUsers(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.DeleteRoleUsers()).ServeHTTP(rr, req)
+			httpio.WithParams(h.DeleteRoleUsers()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -747,7 +800,7 @@ func TestApp_DeleteRoleUsers(t *testing.T) {
 	}
 }
 
-func TestApp_DeleteRolePermissions(t *testing.T) {
+func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -829,7 +882,17 @@ func TestApp_DeleteRolePermissions(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
 
-			a := NewMockHandlerClient(accessManager)
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(accessManager)
@@ -844,7 +907,7 @@ func TestApp_DeleteRolePermissions(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			httpio.WithParams(a.DeleteRolePermissions()).ServeHTTP(rr, req)
+			httpio.WithParams(h.DeleteRolePermissions()).ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusOK {
 				if tt.wantErr {
@@ -860,7 +923,7 @@ func TestApp_DeleteRolePermissions(t *testing.T) {
 	}
 }
 
-func TestApp_Roles(t *testing.T) {
+func TestHandlerClient_Roles(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -907,7 +970,18 @@ func TestApp_Roles(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
-			a := NewMockHandlerClient(accessManager)
+
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID})
 			if err != nil {
@@ -920,7 +994,7 @@ func TestApp_Roles(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			httpio.WithParams(a.Roles()).ServeHTTP(rr, req)
+			httpio.WithParams(h.Roles()).ServeHTTP(rr, req)
 
 			// Check what the response code is. For 500 errors, execute this block
 			if rr.Code == http.StatusInternalServerError {
@@ -952,7 +1026,7 @@ func TestApp_Roles(t *testing.T) {
 	}
 }
 
-func TestApp_RoleUsers(t *testing.T) {
+func TestHandlerClient_RoleUsers(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -1011,7 +1085,18 @@ func TestApp_RoleUsers(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
-			a := NewMockHandlerClient(accessManager)
+
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role})
 			if err != nil {
@@ -1024,7 +1109,7 @@ func TestApp_RoleUsers(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			httpio.WithParams(a.RoleUsers()).ServeHTTP(rr, req)
+			httpio.WithParams(h.RoleUsers()).ServeHTTP(rr, req)
 
 			// Check what the response code is. For 500 errors, execute this block
 			if rr.Code != http.StatusOK {
@@ -1051,7 +1136,7 @@ func TestApp_RoleUsers(t *testing.T) {
 	}
 }
 
-func TestApp_RolePermissions(t *testing.T) {
+func TestHandlerClient_RolePermissions(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -1110,7 +1195,18 @@ func TestApp_RolePermissions(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			accessManager := NewMockManager(ctrl)
-			a := NewMockHandlerClient(accessManager)
+
+			h := &HandlerClient{
+				manager:  accessManager,
+				validate: validator.New(),
+				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) {
+						if err := handler(w, r); err != nil {
+							_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+						}
+					}
+				},
+			}
 
 			req, err := createHTTPRequest(http.MethodGet, http.NoBody, map[httpio.ParamType]string{paramGuarantorID: tt.args.guarantorID, paramRole: tt.args.role})
 			if err != nil {
@@ -1123,7 +1219,7 @@ func TestApp_RolePermissions(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			httpio.WithParams(a.RolePermissions()).ServeHTTP(rr, req)
+			httpio.WithParams(h.RolePermissions()).ServeHTTP(rr, req)
 
 			// Check what the response code is. For 500 errors, execute this block
 			if rr.Code != http.StatusOK {
