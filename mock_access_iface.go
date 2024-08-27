@@ -17,31 +17,31 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// MockControllor is a mock of Controllor interface.
-type MockControllor struct {
+// MockController is a mock of Controller interface.
+type MockController struct {
 	ctrl     *gomock.Controller
-	recorder *MockControllorMockRecorder
+	recorder *MockControllerMockRecorder
 }
 
-// MockControllorMockRecorder is the mock recorder for MockControllor.
-type MockControllorMockRecorder struct {
-	mock *MockControllor
+// MockControllerMockRecorder is the mock recorder for MockController.
+type MockControllerMockRecorder struct {
+	mock *MockController
 }
 
-// NewMockControllor creates a new mock instance.
-func NewMockControllor(ctrl *gomock.Controller) *MockControllor {
-	mock := &MockControllor{ctrl: ctrl}
-	mock.recorder = &MockControllorMockRecorder{mock}
+// NewMockController creates a new mock instance.
+func NewMockController(ctrl *gomock.Controller) *MockController {
+	mock := &MockController{ctrl: ctrl}
+	mock.recorder = &MockControllerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockControllor) EXPECT() *MockControllorMockRecorder {
+func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
 }
 
 // Handlers mocks base method.
-func (m *MockControllor) Handlers(validate *validator.Validate, handler LogHandler) Handlers {
+func (m *MockController) Handlers(validate *validator.Validate, handler LogHandler) Handlers {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Handlers", validate, handler)
 	ret0, _ := ret[0].(Handlers)
@@ -49,13 +49,13 @@ func (m *MockControllor) Handlers(validate *validator.Validate, handler LogHandl
 }
 
 // Handlers indicates an expected call of Handlers.
-func (mr *MockControllorMockRecorder) Handlers(validate, handler any) *gomock.Call {
+func (mr *MockControllerMockRecorder) Handlers(validate, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockControllor)(nil).Handlers), validate, handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), validate, handler)
 }
 
 // RequireAll mocks base method.
-func (m *MockControllor) RequireAll(ctx context.Context, user User, domain Domain, permissions ...Permission) error {
+func (m *MockController) RequireAll(ctx context.Context, user User, domain Domain, permissions ...Permission) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, user, domain}
 	for _, a := range permissions {
@@ -67,14 +67,14 @@ func (m *MockControllor) RequireAll(ctx context.Context, user User, domain Domai
 }
 
 // RequireAll indicates an expected call of RequireAll.
-func (mr *MockControllorMockRecorder) RequireAll(ctx, user, domain any, permissions ...any) *gomock.Call {
+func (mr *MockControllerMockRecorder) RequireAll(ctx, user, domain any, permissions ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, user, domain}, permissions...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequireAll", reflect.TypeOf((*MockControllor)(nil).RequireAll), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequireAll", reflect.TypeOf((*MockController)(nil).RequireAll), varargs...)
 }
 
 // UserManager mocks base method.
-func (m *MockControllor) UserManager() UserManager {
+func (m *MockController) UserManager() UserManager {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UserManager")
 	ret0, _ := ret[0].(UserManager)
@@ -82,9 +82,9 @@ func (m *MockControllor) UserManager() UserManager {
 }
 
 // UserManager indicates an expected call of UserManager.
-func (mr *MockControllorMockRecorder) UserManager() *gomock.Call {
+func (mr *MockControllerMockRecorder) UserManager() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserManager", reflect.TypeOf((*MockControllor)(nil).UserManager))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserManager", reflect.TypeOf((*MockController)(nil).UserManager))
 }
 
 // MockUserManager is a mock of UserManager interface.
