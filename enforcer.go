@@ -9,6 +9,22 @@ import (
 	pgxadapter "github.com/pckhoi/casbin-pgx-adapter/v3"
 )
 
+func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
+	m, err := model.NewModelFromString(rbacModel)
+	if err != nil {
+		return nil, errors.Wrap(err, "model.NewModelFromString()")
+	}
+
+	e, err := casbin.NewSyncedEnforcer(m)
+	if err != nil {
+		return nil, errors.Wrapf(err, "casbin.NewSyncedEnforcer()")
+	}
+
+	e.EnableAutoSave(true)
+
+	return e, nil
+}
+
 func (c *Client) refreshEnforcer() casbin.IEnforcer {
 	if err := c.initEnforcer(); err != nil {
 		panic(err)
@@ -77,20 +93,4 @@ func (c *Client) loadPolicy() casbin.IEnforcer {
 	}()
 
 	return c.enforcer
-}
-
-func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
-	m, err := model.NewModelFromString(rbacModel)
-	if err != nil {
-		return nil, errors.Wrap(err, "model.NewModelFromString()")
-	}
-
-	e, err := casbin.NewSyncedEnforcer(m)
-	if err != nil {
-		return nil, errors.Wrapf(err, "casbin.NewSyncedEnforcer()")
-	}
-
-	e.EnableAutoSave(true)
-
-	return e, nil
 }
