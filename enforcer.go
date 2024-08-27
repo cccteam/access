@@ -26,19 +26,17 @@ func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
 }
 
 func (c *Client) refreshEnforcer() casbin.IEnforcer {
-	if err := c.initEnforcer(); err != nil {
-		panic(err)
-	}
+	c.initEnforcer()
 
 	return c.loadPolicy()
 }
 
-func (c *Client) initEnforcer() error {
+func (c *Client) initEnforcer() {
 	c.enforcerMu.RLock()
 	if c.enforcerInitialized {
-		defer c.enforcerMu.RUnlock()
+		c.enforcerMu.RUnlock()
 
-		return nil
+		return
 	}
 	c.enforcerMu.RUnlock()
 
@@ -47,20 +45,18 @@ func (c *Client) initEnforcer() error {
 
 	if c.enforcerInitialized {
 		// lost race for lock
-		return nil
+		return
 	}
 	// won race for lock
 
 	a, err := pgxadapter.NewAdapter(c.connConfig, pgxadapter.WithDatabase(c.connConfig.Database), pgxadapter.WithTableName("AccessPolicies"))
 	if err != nil {
-		return errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db")
+		panic(errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db"))
 	}
 
 	c.enforcer.SetAdapter(a)
 
 	c.enforcerInitialized = true
-
-	return nil
 }
 
 func (c *Client) loadPolicy() casbin.IEnforcer {
