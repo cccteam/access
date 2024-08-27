@@ -25,7 +25,7 @@ func TestHandlerClient_Users(t *testing.T) {
 	tests := []struct {
 		name    string
 		want    []UserAccess
-		prepare func(accessManager *MockManager)
+		prepare func(accessManager *MockUserManager)
 		wantErr bool
 	}{
 		{
@@ -35,7 +35,7 @@ func TestHandlerClient_Users(t *testing.T) {
 				Roles:       map[Domain][]Role{Domain("755"): {"Administrator"}},
 				Permissions: map[Domain][]Permission{Domain("755"): {ViewRolePermissions}},
 			}},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				// configuring the mock to expect a call to accessManager.Users and to return a list of users. This is set to only be called once
 				accessManager.EXPECT().Users(gomock.Any()).Return(
 					[]*UserAccess{{
@@ -47,7 +47,7 @@ func TestHandlerClient_Users(t *testing.T) {
 		},
 		{
 			name: "fails to get users and returns a 500",
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				// configuring the mock to expect a call to accessManager.Users and to return an error. This is set to only be called once
 				accessManager.EXPECT().Users(gomock.Any()).Return(nil, errors.New("Failed to get a list of users")).Times(1)
 			},
@@ -59,7 +59,7 @@ func TestHandlerClient_Users(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -120,7 +120,7 @@ func TestHandlerClient_User(t *testing.T) {
 		want    *UserAccess
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name: "Gets Zach",
@@ -130,7 +130,7 @@ func TestHandlerClient_User(t *testing.T) {
 				Permissions: map[Domain][]Permission{},
 			},
 			args: args{username: "zach"},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().User(gomock.Any(), User("zach")).Return(&UserAccess{
 					Name:        "zach",
 					Roles:       map[Domain][]Role{Domain("755"): {"Viewer"}},
@@ -149,7 +149,7 @@ func TestHandlerClient_User(t *testing.T) {
 			args: args{
 				username: "zach",
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().User(gomock.Any(), User("zach")).Return(&UserAccess{
 					Name:        "zach",
 					Roles:       map[Domain][]Role{},
@@ -175,7 +175,7 @@ func TestHandlerClient_User(t *testing.T) {
 			args: args{
 				username: "zach",
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().User(gomock.Any(), User("zach")).Return(nil, errors.New("failed to get the user")).Times(1)
 			},
 		},
@@ -185,7 +185,7 @@ func TestHandlerClient_User(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -245,13 +245,13 @@ func TestHandlerClient_AddRole(t *testing.T) {
 		name    string
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name:    "Adds Viewer Role",
 			wantErr: false,
 			args:    args{guarantorID: "755", body: `{"roleName" : "Viewer" }`},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRole(gomock.Any(), Domain("755"), Role("Viewer")).Return(nil).Times(1)
 			},
 		},
@@ -274,7 +274,7 @@ func TestHandlerClient_AddRole(t *testing.T) {
 				guarantorID: "755",
 				body:        `{"roleName" : "Viewer" }`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRole(gomock.Any(), Domain("755"), Role("Viewer")).Return(errors.New("Failed to add the role")).Times(1)
 			},
 		},
@@ -284,7 +284,7 @@ func TestHandlerClient_AddRole(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -345,13 +345,13 @@ func TestHandlerClient_DeleteRole(t *testing.T) {
 		name    string
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name:    "deletes Viewer Role",
 			wantErr: false,
 			args:    args{guarantorID: "755", role: "Viewer"},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRole(gomock.Any(), Role("Viewer"), Domain("755")).Return(true, nil).Times(1)
 			},
 		},
@@ -369,7 +369,7 @@ func TestHandlerClient_DeleteRole(t *testing.T) {
 			name:    "fails to delete a role",
 			wantErr: true,
 			args:    args{guarantorID: "755", role: "Viewer"},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRole(gomock.Any(), Role("Viewer"), Domain("755")).Return(false, errors.New("Failed to add the role")).Times(1)
 			},
 		},
@@ -379,7 +379,7 @@ func TestHandlerClient_DeleteRole(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -434,7 +434,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 		name    string
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name:    "successfully adds permissions",
@@ -444,7 +444,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 				role:        "Admin",
 				body:        `{"permissions" : ["AddUser", "RemoveUser"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRolePermissions(gomock.Any(), []Permission{"AddUser", "RemoveUser"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -456,7 +456,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 				role:        "Admin",
 				body:        `{ "permissions" : [] }`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRolePermissions(gomock.Any(), []Permission{}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -495,7 +495,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 				role:        "Admin",
 				body:        `{"permissions": ["AddUser"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRolePermissions(gomock.Any(), []Permission{"AddUser"}, Role("Admin"), Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
 			},
 		},
@@ -505,7 +505,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -560,7 +560,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 		name    string
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name:    "successfully adds users",
@@ -570,7 +570,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 				role:        "Admin",
 				body:        `{"users" : ["Daddy", "Bob"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRoleUsers(gomock.Any(), []User{"Daddy", "Bob"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -582,7 +582,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 				role:        "Admin",
 				body:        `{ "users" : [] }`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRoleUsers(gomock.Any(), []User{}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -621,7 +621,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 				role:        "Admin",
 				body:        `{"users": ["Johnny"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().AddRoleUsers(gomock.Any(), []User{"Johnny"}, Role("Admin"), Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
 			},
 		},
@@ -631,7 +631,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -686,7 +686,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 		name    string
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name:    "successfully adds users",
@@ -696,7 +696,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 				role:        "Admin",
 				body:        `{"users" : ["Daddy", "Bob"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRoleUsers(gomock.Any(), []User{"Daddy", "Bob"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -708,7 +708,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 				role:        "Admin",
 				body:        `{ "users" : [] }`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRoleUsers(gomock.Any(), []User{}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -747,7 +747,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 				role:        "Admin",
 				body:        `{"users": ["Johnny"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRoleUsers(gomock.Any(), []User{"Johnny"}, Role("Admin"), Domain("755")).Return(errors.New("failed to remove users from role")).Times(1)
 			},
 		},
@@ -757,7 +757,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -812,7 +812,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 		name    string
 		wantErr bool
 		args    args
-		prepare func(user *MockManager)
+		prepare func(user *MockUserManager)
 	}{
 		{
 			name:    "successfully deletes permissions",
@@ -822,7 +822,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 				role:        "Admin",
 				body:        `{"permissions" : ["AddUser", "RemoveUser"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRolePermissions(gomock.Any(), []Permission{"AddUser", "RemoveUser"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
 			},
 		},
@@ -870,7 +870,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 				role:        "Admin",
 				body:        `{"permissions": ["AddUser"]}`,
 			},
-			prepare: func(user *MockManager) {
+			prepare: func(user *MockUserManager) {
 				user.EXPECT().DeleteRolePermissions(gomock.Any(), []Permission{"AddUser"}, Role("Admin"), Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
 			},
 		},
@@ -880,7 +880,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -933,7 +933,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 		name    string
 		args    args
 		want    []string
-		prepare func(accessManager *MockManager)
+		prepare func(accessManager *MockUserManager)
 		wantErr bool
 	}{
 		{
@@ -942,7 +942,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 			args: args{
 				guarantorID: "755",
 			},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				accessManager.EXPECT().Roles(gomock.Any(), Domain("755")).Return([]Role{Role("this"), Role("is"), Role("a"), Role("test")}, nil)
 			},
 		},
@@ -951,7 +951,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 			args: args{
 				guarantorID: "755",
 			},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				accessManager.EXPECT().Roles(gomock.Any(), Domain("755")).Return(nil, errors.New("Failed to get a list of roles")).Times(1)
 			},
 			wantErr: true,
@@ -969,7 +969,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -1037,7 +1037,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 		name    string
 		args    args
 		want    []string
-		prepare func(accessManager *MockManager)
+		prepare func(accessManager *MockUserManager)
 		wantErr bool
 	}{
 		{
@@ -1047,7 +1047,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 				guarantorID: "755",
 				role:        "Admin",
 			},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				accessManager.EXPECT().RoleUsers(gomock.Any(), gomock.Any(), Domain("755")).Return([]User{"daddy"}, nil)
 			},
 		},
@@ -1057,7 +1057,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 				guarantorID: "755",
 				role:        "Admin",
 			},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				accessManager.EXPECT().RoleUsers(gomock.Any(), Role("Admin"), Domain("755")).Return(nil, errors.New("Failed to get a list of roles")).Times(1)
 			},
 			wantErr: true,
@@ -1084,7 +1084,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
@@ -1147,7 +1147,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 		name    string
 		args    args
 		want    []string
-		prepare func(accessManager *MockManager)
+		prepare func(accessManager *MockUserManager)
 		wantErr bool
 	}{
 		{
@@ -1157,7 +1157,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 				guarantorID: "755",
 				role:        "Admin",
 			},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				accessManager.EXPECT().RolePermissions(gomock.Any(), gomock.Any(), Domain("755")).Return([]Permission{"daddy"}, nil)
 			},
 		},
@@ -1167,7 +1167,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 				guarantorID: "755",
 				role:        "Admin",
 			},
-			prepare: func(accessManager *MockManager) {
+			prepare: func(accessManager *MockUserManager) {
 				accessManager.EXPECT().RolePermissions(gomock.Any(), Role("Admin"), Domain("755")).Return(nil, errors.New("Failed to get a list of permissions")).Times(1)
 			},
 			wantErr: true,
@@ -1194,7 +1194,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			accessManager := NewMockManager(ctrl)
+			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
 				manager:  accessManager,
