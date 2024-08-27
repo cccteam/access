@@ -6,9 +6,9 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-var _ Controllor = &Client{}
+var _ Controller = &Client{}
 
-type Controllor interface {
+type Controller interface {
 	// CheckPermissions checks if a user has the given permissions in a domain
 	RequireAll(ctx context.Context, user User, domain Domain, permissions ...Permission) error
 
