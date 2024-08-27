@@ -1,0 +1,3 @@
+g, noop,     role:Viewer, domain:712
+g, user:bob, role:Editor, domain:712
+g, noop,     role:Viewer, domain:755

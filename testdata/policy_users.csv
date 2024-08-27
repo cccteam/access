@@ -1,0 +1,11 @@
+p, role:Editor,         domain:755,         *, perm:ViewUsers, allow
+p, user:alice,          domain:712,         *, perm:ViewUsers, allow
+p, role:Editor,         domain:755,         *, perm:ViewUsers, allow
+p, role:Administrator,  domain:755,         *, perm:DeleteUsers, allow
+p, role:Administrator,  domain:755,         *, perm:AddUsers, allow
+g, user:charlie,        role:Administrator, domain:755
+g, noop,                role:Editor,        domain:712
+g, user:bob,            role:Editor,        domain:712
+g, noop,                role:Viewer,        domain:712
+g, noop,                role:Administrator, domain:755
+g, noop,                role:Administrator, domain:712

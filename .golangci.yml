@@ -7,6 +7,15 @@ linters-settings:
         files:
           - $all
         allow:
+          - github.com/casbin/casbin/v2
+          - github.com/cccteam/ccc
+          - github.com/google/go-cmp/cmp
+          - github.com/cccteam/httpio
+          - github.com/go-chi/chi/v5
+          - github.com/go-playground/errors/v5
+          - github.com/go-playground/validator
+          - github.com/jackc/pgx/v5
+          - github.com/pckhoi/casbin-pgx-adapter/v3
           - $gostd
   funlen:
     lines: 100
@@ -68,6 +77,9 @@ linters-settings:
       - .WithMessage(
       - .WithMessagef(
       - .Cause(
+
+    ignorePackageGlobs:
+      - github.com/cccteam/httpio*
 
 linters:
   # inverted configuration with `enable-all` and `disable` is not scalable during updates of golangci-lint
