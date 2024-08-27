@@ -6,8 +6,23 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-// Manager is the interface for managing RBAC including the management of roles and permissions for users
-type Manager interface {
+var _ Controllor = &Client{}
+
+type Controllor interface {
+	// CheckPermissions checks if a user has the given permissions in a domain
+	RequireAll(ctx context.Context, user User, domain Domain, permissions ...Permission) error
+
+	// UserManager returns the UserManager interface for managing users, roles, and permissions
+	UserManager() UserManager
+
+	// Handlers returns the http.HandlerFunc for the access package
+	Handlers(validate *validator.Validate, handler LogHandler) Handlers
+}
+
+var _ UserManager = &userManager{}
+
+// UserManager is the interface for managing RBAC including the management of roles and permissions for users
+type UserManager interface {
 	// AddRoleUsers assigns a given role to a slice of users if the role exists
 	AddRoleUsers(ctx context.Context, users []User, role Role, domain Domain) error
 
@@ -68,14 +83,7 @@ type Manager interface {
 
 	// DomainExists returns true if the domain provided is a valid
 	DomainExists(ctx context.Context, domain Domain) (bool, error)
-
-	// CheckPermissions checks if a user has the given permissions in a domain
-	RequireAll(ctx context.Context, user User, domain Domain, permissions ...Permission) error
-
-	// Handlers returns the http.HandlerFunc for the access package
-	Handlers(validate *validator.Validate, handler LogHandler) Handlers
 }
-
 type Domains interface {
 	DomainIDs(ctx context.Context) ([]string, error)
 

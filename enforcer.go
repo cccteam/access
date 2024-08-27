@@ -25,68 +25,68 @@ func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
 	return e, nil
 }
 
-func (c *Client) refreshEnforcer() casbin.IEnforcer {
-	c.initEnforcer()
+func (u *userManager) refreshEnforcer() casbin.IEnforcer {
+	u.initEnforcer()
 
-	return c.loadPolicy()
+	return u.loadPolicy()
 }
 
-func (c *Client) initEnforcer() {
-	c.enforcerMu.RLock()
-	if c.enforcerInitialized {
-		c.enforcerMu.RUnlock()
+func (u *userManager) initEnforcer() {
+	u.enforcerMu.RLock()
+	if u.enforcerInitialized {
+		u.enforcerMu.RUnlock()
 
 		return
 	}
-	c.enforcerMu.RUnlock()
+	u.enforcerMu.RUnlock()
 
-	c.enforcerMu.Lock()
-	defer c.enforcerMu.Unlock()
+	u.enforcerMu.Lock()
+	defer u.enforcerMu.Unlock()
 
-	if c.enforcerInitialized {
+	if u.enforcerInitialized {
 		// lost race for lock
 		return
 	}
 	// won race for lock
 
-	a, err := pgxadapter.NewAdapter(c.connConfig, pgxadapter.WithDatabase(c.connConfig.Database), pgxadapter.WithTableName("AccessPolicies"))
+	a, err := pgxadapter.NewAdapter(u.connConfig, pgxadapter.WithDatabase(u.connConfig.Database), pgxadapter.WithTableName("AccessPolicies"))
 	if err != nil {
 		panic(errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db"))
 	}
 
-	c.enforcer.SetAdapter(a)
+	u.enforcer.SetAdapter(a)
 
-	c.enforcerInitialized = true
+	u.enforcerInitialized = true
 }
 
-func (c *Client) loadPolicy() casbin.IEnforcer {
-	c.policyMu.RLock()
-	if c.policyLoaded {
-		defer c.policyMu.RUnlock()
+func (u *userManager) loadPolicy() casbin.IEnforcer {
+	u.policyMu.RLock()
+	if u.policyLoaded {
+		defer u.policyMu.RUnlock()
 
-		return c.enforcer
+		return u.enforcer
 	}
-	c.policyMu.RUnlock()
+	u.policyMu.RUnlock()
 
-	c.policyMu.Lock()
-	defer c.policyMu.Unlock()
+	u.policyMu.Lock()
+	defer u.policyMu.Unlock()
 
-	if c.policyLoaded {
-		return c.enforcer
+	if u.policyLoaded {
+		return u.enforcer
 	}
 
-	if err := c.enforcer.LoadPolicy(); err != nil {
+	if err := u.enforcer.LoadPolicy(); err != nil {
 		panic(errors.Wrapf(err, "casbin.SyncedEnforcer.LoadPolicy()"))
 	}
 
-	c.policyLoaded = true
+	u.policyLoaded = true
 
 	go func() {
 		time.Sleep(time.Minute)
-		c.policyMu.Lock()
-		c.policyLoaded = false
-		c.policyMu.Unlock()
+		u.policyMu.Lock()
+		u.policyLoaded = false
+		u.policyMu.Unlock()
 	}()
 
-	return c.enforcer
+	return u.enforcer
 }

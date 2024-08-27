@@ -4,16 +4,49 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"sync"
 
+	"github.com/casbin/casbin/v2"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
-var _ Manager = &Client{}
+var _ UserManager = &userManager{}
 
-func (c *Client) AddRoleUsers(ctx context.Context, users []User, role Role, domain Domain) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.AddRoleUsers()")
+type userManager struct {
+	Enforcer   func() casbin.IEnforcer // Testing purpose only
+	domains    Domains
+	connConfig *pgx.ConnConfig
+
+	policyMu     sync.RWMutex
+	policyLoaded bool
+
+	enforcerMu          sync.RWMutex
+	enforcer            casbin.IEnforcer
+	enforcerInitialized bool
+}
+
+func newUserManager(domains Domains, connConfig *pgx.ConnConfig) (*userManager, error) {
+	enforcer, err := createEnforcer(rbacModel())
+	if err != nil {
+		return nil, err
+	}
+
+	u := &userManager{
+		connConfig: connConfig,
+		enforcer:   enforcer,
+		domains:    domains,
+	}
+
+	u.Enforcer = u.refreshEnforcer
+
+	return u, nil
+}
+
+func (c *userManager) AddRoleUsers(ctx context.Context, users []User, role Role, domain Domain) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRoleUsers()")
 	defer span.End()
 
 	roleFound := c.RoleExists(ctx, role, domain)
@@ -30,8 +63,8 @@ func (c *Client) AddRoleUsers(ctx context.Context, users []User, role Role, doma
 	return nil
 }
 
-func (c *Client) AddUserRoles(ctx context.Context, user User, roles []Role, domain Domain) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.AddUserRoles()")
+func (c *userManager) AddUserRoles(ctx context.Context, user User, roles []Role, domain Domain) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.AddUserRoles()")
 	defer span.End()
 
 	for _, role := range roles {
@@ -49,8 +82,8 @@ func (c *Client) AddUserRoles(ctx context.Context, user User, roles []Role, doma
 	return nil
 }
 
-func (c *Client) DeleteRoleUsers(ctx context.Context, users []User, role Role, domain Domain) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.DeleteRoleUsers()")
+func (c *userManager) DeleteRoleUsers(ctx context.Context, users []User, role Role, domain Domain) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRoleUsers()")
 	defer span.End()
 
 	if roleFound := c.RoleExists(ctx, role, domain); !roleFound {
@@ -66,24 +99,24 @@ func (c *Client) DeleteRoleUsers(ctx context.Context, users []User, role Role, d
 	return nil
 }
 
-func (c *Client) DeleteAllRolePermissions(ctx context.Context, role Role, domain Domain) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.DeleteAllRolePermissions()")
+func (c *userManager) DeleteAllRolePermissions(ctx context.Context, role Role, domain Domain) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteAllRolePermissions()")
 	defer span.End()
 
 	perms, err := c.RolePermissions(ctx, role, domain)
 	if err != nil {
-		return errors.Wrap(err, "Client.RolePermissions()")
+		return errors.Wrap(err, "client.RolePermissions()")
 	}
 
 	if err := c.DeleteRolePermissions(ctx, perms, role, domain); err != nil {
-		return errors.Wrap(err, "Client.DeleteRolePermissions()")
+		return errors.Wrap(err, "client.DeleteRolePermissions()")
 	}
 
 	return nil
 }
 
-func (c *Client) DeleteUserRole(ctx context.Context, username User, role Role, domain Domain) error {
-	_, span := otel.Tracer(name).Start(ctx, "Client.DeleteUserRole()")
+func (c *userManager) DeleteUserRole(ctx context.Context, username User, role Role, domain Domain) error {
+	_, span := otel.Tracer(name).Start(ctx, "client.DeleteUserRole()")
 	defer span.End()
 
 	if _, err := c.Enforcer().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
@@ -93,8 +126,8 @@ func (c *Client) DeleteUserRole(ctx context.Context, username User, role Role, d
 	return nil
 }
 
-func (c *Client) User(ctx context.Context, username User, domain ...Domain) (*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.User()")
+func (c *userManager) User(ctx context.Context, username User, domain ...Domain) (*UserAccess, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.User()")
 	defer span.End()
 
 	if domain == nil {
@@ -113,8 +146,8 @@ func (c *Client) User(ctx context.Context, username User, domain ...Domain) (*Us
 	return user, nil
 }
 
-func (c *Client) user(ctx context.Context, username User, domains []Domain) (*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.user()")
+func (c *userManager) user(ctx context.Context, username User, domains []Domain) (*UserAccess, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.user()")
 	defer span.End()
 
 	roles, err := c.userRoles(ctx, username, domains)
@@ -134,8 +167,8 @@ func (c *Client) user(ctx context.Context, username User, domains []Domain) (*Us
 	}, nil
 }
 
-func (c *Client) Users(ctx context.Context, domain ...Domain) ([]*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.Users()")
+func (c *userManager) Users(ctx context.Context, domain ...Domain) ([]*UserAccess, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.Users()")
 	defer span.End()
 
 	if domain == nil {
@@ -154,8 +187,8 @@ func (c *Client) Users(ctx context.Context, domain ...Domain) ([]*UserAccess, er
 	return users, nil
 }
 
-func (c *Client) users(ctx context.Context, domains []Domain) ([]*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.users()")
+func (c *userManager) users(ctx context.Context, domains []Domain) ([]*UserAccess, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.users()")
 	defer span.End()
 
 	var users []*UserAccess
@@ -222,8 +255,8 @@ GP:
 }
 
 // UserRoles gets the roles assigned to a user separated by domain
-func (c *Client) UserRoles(ctx context.Context, username User, domain ...Domain) (map[Domain][]Role, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.UserRoles()")
+func (c *userManager) UserRoles(ctx context.Context, username User, domain ...Domain) (map[Domain][]Role, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.UserRoles()")
 	defer span.End()
 
 	if domain == nil {
@@ -242,8 +275,8 @@ func (c *Client) UserRoles(ctx context.Context, username User, domain ...Domain)
 	return userRoles, nil
 }
 
-func (c *Client) userRoles(ctx context.Context, username User, domains []Domain) (map[Domain][]Role, error) {
-	_, span := otel.Tracer(name).Start(ctx, "Client.userRoles()")
+func (c *userManager) userRoles(ctx context.Context, username User, domains []Domain) (map[Domain][]Role, error) {
+	_, span := otel.Tracer(name).Start(ctx, "client.userRoles()")
 	defer span.End()
 
 	userRoles := make(map[Domain][]Role)
@@ -263,8 +296,8 @@ func (c *Client) userRoles(ctx context.Context, username User, domains []Domain)
 	return userRoles, nil
 }
 
-func (c *Client) UserPermissions(ctx context.Context, username User, domain ...Domain) (map[Domain][]Permission, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.UserPermissions()")
+func (c *userManager) UserPermissions(ctx context.Context, username User, domain ...Domain) (map[Domain][]Permission, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.UserPermissions()")
 	defer span.End()
 
 	if domain == nil {
@@ -283,8 +316,8 @@ func (c *Client) UserPermissions(ctx context.Context, username User, domain ...D
 	return userPermissions, nil
 }
 
-func (c *Client) userPermissions(ctx context.Context, username User, domains []Domain) (map[Domain][]Permission, error) {
-	_, span := otel.Tracer(name).Start(ctx, "Client.userPermissions()")
+func (c *userManager) userPermissions(ctx context.Context, username User, domains []Domain) (map[Domain][]Permission, error) {
+	_, span := otel.Tracer(name).Start(ctx, "client.userPermissions()")
 	defer span.End()
 
 	userPermissions := make(map[Domain][]Permission)
@@ -308,8 +341,8 @@ func (c *Client) userPermissions(ctx context.Context, username User, domains []D
 	return userPermissions, nil
 }
 
-func (c *Client) AddRole(ctx context.Context, domain Domain, role Role) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.AddRole()")
+func (c *userManager) AddRole(ctx context.Context, domain Domain, role Role) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRole()")
 	defer span.End()
 
 	if exists, err := c.DomainExists(ctx, domain); err != nil {
@@ -329,8 +362,8 @@ func (c *Client) AddRole(ctx context.Context, domain Domain, role Role) error {
 	return nil
 }
 
-func (c *Client) Roles(ctx context.Context, domain Domain) ([]Role, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.Roles()")
+func (c *userManager) Roles(ctx context.Context, domain Domain) ([]Role, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.Roles()")
 	defer span.End()
 
 	if exists, err := c.DomainExists(ctx, domain); err != nil {
@@ -364,8 +397,8 @@ func (c *Client) Roles(ctx context.Context, domain Domain) ([]Role, error) {
 	return roles, nil
 }
 
-func (c *Client) DeleteRole(ctx context.Context, role Role, domain Domain) (bool, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.DeleteRole()")
+func (c *userManager) DeleteRole(ctx context.Context, role Role, domain Domain) (bool, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRole()")
 	defer span.End()
 
 	if hasUsers, err := c.hasUsersAssigned(ctx, role, domain); err != nil {
@@ -382,8 +415,8 @@ func (c *Client) DeleteRole(ctx context.Context, role Role, domain Domain) (bool
 	return deleted, nil
 }
 
-func (c *Client) AddRolePermissions(ctx context.Context, permissions []Permission, role Role, domain Domain) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.AddRolePermissions()")
+func (c *userManager) AddRolePermissions(ctx context.Context, permissions []Permission, role Role, domain Domain) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRolePermissions()")
 	defer span.End()
 
 	if !c.RoleExists(ctx, role, domain) {
@@ -399,8 +432,8 @@ func (c *Client) AddRolePermissions(ctx context.Context, permissions []Permissio
 	return nil
 }
 
-func (c *Client) DeleteRolePermissions(ctx context.Context, permissions []Permission, role Role, domain Domain) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.DeleteRolePermissions()")
+func (c *userManager) DeleteRolePermissions(ctx context.Context, permissions []Permission, role Role, domain Domain) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRolePermissions()")
 	defer span.End()
 
 	if !c.RoleExists(ctx, role, domain) {
@@ -416,8 +449,8 @@ func (c *Client) DeleteRolePermissions(ctx context.Context, permissions []Permis
 	return nil
 }
 
-func (c *Client) RoleUsers(ctx context.Context, role Role, domain Domain) ([]User, error) {
-	_, span := otel.Tracer(name).Start(ctx, "Client.RoleUsers()")
+func (c *userManager) RoleUsers(ctx context.Context, role Role, domain Domain) ([]User, error) {
+	_, span := otel.Tracer(name).Start(ctx, "client.RoleUsers()")
 	defer span.End()
 
 	users, err := c.Enforcer().GetUsersForRole(role.Marshal(), domain.Marshal())
@@ -436,8 +469,8 @@ func (c *Client) RoleUsers(ctx context.Context, role Role, domain Domain) ([]Use
 	return actualUsers, nil
 }
 
-func (c *Client) RolePermissions(ctx context.Context, role Role, domain Domain) ([]Permission, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.RolePermissions()")
+func (c *userManager) RolePermissions(ctx context.Context, role Role, domain Domain) ([]Permission, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.RolePermissions()")
 	defer span.End()
 
 	if !c.RoleExists(ctx, role, domain) {
@@ -457,8 +490,8 @@ func (c *Client) RolePermissions(ctx context.Context, role Role, domain Domain) 
 	return permissions, nil
 }
 
-func (c *Client) addPolicy(ctx context.Context, permission Permission, role Role, domain Domain) error {
-	_, span := otel.Tracer(name).Start(ctx, "Client.addPolicy()")
+func (c *userManager) addPolicy(ctx context.Context, permission Permission, role Role, domain Domain) error {
+	_, span := otel.Tracer(name).Start(ctx, "client.addPolicy()")
 	defer span.End()
 
 	if _, err := c.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), "*", permission.Marshal(), "allow"); err != nil {
@@ -468,8 +501,8 @@ func (c *Client) addPolicy(ctx context.Context, permission Permission, role Role
 	return nil
 }
 
-func (c *Client) RoleExists(ctx context.Context, role Role, domain Domain) bool {
-	_, span := otel.Tracer(name).Start(ctx, "Client.RoleExists()")
+func (c *userManager) RoleExists(ctx context.Context, role Role, domain Domain) bool {
+	_, span := otel.Tracer(name).Start(ctx, "client.RoleExists()")
 	defer span.End()
 
 	roles := c.Enforcer().GetRolesForUserInDomain(NoopUser, domain.Marshal())
@@ -477,8 +510,8 @@ func (c *Client) RoleExists(ctx context.Context, role Role, domain Domain) bool 
 	return slices.Contains(roles, role.Marshal())
 }
 
-func (c *Client) Domains(ctx context.Context) ([]Domain, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.Domains()")
+func (c *userManager) Domains(ctx context.Context) ([]Domain, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.Domains()")
 	defer span.End()
 
 	ids, err := c.domains.DomainIDs(ctx)
@@ -495,8 +528,8 @@ func (c *Client) Domains(ctx context.Context) ([]Domain, error) {
 	return domains, nil
 }
 
-func (c *Client) hasUsersAssigned(ctx context.Context, role Role, domain Domain) (bool, error) {
-	_, span := otel.Tracer(name).Start(ctx, "Client.hasUsersAssigned()")
+func (c *userManager) hasUsersAssigned(ctx context.Context, role Role, domain Domain) (bool, error) {
+	_, span := otel.Tracer(name).Start(ctx, "client.hasUsersAssigned()")
 	defer span.End()
 
 	users, err := c.Enforcer().GetUsersForRole(role.Marshal(), domain.Marshal())
@@ -514,8 +547,8 @@ func (c *Client) hasUsersAssigned(ctx context.Context, role Role, domain Domain)
 }
 
 // DomainExists checks if the domain exists in the application.
-func (c *Client) DomainExists(ctx context.Context, domain Domain) (bool, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.DomainExists()")
+func (c *userManager) DomainExists(ctx context.Context, domain Domain) (bool, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.DomainExists()")
 	defer span.End()
 
 	if domain == GlobalDomain {

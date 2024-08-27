@@ -121,12 +121,11 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(domains)
 			}
-			c := &Client{
-				domains:  domains,
-				enforcer: enforcer,
-			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
+			c := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
 			got, err := c.User(tt.args.ctx, tt.args.username)
 			if err != nil {
@@ -256,13 +255,13 @@ func TestClient_Users(t *testing.T) {
 				tt.prepare(domains)
 			}
 
-			c := &Client{
-				domains:  domains,
-				enforcer: enforcer,
+			c := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			got, err := c.Users(tt.args.ctx)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Client.Users() error = %v, wantErr %v", err, tt.wantErr)
@@ -323,12 +322,13 @@ func TestClient_RolePermissions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			c := &Client{
-				enforcer: tt.fields.e,
+
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			got, err := c.RolePermissions(ctx, tt.args.role, tt.args.domain)
 			if err != nil {
 				if tt.wantErr {
@@ -387,12 +387,12 @@ func TestClient_RoleUsers(t *testing.T) {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
 
-			c := &Client{
-				enforcer: enforcer,
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			got, err := c.RoleUsers(ctx, tt.args.role, tt.args.domain)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Client.RoleUsers() error = %v, wantErr %v", err, tt.wantErr)
@@ -449,12 +449,13 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
-			c := &Client{
-				enforcer: enforcer,
+
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			if err := c.DeleteRoleUsers(ctx, tt.args.users, tt.args.role, tt.args.domain); (err != nil) != tt.wantErr {
 				t.Errorf("Client.DeleteRoleUsers() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -540,13 +541,14 @@ func TestClient_AddRole(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
-			c := &Client{
-				domains:  domains,
-				enforcer: enforcer,
+
+			c := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			if err := c.AddRole(tt.args.ctx, tt.args.domain, tt.args.role); (err != nil) != tt.wantErr {
 				t.Errorf("Client.AddRole() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -625,13 +627,14 @@ func TestClient_AddUserRoles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
-			c := &Client{
-				domains:  domains,
-				enforcer: enforcer,
+
+			c := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			if err := c.AddUserRoles(ctx, tt.args.user, tt.args.roles, tt.args.domain); (err != nil) != tt.wantErr {
 				t.Errorf("Client.AddUserRoles() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -731,13 +734,13 @@ func TestClient_Roles(t *testing.T) {
 				tt.prepare(domains)
 			}
 
-			c := &Client{
-				enforcer: tt.fields.e,
-				domains:  domains,
+			c := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			got, err := c.Roles(tt.args.ctx, tt.args.domain)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.Roles() = %v, want %v", err, tt.wantErr)
@@ -796,12 +799,10 @@ func TestClient_DomainIDs(t *testing.T) {
 				tt.prepare(domains)
 			}
 
-			c := &Client{
+			c := &userManager{
 				domains: domains,
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			got, err := c.Domains(tt.args.ctx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.Domains() = %v, want %v", err, tt.wantErr)
@@ -880,11 +881,10 @@ func TestClient_DeleteRole(t *testing.T) {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
 
-			c := &Client{
-				enforcer: enforcer,
-			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
 
 			got, err := c.DeleteRole(ctx, tt.args.role, tt.args.domain)
@@ -961,11 +961,11 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
-			c := &Client{
-				enforcer: enforcer,
-			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
+
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
 
 			if err := c.DeleteRolePermissions(ctx, tt.args.permissions, tt.args.role, tt.args.domain); err != nil {
@@ -1039,11 +1039,11 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
-			c := &Client{
-				enforcer: enforcer,
-			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
+
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
 
 			if err := c.DeleteAllRolePermissions(ctx, tt.args.role, tt.args.domain); err != nil {
@@ -1121,11 +1121,11 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
-			c := &Client{
-				enforcer: enforcer,
-			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
+
+			c := &userManager{
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
 			}
 
 			if err := c.AddRolePermissions(ctx, tt.args.permissions, tt.args.role, tt.args.domain); err != nil {
@@ -1211,12 +1211,10 @@ func TestClient_DomainExists(t *testing.T) {
 				tt.prepare(domains)
 			}
 
-			c := &Client{
+			c := &userManager{
 				domains: domains,
 			}
-			c.Enforcer = func() casbin.IEnforcer {
-				return c.enforcer
-			}
+
 			got, err := c.DomainExists(tt.args.ctx, tt.args.domain)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Client.DomainExists() error = %v, wantErr %v", err, tt.wantErr)

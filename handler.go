@@ -24,7 +24,7 @@ type Handlers interface {
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
 type HandlerClient struct {
-	manager  Manager
+	manager  UserManager
 	validate *validator.Validate
 	handler  LogHandler
 }
@@ -33,7 +33,7 @@ var _ Handlers = &HandlerClient{}
 
 func newHandler(client *Client, validate *validator.Validate, logHandler LogHandler) *HandlerClient {
 	return &HandlerClient{
-		manager:  client,
+		manager:  client.UserManager(),
 		validate: validate,
 		handler:  logHandler,
 	}

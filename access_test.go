@@ -35,15 +35,7 @@ func TestNew(t *testing.T) {
 				t.Error(err)
 			}
 
-			if got.enforcer == nil {
-				t.Error("enforcer is nil")
-			}
-
-			if got.domains == nil {
-				t.Error("domains is nil")
-			}
-
-			if got.connConfig == nil {
+			if got.userManager == nil {
 				t.Error("connConfig is nil")
 			}
 		})

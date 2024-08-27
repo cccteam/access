@@ -3,9 +3,7 @@ package access
 
 import (
 	"context"
-	"sync"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"
@@ -17,34 +15,19 @@ const name = "github.com/cccteam/access"
 
 // Client is the users client
 type Client struct {
-	connConfig *pgx.ConnConfig
-	domains    Domains
-	Enforcer   func() casbin.IEnforcer
-
-	policyMu     sync.RWMutex
-	policyLoaded bool
-
-	enforcerMu          sync.RWMutex
-	enforcer            casbin.IEnforcer
-	enforcerInitialized bool
+	userManager *userManager
 }
 
 // New creates a new user client
 func New(domains Domains, connConfig *pgx.ConnConfig) (*Client, error) {
-	enforcer, err := createEnforcer(rbacModel())
+	userManager, err := newUserManager(domains, connConfig)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "newUserManager()")
 	}
 
-	c := &Client{
-		domains:    domains,
-		connConfig: connConfig,
-		enforcer:   enforcer,
-	}
-
-	c.Enforcer = c.refreshEnforcer
-
-	return c, nil
+	return &Client{
+		userManager: userManager,
+	}, nil
 }
 
 func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) Handlers {
@@ -55,14 +38,14 @@ func (c *Client) RequireAll(ctx context.Context, username User, domain Domain, p
 	ctx, span := otel.Tracer(name).Start(ctx, "App.Require()")
 	defer span.End()
 
-	if exists, err := c.DomainExists(ctx, domain); err != nil {
+	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
 		return err
 	} else if !exists {
 		return httpio.NewBadRequestMessage("Invalid Domain")
 	}
 
 	for _, perm := range perms {
-		authorized, err := c.Enforcer().Enforce(username.Marshal(), domain.Marshal(), "*", perm.Marshal())
+		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), "*", perm.Marshal())
 		if err != nil {
 			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
 		}
@@ -72,4 +55,8 @@ func (c *Client) RequireAll(ctx context.Context, username User, domain Domain, p
 	}
 
 	return nil
+}
+
+func (c *Client) UserManager() UserManager {
+	return c.userManager
 }
