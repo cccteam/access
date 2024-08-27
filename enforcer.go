@@ -6,7 +6,6 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/go-playground/errors/v5"
-	"github.com/jackc/pgx/v5"
 	pgxadapter "github.com/pckhoi/casbin-pgx-adapter/v3"
 )
 
@@ -78,19 +77,6 @@ func (c *Client) loadPolicy() casbin.IEnforcer {
 	}()
 
 	return c.enforcer
-}
-
-func loadAdapter(enforcer casbin.IEnforcer, config *pgx.ConnConfig, dbName string) error {
-	a, err := pgxadapter.NewAdapter(config, pgxadapter.WithDatabase(dbName), pgxadapter.WithTableName("AccessPolicies"))
-	if err != nil {
-		return errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db")
-	}
-
-	// FIXME: The previous adapter is not closed, which is a resource leak.
-	//		we should not load the adapter more then once...
-	enforcer.SetAdapter(a)
-
-	return nil
 }
 
 func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
