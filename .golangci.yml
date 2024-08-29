@@ -8,12 +8,11 @@ linters-settings:
           - $all
         allow:
           - github.com/casbin/casbin/v2
-          - github.com/cccteam/ccc
-          - github.com/google/go-cmp/cmp
-          - github.com/cccteam/httpio
+          - github.com/cccteam
           - github.com/go-chi/chi/v5
           - github.com/go-playground/errors/v5
           - github.com/go-playground/validator
+          - github.com/google/go-cmp/cmp
           - github.com/jackc/pgx/v5
           - github.com/pckhoi/casbin-pgx-adapter/v3
           - $gostd
