@@ -6,7 +6,6 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/go-playground/errors/v5"
-	pgxadapter "github.com/pckhoi/casbin-pgx-adapter/v3"
 )
 
 func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
@@ -49,7 +48,7 @@ func (u *userManager) initEnforcer() {
 	}
 	// won race for lock
 
-	a, err := pgxadapter.NewAdapter(u.connConfig, pgxadapter.WithDatabase(u.connConfig.Database), pgxadapter.WithTableName("AccessPolicies"))
+	a, err := u.adapter.NewAdapter()
 	if err != nil {
 		panic(errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db"))
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
@@ -17,7 +18,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-const ViewRolePermissions Permission = "ViewRolePermissions"
+const ViewRolePermissions accesstypes.Permission = "ViewRolePermissions"
 
 func TestHandlerClient_Users(t *testing.T) {
 	t.Parallel()
@@ -32,16 +33,16 @@ func TestHandlerClient_Users(t *testing.T) {
 			name: "gets a list of users",
 			want: []UserAccess{{
 				Name:        "zach",
-				Roles:       map[Domain][]Role{Domain("755"): {"Administrator"}},
-				Permissions: map[Domain][]Permission{Domain("755"): {ViewRolePermissions}},
+				Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Administrator"}},
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{accesstypes.Domain("755"): {ViewRolePermissions}},
 			}},
 			prepare: func(accessManager *MockUserManager) {
 				// configuring the mock to expect a call to accessManager.Users and to return a list of users. This is set to only be called once
 				accessManager.EXPECT().Users(gomock.Any()).Return(
 					[]*UserAccess{{
 						Name:        "zach",
-						Roles:       map[Domain][]Role{Domain("755"): {"Administrator"}},
-						Permissions: map[Domain][]Permission{Domain("755"): {ViewRolePermissions}},
+						Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Administrator"}},
+						Permissions: map[accesstypes.Domain][]accesstypes.Permission{accesstypes.Domain("755"): {ViewRolePermissions}},
 					}}, nil).Times(1)
 			},
 		},
@@ -126,15 +127,15 @@ func TestHandlerClient_User(t *testing.T) {
 			name: "Gets Zach",
 			want: &UserAccess{
 				Name:        "zach",
-				Roles:       map[Domain][]Role{Domain("755"): {"Viewer"}},
-				Permissions: map[Domain][]Permission{},
+				Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Viewer"}},
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
 			},
 			args: args{username: "zach"},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().User(gomock.Any(), User("zach")).Return(&UserAccess{
+				user.EXPECT().User(gomock.Any(), accesstypes.User("zach")).Return(&UserAccess{
 					Name:        "zach",
-					Roles:       map[Domain][]Role{Domain("755"): {"Viewer"}},
-					Permissions: map[Domain][]Permission{},
+					Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Viewer"}},
+					Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
 				}, nil).Times(1)
 			},
 		},
@@ -142,18 +143,18 @@ func TestHandlerClient_User(t *testing.T) {
 			name: "gets the wrong user",
 			want: &UserAccess{
 				Name:        "billy",
-				Roles:       map[Domain][]Role{},
-				Permissions: map[Domain][]Permission{},
+				Roles:       map[accesstypes.Domain][]accesstypes.Role{},
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
 			},
 			wantErr: true,
 			args: args{
 				username: "zach",
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().User(gomock.Any(), User("zach")).Return(&UserAccess{
+				user.EXPECT().User(gomock.Any(), accesstypes.User("zach")).Return(&UserAccess{
 					Name:        "zach",
-					Roles:       map[Domain][]Role{},
-					Permissions: map[Domain][]Permission{},
+					Roles:       map[accesstypes.Domain][]accesstypes.Role{},
+					Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
 				}, nil).Times(1)
 			},
 		},
@@ -161,8 +162,8 @@ func TestHandlerClient_User(t *testing.T) {
 			name: "fails validation",
 			want: &UserAccess{
 				Name:        "billy",
-				Roles:       map[Domain][]Role{},
-				Permissions: map[Domain][]Permission{},
+				Roles:       map[accesstypes.Domain][]accesstypes.Role{},
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
 			},
 			wantErr: true,
 			args: args{
@@ -176,7 +177,7 @@ func TestHandlerClient_User(t *testing.T) {
 				username: "zach",
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().User(gomock.Any(), User("zach")).Return(nil, errors.New("failed to get the user")).Times(1)
+				user.EXPECT().User(gomock.Any(), accesstypes.User("zach")).Return(nil, errors.New("failed to get the user")).Times(1)
 			},
 		},
 	}
@@ -252,7 +253,7 @@ func TestHandlerClient_AddRole(t *testing.T) {
 			wantErr: false,
 			args:    args{guarantorID: "755", body: `{"roleName" : "Viewer" }`},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRole(gomock.Any(), Domain("755"), Role("Viewer")).Return(nil).Times(1)
+				user.EXPECT().AddRole(gomock.Any(), accesstypes.Domain("755"), accesstypes.Role("Viewer")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -275,7 +276,7 @@ func TestHandlerClient_AddRole(t *testing.T) {
 				body:        `{"roleName" : "Viewer" }`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRole(gomock.Any(), Domain("755"), Role("Viewer")).Return(errors.New("Failed to add the role")).Times(1)
+				user.EXPECT().AddRole(gomock.Any(), accesstypes.Domain("755"), accesstypes.Role("Viewer")).Return(errors.New("Failed to add the role")).Times(1)
 			},
 		},
 	}
@@ -352,7 +353,7 @@ func TestHandlerClient_DeleteRole(t *testing.T) {
 			wantErr: false,
 			args:    args{guarantorID: "755", role: "Viewer"},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRole(gomock.Any(), Role("Viewer"), Domain("755")).Return(true, nil).Times(1)
+				user.EXPECT().DeleteRole(gomock.Any(), accesstypes.Role("Viewer"), accesstypes.Domain("755")).Return(true, nil).Times(1)
 			},
 		},
 		{
@@ -370,7 +371,7 @@ func TestHandlerClient_DeleteRole(t *testing.T) {
 			wantErr: true,
 			args:    args{guarantorID: "755", role: "Viewer"},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRole(gomock.Any(), Role("Viewer"), Domain("755")).Return(false, errors.New("Failed to add the role")).Times(1)
+				user.EXPECT().DeleteRole(gomock.Any(), accesstypes.Role("Viewer"), accesstypes.Domain("755")).Return(false, errors.New("Failed to add the role")).Times(1)
 			},
 		},
 	}
@@ -445,7 +446,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 				body:        `{"permissions" : ["AddUser", "RemoveUser"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRolePermissions(gomock.Any(), []Permission{"AddUser", "RemoveUser"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().AddRolePermissions(gomock.Any(), []accesstypes.Permission{"AddUser", "RemoveUser"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -457,7 +458,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 				body:        `{ "permissions" : [] }`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRolePermissions(gomock.Any(), []Permission{}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().AddRolePermissions(gomock.Any(), []accesstypes.Permission{}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -496,7 +497,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 				body:        `{"permissions": ["AddUser"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRolePermissions(gomock.Any(), []Permission{"AddUser"}, Role("Admin"), Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
+				user.EXPECT().AddRolePermissions(gomock.Any(), []accesstypes.Permission{"AddUser"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
 			},
 		},
 	}
@@ -571,7 +572,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 				body:        `{"users" : ["Daddy", "Bob"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRoleUsers(gomock.Any(), []User{"Daddy", "Bob"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().AddRoleUsers(gomock.Any(), []accesstypes.User{"Daddy", "Bob"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -583,7 +584,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 				body:        `{ "users" : [] }`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRoleUsers(gomock.Any(), []User{}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().AddRoleUsers(gomock.Any(), []accesstypes.User{}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -622,7 +623,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 				body:        `{"users": ["Johnny"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().AddRoleUsers(gomock.Any(), []User{"Johnny"}, Role("Admin"), Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
+				user.EXPECT().AddRoleUsers(gomock.Any(), []accesstypes.User{"Johnny"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
 			},
 		},
 	}
@@ -697,7 +698,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 				body:        `{"users" : ["Daddy", "Bob"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRoleUsers(gomock.Any(), []User{"Daddy", "Bob"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().DeleteRoleUsers(gomock.Any(), []accesstypes.User{"Daddy", "Bob"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -709,7 +710,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 				body:        `{ "users" : [] }`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRoleUsers(gomock.Any(), []User{}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().DeleteRoleUsers(gomock.Any(), []accesstypes.User{}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -748,7 +749,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 				body:        `{"users": ["Johnny"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRoleUsers(gomock.Any(), []User{"Johnny"}, Role("Admin"), Domain("755")).Return(errors.New("failed to remove users from role")).Times(1)
+				user.EXPECT().DeleteRoleUsers(gomock.Any(), []accesstypes.User{"Johnny"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(errors.New("failed to remove users from role")).Times(1)
 			},
 		},
 	}
@@ -823,7 +824,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 				body:        `{"permissions" : ["AddUser", "RemoveUser"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRolePermissions(gomock.Any(), []Permission{"AddUser", "RemoveUser"}, Role("Admin"), Domain("755")).Return(nil).Times(1)
+				user.EXPECT().DeleteRolePermissions(gomock.Any(), []accesstypes.Permission{"AddUser", "RemoveUser"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -871,7 +872,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 				body:        `{"permissions": ["AddUser"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRolePermissions(gomock.Any(), []Permission{"AddUser"}, Role("Admin"), Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
+				user.EXPECT().DeleteRolePermissions(gomock.Any(), []accesstypes.Permission{"AddUser"}, accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(errors.New("failed to add the user to the role")).Times(1)
 			},
 		},
 	}
@@ -943,7 +944,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 				guarantorID: "755",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().Roles(gomock.Any(), Domain("755")).Return([]Role{Role("this"), Role("is"), Role("a"), Role("test")}, nil)
+				accessManager.EXPECT().Roles(gomock.Any(), accesstypes.Domain("755")).Return([]accesstypes.Role{accesstypes.Role("this"), accesstypes.Role("is"), accesstypes.Role("a"), accesstypes.Role("test")}, nil)
 			},
 		},
 		{
@@ -952,7 +953,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 				guarantorID: "755",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().Roles(gomock.Any(), Domain("755")).Return(nil, errors.New("Failed to get a list of roles")).Times(1)
+				accessManager.EXPECT().Roles(gomock.Any(), accesstypes.Domain("755")).Return(nil, errors.New("Failed to get a list of roles")).Times(1)
 			},
 			wantErr: true,
 		},
@@ -1048,7 +1049,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 				role:        "Admin",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().RoleUsers(gomock.Any(), gomock.Any(), Domain("755")).Return([]User{"daddy"}, nil)
+				accessManager.EXPECT().RoleUsers(gomock.Any(), gomock.Any(), accesstypes.Domain("755")).Return([]accesstypes.User{"daddy"}, nil)
 			},
 		},
 		{
@@ -1058,7 +1059,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 				role:        "Admin",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().RoleUsers(gomock.Any(), Role("Admin"), Domain("755")).Return(nil, errors.New("Failed to get a list of roles")).Times(1)
+				accessManager.EXPECT().RoleUsers(gomock.Any(), accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil, errors.New("Failed to get a list of roles")).Times(1)
 			},
 			wantErr: true,
 		},
@@ -1158,7 +1159,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 				role:        "Admin",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().RolePermissions(gomock.Any(), gomock.Any(), Domain("755")).Return([]Permission{"daddy"}, nil)
+				accessManager.EXPECT().RolePermissions(gomock.Any(), gomock.Any(), accesstypes.Domain("755")).Return([]accesstypes.Permission{"daddy"}, nil)
 			},
 		},
 		{
@@ -1168,7 +1169,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 				role:        "Admin",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().RolePermissions(gomock.Any(), Role("Admin"), Domain("755")).Return(nil, errors.New("Failed to get a list of permissions")).Times(1)
+				accessManager.EXPECT().RolePermissions(gomock.Any(), accesstypes.Role("Admin"), accesstypes.Domain("755")).Return(nil, errors.New("Failed to get a list of permissions")).Times(1)
 			},
 			wantErr: true,
 		},

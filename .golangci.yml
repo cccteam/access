@@ -9,6 +9,7 @@ linters-settings:
         allow:
           - github.com/casbin/casbin/v2
           - github.com/cccteam
+          - github.com/flowerinthenight/casbin-spanner-adapter
           - github.com/go-chi/chi/v5
           - github.com/go-playground/errors/v5
           - github.com/go-playground/validator
