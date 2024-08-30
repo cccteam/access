@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/cccteam/access/compare/v0.1.2...v0.1.3) (2024-08-30)
+
+
+### Features
+
+* Implement resource store ([#10](https://github.com/cccteam/access/issues/10)) ([ba58817](https://github.com/cccteam/access/commit/ba58817e15a4985811fec3a73345b05a2505ad09))
+
 ## [0.1.2](https://github.com/cccteam/access/compare/v0.1.1...v0.1.2) (2024-08-29)
 
 
