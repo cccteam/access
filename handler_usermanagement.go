@@ -3,6 +3,7 @@ package access
 import (
 	"net/http"
 
+	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/httpio"
 	"go.opentelemetry.io/otel"
 )
@@ -18,9 +19,9 @@ const (
 // Permissions Required: ViewUsers
 func (a *HandlerClient) Users() http.HandlerFunc {
 	type user struct {
-		Name        string                  `json:"name"`
-		Roles       map[Domain][]Role       `json:"roles"`
-		Permissions map[Domain][]Permission `json:"permissions"`
+		Name        string                                          `json:"name"`
+		Roles       map[accesstypes.Domain][]accesstypes.Role       `json:"roles"`
+		Permissions map[accesstypes.Domain][]accesstypes.Permission `json:"permissions"`
 	}
 
 	type response []*user
@@ -48,9 +49,9 @@ func (a *HandlerClient) Users() http.HandlerFunc {
 // Permissions Required: ViewUsers
 func (a *HandlerClient) User() http.HandlerFunc {
 	type response struct {
-		Name        string                  `json:"name"`
-		Roles       map[Domain][]Role       `json:"roles"`
-		Permissions map[Domain][]Permission `json:"permissions"`
+		Name        string                                          `json:"name"`
+		Roles       map[accesstypes.Domain][]accesstypes.Role       `json:"roles"`
+		Permissions map[accesstypes.Domain][]accesstypes.Permission `json:"permissions"`
 	}
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
@@ -59,7 +60,7 @@ func (a *HandlerClient) User() http.HandlerFunc {
 
 		username := httpio.Param[string](r, paramUser)
 
-		user, err := a.manager.User(ctx, User(username))
+		user, err := a.manager.User(ctx, accesstypes.User(username))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -73,23 +74,25 @@ func (a *HandlerClient) User() http.HandlerFunc {
 // Permissions Required: AddRole
 func (a *HandlerClient) AddRole() http.HandlerFunc {
 	type request struct {
-		RoleName Role `json:"roleName" validate:"min=1"`
+		RoleName accesstypes.Role `json:"roleName" validate:"min=1"`
 	}
 
 	type response struct {
-		Role Role `json:"role"`
+		Role accesstypes.Role `json:"role"`
 	}
+
+	decoder := NewDecoder[request](a)
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRole()")
 		defer span.End()
 
-		req := &request{}
-		if err := a.NewDecoder(r).Decode(req); err != nil {
+		req, err := decoder.Decode(r)
+		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		if err := a.manager.AddRole(ctx, domain, req.RoleName); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -107,20 +110,22 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 // Permissions Required: AddRolePermissions
 func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 	type request struct {
-		Permissions []Permission `json:"permissions"`
+		Permissions []accesstypes.Permission `json:"permissions"`
 	}
+
+	decoder := NewDecoder[request](a)
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRolePermissions()")
 		defer span.End()
 
-		req := &request{}
-		if err := a.NewDecoder(r).Decode(req); err != nil {
+		req, err := decoder.Decode(r)
+		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		if err := a.manager.AddRolePermissions(ctx, req.Permissions, role, domain); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -135,19 +140,21 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 // Permissions Required: AddRoleUsers
 func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 	type request struct {
-		Users []User
+		Users []accesstypes.User
 	}
+
+	decoder := NewDecoder[request](a)
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRoleUsers()")
 		defer span.End()
 
-		req := &request{}
-		if err := a.NewDecoder(r).Decode(req); err != nil {
+		req, err := decoder.Decode(r)
+		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		if err := a.manager.AddRoleUsers(ctx, req.Users, role, domain); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -162,19 +169,21 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 // Permissions Required: DeleteRoleUsers
 func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 	type request struct {
-		Users []User
+		Users []accesstypes.User
 	}
+
+	decoder := NewDecoder[request](a)
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRoleUsers()")
 		defer span.End()
 
-		req := &request{}
-		if err := a.NewDecoder(r).Decode(req); err != nil {
+		req, err := decoder.Decode(r)
+		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		if err := a.manager.DeleteRoleUsers(ctx, req.Users, role, domain); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -189,19 +198,21 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 // Permissions Required: DeleteRolePermissions
 func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 	type request struct {
-		Permissions []Permission `json:"permissions" validate:"min=1"`
+		Permissions []accesstypes.Permission `json:"permissions" validate:"min=1"`
 	}
+
+	decoder := NewDecoder[request](a)
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRolePermissions()")
 		defer span.End()
 
-		req := &request{}
-		if err := a.NewDecoder(r).Decode(req); err != nil {
+		req, err := decoder.Decode(r)
+		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		if err := a.manager.DeleteRolePermissions(ctx, req.Permissions, role, domain); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -216,14 +227,14 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 // Permissions Required: ListRoles
 func (a *HandlerClient) Roles() http.HandlerFunc {
 	type response struct {
-		Roles []Role `json:"roles,omitempty"`
+		Roles []accesstypes.Role `json:"roles,omitempty"`
 	}
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Roles()")
 		defer span.End()
 
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		roles, err := a.manager.Roles(ctx, domain)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -239,14 +250,14 @@ func (a *HandlerClient) Roles() http.HandlerFunc {
 //
 // Permissions Required: ListRoleUsers
 func (a *HandlerClient) RoleUsers() http.HandlerFunc {
-	type response []User
+	type response []accesstypes.User
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RoleUsers()")
 		defer span.End()
 
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		roleUsers, err := a.manager.RoleUsers(ctx, role, domain)
 		if err != nil {
@@ -263,14 +274,14 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 //
 // Permissions Required: ListRolePermissions
 func (a *HandlerClient) RolePermissions() http.HandlerFunc {
-	type response []Permission
+	type response []accesstypes.Permission
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RolePermissions()")
 		defer span.End()
 
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		rolePermissions, err := a.manager.RolePermissions(ctx, role, domain)
 		if err != nil {
@@ -291,8 +302,8 @@ func (a *HandlerClient) DeleteRole() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRole()")
 		defer span.End()
 
-		domain := Domain(httpio.Param[string](r, paramGuarantorID))
-		role := Role(httpio.Param[string](r, paramRole))
+		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
 		_, err := a.manager.DeleteRole(ctx, role, domain)
 		if err != nil {

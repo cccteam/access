@@ -2,8 +2,6 @@ package access
 
 import (
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 )
 
 func TestNew(t *testing.T) {
@@ -11,7 +9,7 @@ func TestNew(t *testing.T) {
 
 	type args struct {
 		domains    *MockDomains
-		connConfig *pgx.ConnConfig
+		connConfig Adapter
 	}
 	tests := []struct {
 		name string
@@ -21,7 +19,7 @@ func TestNew(t *testing.T) {
 			name: "new",
 			args: args{
 				domains:    &MockDomains{},
-				connConfig: &pgx.ConnConfig{},
+				connConfig: &PostgresAdapter{},
 			},
 		},
 	}

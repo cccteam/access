@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/cccteam/access/accesstypes"
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/mock/gomock"
 )
@@ -18,9 +19,9 @@ func TestClient_User_Add_Delete(t *testing.T) {
 
 	type args struct {
 		ctx      context.Context
-		username User
-		role     Role
-		domain   Domain
+		username accesstypes.User
+		role     accesstypes.Role
+		domain   accesstypes.Domain
 	}
 	tests := []struct {
 		name     string
@@ -37,19 +38,19 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				ctx:      context.Background(),
 				username: "charlie",
 				role:     "Viewer",
-				domain:   Domain("712"),
+				domain:   accesstypes.Domain("712"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(3)
 			},
 			want: &UserAccess{
 				Name: "charlie",
-				Roles: map[Domain][]Role{
+				Roles: map[accesstypes.Domain][]accesstypes.Role{
 					"global": {},
 					"755":    {},
 					"712":    {},
 				},
-				Permissions: map[Domain][]Permission{
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
 					"global": {},
 					"755":    {},
 					"712":    {},
@@ -57,12 +58,12 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			},
 			wantAdd: &UserAccess{
 				Name: "charlie",
-				Roles: map[Domain][]Role{
+				Roles: map[accesstypes.Domain][]accesstypes.Role{
 					"global": {},
 					"755":    {},
 					"712":    {"Viewer"},
 				},
-				Permissions: map[Domain][]Permission{
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
 					"global": {},
 					"755":    {},
 					"712":    {},
@@ -85,17 +86,17 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				username: "bill",
-				role:     Role("Non-Existent"),
-				domain:   Domain("712"),
+				role:     accesstypes.Role("Non-Existent"),
+				domain:   accesstypes.Domain("712"),
 			},
 			want: &UserAccess{
 				Name: "bill",
-				Roles: map[Domain][]Role{
+				Roles: map[accesstypes.Domain][]accesstypes.Role{
 					"global": {},
 					"755":    {},
 					"712":    {},
 				},
-				Permissions: map[Domain][]Permission{
+				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
 					"global": {},
 					"755":    {},
 					"712":    {},
@@ -137,7 +138,7 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Fatalf("Client.User() mismatch (-want +got):\n%s", diff)
 			}
-			if err := c.AddRoleUsers(ctx, []User{tt.args.username}, tt.args.role, tt.args.domain); err != nil {
+			if err := c.AddRoleUsers(ctx, []accesstypes.User{tt.args.username}, tt.args.role, tt.args.domain); err != nil {
 				if tt.want2Err {
 					return
 				}
@@ -188,12 +189,12 @@ func TestClient_Users(t *testing.T) {
 			want: []*UserAccess{
 				{
 					Name: "alice",
-					Roles: map[Domain][]Role{
+					Roles: map[accesstypes.Domain][]accesstypes.Role{
 						"global": {},
 						"712":    {},
 						"755":    {},
 					},
-					Permissions: map[Domain][]Permission{
+					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
 						"global": {},
 						"712":    {"ViewUsers"},
 						"755":    {},
@@ -201,12 +202,12 @@ func TestClient_Users(t *testing.T) {
 				},
 				{
 					Name: "bob",
-					Roles: map[Domain][]Role{
+					Roles: map[accesstypes.Domain][]accesstypes.Role{
 						"global": {},
 						"712":    {"Editor"},
 						"755":    {},
 					},
-					Permissions: map[Domain][]Permission{
+					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
 						"global": {},
 						"712":    {},
 						"755":    {},
@@ -214,12 +215,12 @@ func TestClient_Users(t *testing.T) {
 				},
 				{
 					Name: "charlie",
-					Roles: map[Domain][]Role{
+					Roles: map[accesstypes.Domain][]accesstypes.Role{
 						"global": {},
 						"712":    {},
 						"755":    {"Administrator"},
 					},
-					Permissions: map[Domain][]Permission{
+					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
 						"global": {},
 						"712":    {},
 						"755":    {"AddUsers", "DeleteUsers"},
@@ -285,35 +286,35 @@ func TestClient_RolePermissions(t *testing.T) {
 		e casbin.IEnforcer
 	}
 	type args struct {
-		role   Role
-		domain Domain
+		role   accesstypes.Role
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
 		fields  fields
 		args    args
-		want    []Permission
+		want    []accesstypes.Permission
 		wantErr bool
 	}{
 		{
 			name:    "ReturnsListOfPermissions",
 			fields:  fields{e: enforcer},
 			args:    args{role: "Administrator", domain: "755"},
-			want:    []Permission{"DeleteUsers", "AddUsers"},
+			want:    []accesstypes.Permission{"DeleteUsers", "AddUsers"},
 			wantErr: false,
 		},
 		{
 			name:    "No Permissions Found",
 			fields:  fields{e: enforcer},
 			args:    args{role: "Administrator", domain: "712"},
-			want:    []Permission{},
+			want:    []accesstypes.Permission{},
 			wantErr: false,
 		},
 		{
 			name:    "Bad role",
 			fields:  fields{e: enforcer},
 			args:    args{role: "asdvsdb", domain: "712"},
-			want:    []Permission{},
+			want:    []accesstypes.Permission{},
 			wantErr: true,
 		},
 	}
@@ -349,31 +350,31 @@ func TestClient_RoleUsers(t *testing.T) {
 	policyPath := "testdata/policy_users.csv"
 
 	type args struct {
-		role   Role
-		domain Domain
+		role   accesstypes.Role
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
 		args    args
-		want    []User
+		want    []accesstypes.User
 		wantErr bool
 	}{
 		{
 			name:    "Filters Noop User",
 			args:    args{role: "Administrator", domain: "755"},
-			want:    []User{"charlie"},
+			want:    []accesstypes.User{"charlie"},
 			wantErr: false,
 		},
 		{
 			name:    "No users found",
 			args:    args{role: "Administrator", domain: "712"},
-			want:    []User{},
+			want:    []accesstypes.User{},
 			wantErr: false,
 		},
 		{
 			name:    "No users found in given roll",
 			args:    args{role: "Admin", domain: "755"},
-			want:    []User{},
+			want:    []accesstypes.User{},
 			wantErr: false,
 		},
 	}
@@ -410,9 +411,9 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 	policyPath := "testdata/policy_deleteusersfromrole.csv"
 
 	type args struct {
-		users  []User
-		role   Role
-		domain Domain
+		users  []accesstypes.User
+		role   accesstypes.Role
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
@@ -423,18 +424,18 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 		{
 			name: "Charlie",
 			args: args{
-				users:  []User{"charlie"},
+				users:  []accesstypes.User{"charlie"},
 				role:   "Administrator",
-				domain: Domain("755"),
+				domain: accesstypes.Domain("755"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "Charlie fails",
 			args: args{
-				users:  []User{"charlie"},
+				users:  []accesstypes.User{"charlie"},
 				role:   "Viewer",
-				domain: Domain("755"),
+				domain: accesstypes.Domain("755"),
 			},
 			wantErr: true,
 		},
@@ -470,8 +471,8 @@ func TestClient_AddRole(t *testing.T) {
 
 	type args struct {
 		ctx    context.Context
-		domain Domain
-		role   Role
+		domain accesstypes.Domain
+		role   accesstypes.Role
 	}
 	tests := []struct {
 		name    string
@@ -483,8 +484,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Successfully add a new role",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("755"),
-				role:   Role("AddUser"),
+				domain: accesstypes.Domain("755"),
+				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
@@ -494,8 +495,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("733"),
-				role:   Role("AddUser"),
+				domain: accesstypes.Domain("733"),
+				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
@@ -506,8 +507,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("733"),
-				role:   Role("AddUser"),
+				domain: accesstypes.Domain("733"),
+				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, errors.New("failed to get domain"))
@@ -518,8 +519,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Role Already Exists",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("755"),
-				role:   Role("Viewer"),
+				domain: accesstypes.Domain("755"),
+				role:   accesstypes.Role("Viewer"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
@@ -563,9 +564,9 @@ func TestClient_AddUserRoles(t *testing.T) {
 
 	type args struct {
 		ctx    context.Context
-		domain Domain
-		roles  []Role
-		user   User
+		domain accesstypes.Domain
+		roles  []accesstypes.Role
+		user   accesstypes.User
 	}
 	tests := []struct {
 		name    string
@@ -577,8 +578,8 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Successfully add roles to a user",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("712"),
-				roles:  []Role{"Viewer"},
+				domain: accesstypes.Domain("712"),
+				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
@@ -589,8 +590,8 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("712"),
-				roles:  []Role{"Viewer"},
+				domain: accesstypes.Domain("712"),
+				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
@@ -602,8 +603,8 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("712"),
-				roles:  []Role{"Viewer"},
+				domain: accesstypes.Domain("712"),
+				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
@@ -663,13 +664,13 @@ func TestClient_Roles(t *testing.T) {
 	}
 	type args struct {
 		ctx    context.Context
-		domain Domain
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
 		fields  fields
 		args    args
-		want    []Role
+		want    []accesstypes.Role
 		prepare func(db *MockDomains)
 		wantErr bool
 	}{
@@ -680,7 +681,7 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("733"),
+				domain: accesstypes.Domain("733"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
@@ -694,7 +695,7 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("733"),
+				domain: accesstypes.Domain("733"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, errors.New("failed to get DomainIDs"))
@@ -708,17 +709,17 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("712"),
+				domain: accesstypes.Domain("712"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "712").Return(true, nil)
 			},
 			wantErr: false,
-			want: []Role{
-				Role("Administrator"),
-				Role("Auditor"),
-				Role("Editor"),
-				Role("Viewer"),
+			want: []accesstypes.Role{
+				accesstypes.Role("Administrator"),
+				accesstypes.Role("Auditor"),
+				accesstypes.Role("Editor"),
+				accesstypes.Role("Viewer"),
 			},
 		},
 	}
@@ -761,7 +762,7 @@ func TestClient_DomainIDs(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []Domain
+		want    []accesstypes.Domain
 		prepare func(db *MockDomains)
 		wantErr bool
 	}{
@@ -773,7 +774,7 @@ func TestClient_DomainIDs(t *testing.T) {
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"755", "712"}, nil)
 			},
-			want:    []Domain{GlobalDomain, Domain("755"), Domain("712")},
+			want:    []accesstypes.Domain{accesstypes.GlobalDomain, accesstypes.Domain("755"), accesstypes.Domain("712")},
 			wantErr: false,
 		},
 		{
@@ -820,8 +821,8 @@ func TestClient_DeleteRole(t *testing.T) {
 	policyPath := "testdata/policy_deleterole.csv"
 
 	type args struct {
-		role   Role
-		domain Domain
+		role   accesstypes.Role
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name      string
@@ -833,8 +834,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Success",
 			args: args{
-				role:   Role("Viewer"),
-				domain: Domain("755"),
+				role:   accesstypes.Role("Viewer"),
+				domain: accesstypes.Domain("755"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -843,8 +844,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Success when noop exists",
 			args: args{
-				role:   Role("Writer"),
-				domain: Domain("712"),
+				role:   accesstypes.Role("Writer"),
+				domain: accesstypes.Domain("712"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -853,8 +854,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Success when it doesn't exist already",
 			args: args{
-				role:   Role("Viewer"),
-				domain: Domain("712"),
+				role:   accesstypes.Role("Viewer"),
+				domain: accesstypes.Domain("712"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -863,8 +864,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Fails when users are assigned",
 			args: args{
-				role:   Role("Administrator"),
-				domain: Domain("755"),
+				role:   accesstypes.Role("Administrator"),
+				domain: accesstypes.Domain("755"),
 			},
 			want:      false,
 			wantErr:   true,
@@ -909,47 +910,47 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 	policyPath := "testdata/policy_deletepermissionsfromrole.csv"
 
 	type args struct {
-		permissions []Permission
-		role        Role
-		domain      Domain
+		permissions []accesstypes.Permission
+		role        accesstypes.Role
+		domain      accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr bool
-		want    []Permission
+		want    []accesstypes.Permission
 	}{
 		{
 			name: "Successfully removes permissions from a role",
 			args: args{
-				permissions: []Permission{"AddUsers"},
+				permissions: []accesstypes.Permission{"AddUsers"},
 				role:        "Administrator",
 				domain:      "755",
 			},
 			wantErr: false,
-			want: []Permission{
+			want: []accesstypes.Permission{
 				"DeleteUsers",
 			},
 		},
 		{
 			name: "fails to delete permissions from non-existent role",
 			args: args{
-				permissions: []Permission{"DELETE * FROM accesspolicies"},
+				permissions: []accesstypes.Permission{"DELETE * FROM accesspolicies"},
 				role:        "Administrator123",
 				domain:      "755",
 			},
 			wantErr: true,
-			want:    []Permission(nil),
+			want:    []accesstypes.Permission(nil),
 		},
 		{
 			name: "fails to delete permissions due to wrong domain",
 			args: args{
-				permissions: []Permission{"DELETE * FROM accesspolicies"},
+				permissions: []accesstypes.Permission{"DELETE * FROM accesspolicies"},
 				role:        "Viewer",
 				domain:      "701",
 			},
 			wantErr: true,
-			want:    []Permission(nil),
+			want:    []accesstypes.Permission(nil),
 		},
 	}
 	for _, tt := range tests {
@@ -993,41 +994,41 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 	policyPath := "testdata/policy_deletepermissionsfromrole.csv"
 
 	type args struct {
-		role   Role
-		domain Domain
+		role   accesstypes.Role
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr bool
-		want    []Permission
+		want    []accesstypes.Permission
 	}{
 		{
 			name: "Successfully removes permissions from a role",
 			args: args{
-				role:   Role("Administrator"),
-				domain: Domain("755"),
+				role:   accesstypes.Role("Administrator"),
+				domain: accesstypes.Domain("755"),
 			},
 			wantErr: false,
-			want:    []Permission{},
+			want:    []accesstypes.Permission{},
 		},
 		{
 			name: "fails to delete permissions from non-existent role",
 			args: args{
-				role:   Role("Administrator123"),
-				domain: Domain("755"),
+				role:   accesstypes.Role("Administrator123"),
+				domain: accesstypes.Domain("755"),
 			},
 			wantErr: true,
-			want:    []Permission(nil),
+			want:    []accesstypes.Permission(nil),
 		},
 		{
 			name: "fails to delete permissions due to wrong domain",
 			args: args{
-				role:   Role("Viewer"),
-				domain: Domain("701"),
+				role:   accesstypes.Role("Viewer"),
+				domain: accesstypes.Domain("701"),
 			},
 			wantErr: true,
-			want:    []Permission(nil),
+			want:    []accesstypes.Permission(nil),
 		},
 	}
 	for _, tt := range tests {
@@ -1071,45 +1072,45 @@ func TestClient_AddRolePermissions(t *testing.T) {
 	policyPath := "testdata/policy_addpermissionstorole.csv"
 
 	type args struct {
-		permissions []Permission
-		role        Role
-		domain      Domain
+		permissions []accesstypes.Permission
+		role        accesstypes.Role
+		domain      accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr bool
-		want    []Permission
+		want    []accesstypes.Permission
 	}{
 		{
 			name: "Adds permissions successfully",
 			args: args{
-				permissions: []Permission{"AddUser", "ViewUser", "AddName"},
+				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Viewer",
 				domain:      "712",
 			},
 			wantErr: false,
-			want:    []Permission{"AddUser", "ViewUser", "AddName"},
+			want:    []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 		},
 		{
 			name: "fails due to missing role",
 			args: args{
-				permissions: []Permission{"AddUser", "ViewUser", "AddName"},
+				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Administrator",
 				domain:      "712",
 			},
 			wantErr: true,
-			want:    []Permission{},
+			want:    []accesstypes.Permission{},
 		},
 		{
 			name: "fails due to wrong domain",
 			args: args{
-				permissions: []Permission{"AddUser", "ViewUser", "AddName"},
+				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Viewer",
 				domain:      "755",
 			},
 			wantErr: true,
-			want:    []Permission{},
+			want:    []accesstypes.Permission{},
 		},
 	}
 	for _, tt := range tests {
@@ -1153,7 +1154,7 @@ func TestClient_DomainExists(t *testing.T) {
 
 	type args struct {
 		ctx    context.Context
-		domain Domain
+		domain accesstypes.Domain
 	}
 	tests := []struct {
 		name    string
@@ -1166,7 +1167,7 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain found",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("755"),
+				domain: accesstypes.Domain("755"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
@@ -1178,7 +1179,7 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain not found",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("733"),
+				domain: accesstypes.Domain("733"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
@@ -1190,7 +1191,7 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "error returned",
 			args: args{
 				ctx:    context.Background(),
-				domain: Domain("755"),
+				domain: accesstypes.Domain("755"),
 			},
 			prepare: func(db *MockDomains) {
 				db.EXPECT().DomainExists(gomock.Any(), "755").Return(false, errors.New("error returned"))

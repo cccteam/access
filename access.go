@@ -4,14 +4,16 @@ package access
 import (
 	"context"
 
+	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"
-	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
 const name = "github.com/cccteam/access"
+
+var _ Controller = &Client{}
 
 // Client is the users client
 type Client struct {
@@ -19,8 +21,8 @@ type Client struct {
 }
 
 // New creates a new user client
-func New(domains Domains, connConfig *pgx.ConnConfig) (*Client, error) {
-	userManager, err := newUserManager(domains, connConfig)
+func New(domains Domains, adapter Adapter) (*Client, error) {
+	userManager, err := newUserManager(domains, adapter)
 	if err != nil {
 		return nil, errors.Wrap(err, "newUserManager()")
 	}
@@ -34,7 +36,7 @@ func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) H
 	return newHandler(c, validate, logHandler)
 }
 
-func (c *Client) RequireAll(ctx context.Context, username User, domain Domain, perms ...Permission) error {
+func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perms ...accesstypes.Permission) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "App.Require()")
 	defer span.End()
 
