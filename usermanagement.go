@@ -128,19 +128,19 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Do
 	return nil
 }
 
-func (u *userManager) User(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error) {
+func (u *userManager) User(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (*UserAccess, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.User()")
 	defer span.End()
 
-	if domain == nil {
+	if domains == nil {
 		var err error
-		domain, err = u.Domains(ctx)
+		domains, err = u.Domains(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
 		}
 	}
 
-	return u.user(ctx, user, domain)
+	return u.user(ctx, user, domains)
 }
 
 func (u *userManager) user(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (*UserAccess, error) {
@@ -164,19 +164,19 @@ func (u *userManager) user(ctx context.Context, user accesstypes.User, domains [
 	}, nil
 }
 
-func (u *userManager) Users(ctx context.Context, domain ...accesstypes.Domain) ([]*UserAccess, error) {
+func (u *userManager) Users(ctx context.Context, domains ...accesstypes.Domain) ([]*UserAccess, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.Users()")
 	defer span.End()
 
-	if domain == nil {
+	if domains == nil {
 		var err error
-		domain, err = u.Domains(ctx)
+		domains, err = u.Domains(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
 		}
 	}
 
-	users, err := u.users(ctx, domain)
+	users, err := u.users(ctx, domains)
 	if err != nil {
 		return nil, err
 	}
@@ -252,19 +252,19 @@ GP:
 }
 
 // UserRoles gets the roles assigned to a user separated by domain
-func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
+func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.UserRoles()")
 	defer span.End()
 
-	if domain == nil {
+	if domains == nil {
 		var err error
-		domain, err = u.Domains(ctx)
+		domains, err = u.Domains(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
 		}
 	}
 
-	userRoles, err := u.userRoles(ctx, user, domain)
+	userRoles, err := u.userRoles(ctx, user, domains)
 	if err != nil {
 		return nil, err
 	}
@@ -293,19 +293,19 @@ func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, doma
 	return userRoles, nil
 }
 
-func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
+func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.UserPermissions()")
 	defer span.End()
 
-	if domain == nil {
+	if domains == nil {
 		var err error
-		domain, err = u.Domains(ctx)
+		domains, err = u.Domains(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
 		}
 	}
 
-	userPermissions, err := u.userPermissions(ctx, user, domain)
+	userPermissions, err := u.userPermissions(ctx, user, domains)
 	if err != nil {
 		return nil, err
 	}
