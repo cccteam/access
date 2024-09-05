@@ -54,9 +54,9 @@ func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domai
 		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
 	}
 
-	for _, username := range users {
-		if _, err := u.Enforcer().AddRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
-			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), username)
+	for _, user := range users {
+		if _, err := u.Enforcer().AddRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), user)
 		}
 	}
 
@@ -90,9 +90,9 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, domain accesstypes.Do
 		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
 	}
 
-	for _, username := range users {
-		if _, err := u.Enforcer().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
-			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), username)
+	for _, user := range users {
+		if _, err := u.Enforcer().DeleteRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), user)
 		}
 	}
 
@@ -115,18 +115,20 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, domain acces
 	return nil
 }
 
-func (u *userManager) DeleteUserRole(ctx context.Context, domain accesstypes.Domain, username accesstypes.User, role accesstypes.Role) error {
-	_, span := otel.Tracer(name).Start(ctx, "client.DeleteUserRole()")
+func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error {
+	_, span := otel.Tracer(name).Start(ctx, "client.DeleteUserRoles()")
 	defer span.End()
 
-	if _, err := u.Enforcer().DeleteRoleForUser(username.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
-		return errors.Wrapf(err, "casbin.SyncedEnforcer.DeleteRoleForUser(): role %q to %q", role.Marshal(), username)
+	for _, role := range roles {
+		if _, err := u.Enforcer().DeleteRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
+			return errors.Wrapf(err, "casbin.SyncedEnforcer.DeleteRoleForUser(): role %q to %q", role.Marshal(), user)
+		}
 	}
 
 	return nil
 }
 
-func (u *userManager) User(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error) {
+func (u *userManager) User(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.User()")
 	defer span.End()
 
@@ -138,30 +140,25 @@ func (u *userManager) User(ctx context.Context, username accesstypes.User, domai
 		}
 	}
 
-	user, err := u.user(ctx, username, domain)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, nil
+	return u.user(ctx, user, domain)
 }
 
-func (u *userManager) user(ctx context.Context, username accesstypes.User, domains []accesstypes.Domain) (*UserAccess, error) {
+func (u *userManager) user(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (*UserAccess, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.user()")
 	defer span.End()
 
-	roles, err := u.userRoles(ctx, username, domains)
+	roles, err := u.userRoles(ctx, user, domains)
 	if err != nil {
 		return nil, err
 	}
 
-	permissions, err := u.userPermissions(ctx, username, domains)
+	permissions, err := u.userPermissions(ctx, user, domains)
 	if err != nil {
 		return nil, err
 	}
 
 	return &UserAccess{
-		Name:        string(username),
+		Name:        string(user),
 		Roles:       roles,
 		Permissions: permissions,
 	}, nil
@@ -205,20 +202,20 @@ func (u *userManager) users(ctx context.Context, domains []accesstypes.Domain) (
 SUB:
 	// loop through the subjects (containing both roles and usernames)
 	// and if it is a a role, skip it, otherwise add user to the map
-	for _, username := range subjects {
+	for _, user := range subjects {
 		for _, role := range roles {
-			if role == username || username == accesstypes.NoopUser {
+			if role == user || user == accesstypes.NoopUser {
 				continue SUB
 			}
 		}
 
-		user, err := u.user(ctx, accesstypes.UnmarshalUser(username), domains)
+		accessUser, err := u.user(ctx, accesstypes.UnmarshalUser(user), domains)
 		if err != nil {
 			return nil, err
 		}
 
-		users = append(users, user)
-		userMap[username] = true
+		users = append(users, accessUser)
+		userMap[user] = true
 	}
 	// now get the grouping policy and look for users in there
 	groupingPolicy, err := u.Enforcer().GetGroupingPolicy()
@@ -227,24 +224,24 @@ SUB:
 	}
 GP:
 	for _, gp := range groupingPolicy {
-		username := gp[0]
-		if userMap[username] || username == accesstypes.NoopUser {
+		user := gp[0]
+		if userMap[user] || user == accesstypes.NoopUser {
 			continue
 		}
 
 		for _, role := range roles {
-			if role == username {
+			if role == user {
 				continue GP
 			}
 		}
 
-		user, err := u.user(ctx, accesstypes.UnmarshalUser(username), domains)
+		accessUser, err := u.user(ctx, accesstypes.UnmarshalUser(user), domains)
 		if err != nil {
 			return nil, err
 		}
 
-		users = append(users, user)
-		userMap[username] = true
+		users = append(users, accessUser)
+		userMap[user] = true
 	}
 
 	sort.Slice(users, func(i, j int) bool {
@@ -255,7 +252,7 @@ GP:
 }
 
 // UserRoles gets the roles assigned to a user separated by domain
-func (u *userManager) UserRoles(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
+func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.UserRoles()")
 	defer span.End()
 
@@ -267,7 +264,7 @@ func (u *userManager) UserRoles(ctx context.Context, username accesstypes.User, 
 		}
 	}
 
-	userRoles, err := u.userRoles(ctx, username, domain)
+	userRoles, err := u.userRoles(ctx, user, domain)
 	if err != nil {
 		return nil, err
 	}
@@ -275,15 +272,15 @@ func (u *userManager) UserRoles(ctx context.Context, username accesstypes.User, 
 	return userRoles, nil
 }
 
-func (u *userManager) userRoles(ctx context.Context, username accesstypes.User, domains []accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
+func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
 	_, span := otel.Tracer(name).Start(ctx, "client.userRoles()")
 	defer span.End()
 
 	userRoles := make(map[accesstypes.Domain][]accesstypes.Role)
 	for _, domain := range domains {
-		strRoles, err := u.Enforcer().GetRolesForUser(username.Marshal(), domain.Marshal())
+		strRoles, err := u.Enforcer().GetRolesForUser(user.Marshal(), domain.Marshal())
 		if err != nil {
-			return nil, errors.Wrapf(err, "casbin.SyncedEnforcer.GetRolesForUser(): user: %q", username)
+			return nil, errors.Wrapf(err, "casbin.SyncedEnforcer.GetRolesForUser(): user: %q", user)
 		}
 
 		roles := make([]accesstypes.Role, 0, len(strRoles))
@@ -296,7 +293,7 @@ func (u *userManager) userRoles(ctx context.Context, username accesstypes.User, 
 	return userRoles, nil
 }
 
-func (u *userManager) UserPermissions(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
+func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.UserPermissions()")
 	defer span.End()
 
@@ -308,7 +305,7 @@ func (u *userManager) UserPermissions(ctx context.Context, username accesstypes.
 		}
 	}
 
-	userPermissions, err := u.userPermissions(ctx, username, domain)
+	userPermissions, err := u.userPermissions(ctx, user, domain)
 	if err != nil {
 		return nil, err
 	}
@@ -316,13 +313,13 @@ func (u *userManager) UserPermissions(ctx context.Context, username accesstypes.
 	return userPermissions, nil
 }
 
-func (u *userManager) userPermissions(ctx context.Context, username accesstypes.User, domains []accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
+func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
 	_, span := otel.Tracer(name).Start(ctx, "client.userPermissions()")
 	defer span.End()
 
 	userPermissions := make(map[accesstypes.Domain][]accesstypes.Permission)
 	for _, domain := range domains {
-		strPerms, err := u.Enforcer().GetImplicitPermissionsForUser(username.Marshal(), domain.Marshal())
+		strPerms, err := u.Enforcer().GetImplicitPermissionsForUser(user.Marshal(), domain.Marshal())
 		if err != nil {
 			return nil, errors.Wrap(err, "enforcer.GetImplicitPermissionsForUser()")
 		}

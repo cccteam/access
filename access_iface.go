@@ -33,21 +33,21 @@ type UserManager interface {
 	// DeleteRoleUsers removes users from a given role
 	DeleteRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error
 
-	// DeleteUserRole deletes the role assignment for a user in a specific domain.
+	// DeleteUserRoles deletes the role assignment for a user in a specific domain.
 	// Behavior is the same whether or not the role exists for the user.
-	DeleteUserRole(ctx context.Context, domain accesstypes.Domain, username accesstypes.User, role accesstypes.Role) error
+	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
 
 	// User returns a User by the given username with the roles that have been assigned.
-	User(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error)
+	User(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error)
 
 	// Users gets a list of users with their assigned roles
 	Users(ctx context.Context, domain ...accesstypes.Domain) ([]*UserAccess, error)
 
 	// UserRoles returns a map of the domain
-	UserRoles(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error)
+	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error)
 
 	// UserPermissions returns a map of domains with a slice of permissions for each
-	UserPermissions(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error)
+	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error)
 
 	// AddRole adds a new role to a domain without assigning it to a user
 	//

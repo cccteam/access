@@ -154,8 +154,8 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.wantAdd) {
 				t.Fatalf("Client.User() = %v, want %v", got, tt.wantAdd)
 			}
-			if err := c.DeleteUserRole(ctx, tt.args.domain, tt.args.username, tt.args.role); (err != nil) != tt.want2Err {
-				t.Errorf("Client.DeleteUserRole() error = %v, want2Err %v", err, tt.want2Err)
+			if err := c.DeleteUserRoles(ctx, tt.args.domain, tt.args.username, tt.args.role); (err != nil) != tt.want2Err {
+				t.Errorf("Client.DeleteUserRoles() error = %v, want2Err %v", err, tt.want2Err)
 			}
 			got, err = c.User(tt.args.ctx, tt.args.username)
 			if (err != nil) != tt.want2Err {

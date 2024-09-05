@@ -249,18 +249,23 @@ func (mr *MockUserManagerMockRecorder) DeleteRoleUsers(ctx, domain, role any, us
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRoleUsers", reflect.TypeOf((*MockUserManager)(nil).DeleteRoleUsers), varargs...)
 }
 
-// DeleteUserRole mocks base method.
-func (m *MockUserManager) DeleteUserRole(ctx context.Context, domain accesstypes.Domain, username accesstypes.User, role accesstypes.Role) error {
+// DeleteUserRoles mocks base method.
+func (m *MockUserManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteUserRole", ctx, domain, username, role)
+	varargs := []any{ctx, domain, user}
+	for _, a := range roles {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DeleteUserRoles", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DeleteUserRole indicates an expected call of DeleteUserRole.
-func (mr *MockUserManagerMockRecorder) DeleteUserRole(ctx, domain, username, role any) *gomock.Call {
+// DeleteUserRoles indicates an expected call of DeleteUserRoles.
+func (mr *MockUserManagerMockRecorder) DeleteUserRoles(ctx, domain, user any, roles ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRole", reflect.TypeOf((*MockUserManager)(nil).DeleteUserRole), ctx, domain, username, role)
+	varargs := append([]any{ctx, domain, user}, roles...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteUserRoles), varargs...)
 }
 
 // DomainExists mocks base method.
