@@ -45,11 +45,11 @@ func newUserManager(domains Domains, adapter Adapter) (*userManager, error) {
 	return u, nil
 }
 
-func (u *userManager) AddRoleUsers(ctx context.Context, users []accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRoleUsers()")
 	defer span.End()
 
-	roleFound := u.RoleExists(ctx, role, domain)
+	roleFound := u.RoleExists(ctx, domain, role)
 	if !roleFound {
 		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
 	}
@@ -63,12 +63,12 @@ func (u *userManager) AddRoleUsers(ctx context.Context, users []accesstypes.User
 	return nil
 }
 
-func (u *userManager) AddUserRoles(ctx context.Context, user accesstypes.User, roles []accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.AddUserRoles()")
 	defer span.End()
 
 	for _, role := range roles {
-		if roleFound := u.RoleExists(ctx, role, domain); !roleFound {
+		if roleFound := u.RoleExists(ctx, domain, role); !roleFound {
 			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
 		}
 	}
@@ -82,11 +82,11 @@ func (u *userManager) AddUserRoles(ctx context.Context, user accesstypes.User, r
 	return nil
 }
 
-func (u *userManager) DeleteRoleUsers(ctx context.Context, users []accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) DeleteRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRoleUsers()")
 	defer span.End()
 
-	if roleFound := u.RoleExists(ctx, role, domain); !roleFound {
+	if roleFound := u.RoleExists(ctx, domain, role); !roleFound {
 		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
 	}
 
@@ -99,23 +99,23 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, users []accesstypes.U
 	return nil
 }
 
-func (u *userManager) DeleteAllRolePermissions(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) DeleteAllRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteAllRolePermissions()")
 	defer span.End()
 
-	perms, err := u.RolePermissions(ctx, role, domain)
+	perms, err := u.RolePermissions(ctx, domain, role)
 	if err != nil {
 		return errors.Wrap(err, "client.RolePermissions()")
 	}
 
-	if err := u.DeleteRolePermissions(ctx, perms, role, domain); err != nil {
+	if err := u.DeleteRolePermissions(ctx, domain, role, perms...); err != nil {
 		return errors.Wrap(err, "client.DeleteRolePermissions()")
 	}
 
 	return nil
 }
 
-func (u *userManager) DeleteUserRole(ctx context.Context, username accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) DeleteUserRole(ctx context.Context, domain accesstypes.Domain, username accesstypes.User, role accesstypes.Role) error {
 	_, span := otel.Tracer(name).Start(ctx, "client.DeleteUserRole()")
 	defer span.End()
 
@@ -351,7 +351,7 @@ func (u *userManager) AddRole(ctx context.Context, domain accesstypes.Domain, ro
 		return httpio.NewNotFoundMessagef("domain %q does not exist", string(domain))
 	}
 
-	if roleDoesExist := u.RoleExists(ctx, role, domain); roleDoesExist {
+	if roleDoesExist := u.RoleExists(ctx, domain, role); roleDoesExist {
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
 	}
 
@@ -397,11 +397,11 @@ func (u *userManager) Roles(ctx context.Context, domain accesstypes.Domain) ([]a
 	return roles, nil
 }
 
-func (u *userManager) DeleteRole(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) (bool, error) {
+func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRole()")
 	defer span.End()
 
-	if hasUsers, err := u.hasUsersAssigned(ctx, role, domain); err != nil {
+	if hasUsers, err := u.hasUsersAssigned(ctx, domain, role); err != nil {
 		return false, errors.Wrap(err, "client.hasUsersAssigned()")
 	} else if hasUsers {
 		return false, httpio.NewBadRequestMessagef("Users assigned to the role. You cannot delete a role that has users assigned")
@@ -415,28 +415,28 @@ func (u *userManager) DeleteRole(ctx context.Context, role accesstypes.Role, dom
 	return deleted, nil
 }
 
-func (u *userManager) AddRolePermissions(ctx context.Context, permissions []accesstypes.Permission, role accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRolePermissions()")
 	defer span.End()
 
-	if !u.RoleExists(ctx, role, domain) {
+	if !u.RoleExists(ctx, domain, role) {
 		return httpio.NewNotFoundMessagef("Permissions cannot be added to a role that doesn't exist")
 	}
 
 	for _, permission := range permissions {
-		if err := u.addPolicy(ctx, permission, role, domain); err != nil {
-			return errors.Wrap(err, "users.addPolicy()")
+		if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), "*", permission.Marshal(), "allow"); err != nil {
+			return errors.Wrap(err, "enforcer.AddPolicy()")
 		}
 	}
 
 	return nil
 }
 
-func (u *userManager) DeleteRolePermissions(ctx context.Context, permissions []accesstypes.Permission, role accesstypes.Role, domain accesstypes.Domain) error {
+func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRolePermissions()")
 	defer span.End()
 
-	if !u.RoleExists(ctx, role, domain) {
+	if !u.RoleExists(ctx, domain, role) {
 		return httpio.NewNotFoundMessagef("Permissions cannot be removed from a role that doesn't exist")
 	}
 
@@ -449,7 +449,7 @@ func (u *userManager) DeleteRolePermissions(ctx context.Context, permissions []a
 	return nil
 }
 
-func (u *userManager) RoleUsers(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) ([]accesstypes.User, error) {
+func (u *userManager) RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {
 	_, span := otel.Tracer(name).Start(ctx, "client.RoleUsers()")
 	defer span.End()
 
@@ -469,11 +469,11 @@ func (u *userManager) RoleUsers(ctx context.Context, role accesstypes.Role, doma
 	return actualUsers, nil
 }
 
-func (u *userManager) RolePermissions(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) ([]accesstypes.Permission, error) {
+func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.Permission, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.RolePermissions()")
 	defer span.End()
 
-	if !u.RoleExists(ctx, role, domain) {
+	if !u.RoleExists(ctx, domain, role) {
 		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
 	}
 
@@ -490,18 +490,7 @@ func (u *userManager) RolePermissions(ctx context.Context, role accesstypes.Role
 	return permissions, nil
 }
 
-func (u *userManager) addPolicy(ctx context.Context, permission accesstypes.Permission, role accesstypes.Role, domain accesstypes.Domain) error {
-	_, span := otel.Tracer(name).Start(ctx, "client.addPolicy()")
-	defer span.End()
-
-	if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), "*", permission.Marshal(), "allow"); err != nil {
-		return errors.Wrap(err, "enforcer.AddPolicy()")
-	}
-
-	return nil
-}
-
-func (u *userManager) RoleExists(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) bool {
+func (u *userManager) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool {
 	_, span := otel.Tracer(name).Start(ctx, "client.RoleExists()")
 	defer span.End()
 
@@ -528,7 +517,7 @@ func (u *userManager) Domains(ctx context.Context) ([]accesstypes.Domain, error)
 	return domains, nil
 }
 
-func (u *userManager) hasUsersAssigned(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) (bool, error) {
+func (u *userManager) hasUsersAssigned(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	_, span := otel.Tracer(name).Start(ctx, "client.hasUsersAssigned()")
 	defer span.End()
 

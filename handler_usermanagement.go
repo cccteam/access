@@ -127,7 +127,7 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		if err := a.manager.AddRolePermissions(ctx, req.Permissions, role, domain); err != nil {
+		if err := a.manager.AddRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -156,7 +156,7 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		if err := a.manager.AddRoleUsers(ctx, req.Users, role, domain); err != nil {
+		if err := a.manager.AddRoleUsers(ctx, domain, role, req.Users...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -185,7 +185,7 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		if err := a.manager.DeleteRoleUsers(ctx, req.Users, role, domain); err != nil {
+		if err := a.manager.DeleteRoleUsers(ctx, domain, role, req.Users...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -214,7 +214,7 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		if err := a.manager.DeleteRolePermissions(ctx, req.Permissions, role, domain); err != nil {
+		if err := a.manager.DeleteRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -259,7 +259,7 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		roleUsers, err := a.manager.RoleUsers(ctx, role, domain)
+		roleUsers, err := a.manager.RoleUsers(ctx, domain, role)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -283,7 +283,7 @@ func (a *HandlerClient) RolePermissions() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		rolePermissions, err := a.manager.RolePermissions(ctx, role, domain)
+		rolePermissions, err := a.manager.RolePermissions(ctx, domain, role)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -305,7 +305,7 @@ func (a *HandlerClient) DeleteRole() http.HandlerFunc {
 		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
 		role := accesstypes.Role(httpio.Param[string](r, paramRole))
 
-		_, err := a.manager.DeleteRole(ctx, role, domain)
+		_, err := a.manager.DeleteRole(ctx, domain, role)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

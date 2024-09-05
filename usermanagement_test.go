@@ -12,6 +12,8 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// TestClient_User_Add_Delete tests adding and deleting roles from a user. It also tests the User method.
+// This ties all  three methods together, but it is the easiest way to check the results of Add/Delete.
 func TestClient_User_Add_Delete(t *testing.T) {
 	t.Parallel()
 
@@ -138,7 +140,7 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Fatalf("Client.User() mismatch (-want +got):\n%s", diff)
 			}
-			if err := c.AddRoleUsers(ctx, []accesstypes.User{tt.args.username}, tt.args.role, tt.args.domain); err != nil {
+			if err := c.AddRoleUsers(ctx, tt.args.domain, tt.args.role, tt.args.username); err != nil {
 				if tt.want2Err {
 					return
 				}
@@ -152,7 +154,7 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.wantAdd) {
 				t.Fatalf("Client.User() = %v, want %v", got, tt.wantAdd)
 			}
-			if err := c.DeleteUserRole(ctx, tt.args.username, tt.args.role, tt.args.domain); (err != nil) != tt.want2Err {
+			if err := c.DeleteUserRole(ctx, tt.args.domain, tt.args.username, tt.args.role); (err != nil) != tt.want2Err {
 				t.Errorf("Client.DeleteUserRole() error = %v, want2Err %v", err, tt.want2Err)
 			}
 			got, err = c.User(tt.args.ctx, tt.args.username)
@@ -330,7 +332,7 @@ func TestClient_RolePermissions(t *testing.T) {
 				},
 			}
 
-			got, err := c.RolePermissions(ctx, tt.args.role, tt.args.domain)
+			got, err := c.RolePermissions(ctx, tt.args.domain, tt.args.role)
 			if err != nil {
 				if tt.wantErr {
 					return
@@ -394,7 +396,7 @@ func TestClient_RoleUsers(t *testing.T) {
 				},
 			}
 
-			got, err := c.RoleUsers(ctx, tt.args.role, tt.args.domain)
+			got, err := c.RoleUsers(ctx, tt.args.domain, tt.args.role)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Client.RoleUsers() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -457,7 +459,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 				},
 			}
 
-			if err := c.DeleteRoleUsers(ctx, tt.args.users, tt.args.role, tt.args.domain); (err != nil) != tt.wantErr {
+			if err := c.DeleteRoleUsers(ctx, tt.args.domain, tt.args.role, tt.args.users...); (err != nil) != tt.wantErr {
 				t.Errorf("Client.DeleteRoleUsers() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -636,7 +638,7 @@ func TestClient_AddUserRoles(t *testing.T) {
 				},
 			}
 
-			if err := c.AddUserRoles(ctx, tt.args.user, tt.args.roles, tt.args.domain); (err != nil) != tt.wantErr {
+			if err := c.AddUserRoles(ctx, tt.args.domain, tt.args.user, tt.args.roles...); (err != nil) != tt.wantErr {
 				t.Errorf("Client.AddUserRoles() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
@@ -888,7 +890,7 @@ func TestClient_DeleteRole(t *testing.T) {
 				},
 			}
 
-			got, err := c.DeleteRole(ctx, tt.args.role, tt.args.domain)
+			got, err := c.DeleteRole(ctx, tt.args.domain, tt.args.role)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Client.DeleteRole() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -897,7 +899,7 @@ func TestClient_DeleteRole(t *testing.T) {
 				t.Errorf("Client.DeleteRole() = %v, want %v", got, tt.want)
 			}
 
-			exists := c.RoleExists(ctx, tt.args.role, tt.args.domain)
+			exists := c.RoleExists(ctx, tt.args.domain, tt.args.role)
 			if exists != tt.wantExist {
 				t.Errorf("Client.roleExists() = %v, want %v", exists, tt.wantExist)
 			}
@@ -969,7 +971,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				},
 			}
 
-			if err := c.DeleteRolePermissions(ctx, tt.args.permissions, tt.args.role, tt.args.domain); err != nil {
+			if err := c.DeleteRolePermissions(ctx, tt.args.domain, tt.args.role, tt.args.permissions...); err != nil {
 				if tt.wantErr {
 					return
 				}
@@ -977,7 +979,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				t.Errorf("Client.DeleteRolePermissions() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			permsAfter, err := c.RolePermissions(ctx, tt.args.role, tt.args.domain)
+			permsAfter, err := c.RolePermissions(ctx, tt.args.domain, tt.args.role)
 			if err != nil {
 				t.Errorf("Client.RolePermissions() error= %v", err)
 			}
@@ -1047,7 +1049,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 				},
 			}
 
-			if err := c.DeleteAllRolePermissions(ctx, tt.args.role, tt.args.domain); err != nil {
+			if err := c.DeleteAllRolePermissions(ctx, tt.args.domain, tt.args.role); err != nil {
 				if tt.wantErr {
 					return
 				}
@@ -1055,7 +1057,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 				t.Errorf("Client.DeleteRolePermissions() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			permsAfter, err := c.RolePermissions(ctx, tt.args.role, tt.args.domain)
+			permsAfter, err := c.RolePermissions(ctx, tt.args.domain, tt.args.role)
 			if err != nil {
 				t.Errorf("Client.RolePermissions() error= %v", err)
 			}
@@ -1129,7 +1131,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 				},
 			}
 
-			if err := c.AddRolePermissions(ctx, tt.args.permissions, tt.args.role, tt.args.domain); err != nil {
+			if err := c.AddRolePermissions(ctx, tt.args.domain, tt.args.role, tt.args.permissions...); err != nil {
 				if tt.wantErr {
 					return
 				}
@@ -1137,7 +1139,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 				t.Errorf("Client.AddRolePermissions() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			permissionsAfter, err := c.RolePermissions(ctx, tt.args.role, tt.args.domain)
+			permissionsAfter, err := c.RolePermissions(ctx, tt.args.domain, tt.args.role)
 			if err != nil {
 				t.Errorf("Client.RolePermissions() error = %s", err.Error())
 			}
