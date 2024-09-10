@@ -12,10 +12,10 @@ import (
 type Set struct {
 	requiredPermission accesstypes.Permission
 	requiredPermFields []string
-	resource           accesstypes.Resource
+	resource           Resource
 }
 
-func New(v any, resource accesstypes.Resource, requiredPermission accesstypes.Permission) (*Set, error) {
+func New(v any, resource Resource, requiredPermission accesstypes.Permission) (*Set, error) {
 	requiredPermFields, err := permissionsFromTags(v)
 	if err != nil {
 		panic(err)
