@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
@@ -108,7 +109,7 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, domain acces
 		return errors.Wrap(err, "client.RolePermissions()")
 	}
 
-	if err := u.DeleteRolePermissions(ctx, domain, role, perms...); err != nil {
+	if err := u.DeleteRolePermissions(ctx, domain, role, slices.Collect(maps.Keys(perms))...); err != nil {
 		return errors.Wrap(err, "client.DeleteRolePermissions()")
 	}
 
@@ -252,7 +253,7 @@ GP:
 }
 
 // UserRoles gets the roles assigned to a user separated by domain
-func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
+func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.UserRoles()")
 	defer span.End()
 
@@ -272,11 +273,11 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, doma
 	return userRoles, nil
 }
 
-func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
+func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (accesstypes.RoleCollection, error) {
 	_, span := otel.Tracer(name).Start(ctx, "client.userRoles()")
 	defer span.End()
 
-	userRoles := make(map[accesstypes.Domain][]accesstypes.Role)
+	userRoles := make(accesstypes.RoleCollection)
 	for _, domain := range domains {
 		strRoles, err := u.Enforcer().GetRolesForUser(user.Marshal(), domain.Marshal())
 		if err != nil {
@@ -293,7 +294,7 @@ func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, doma
 	return userRoles, nil
 }
 
-func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
+func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.UserPermissions()")
 	defer span.End()
 
@@ -313,26 +314,22 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 	return userPermissions, nil
 }
 
-func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
+func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
 	_, span := otel.Tracer(name).Start(ctx, "client.userPermissions()")
 	defer span.End()
 
-	userPermissions := make(map[accesstypes.Domain][]accesstypes.Permission)
+	userPermissions := make(accesstypes.UserPermissionCollection)
 	for _, domain := range domains {
+		userPermissions[domain] = make(map[accesstypes.Permission][]accesstypes.Resource)
+
 		strPerms, err := u.Enforcer().GetImplicitPermissionsForUser(user.Marshal(), domain.Marshal())
 		if err != nil {
 			return nil, errors.Wrap(err, "enforcer.GetImplicitPermissionsForUser()")
 		}
-		perms := make([]accesstypes.Permission, 0, len(strPerms))
+
 		for _, perm := range strPerms {
-			perms = append(perms, accesstypes.UnmarshalPermission(perm[3]))
+			userPermissions[domain][accesstypes.UnmarshalPermission(perm[3])] = append(userPermissions[domain][accesstypes.UnmarshalPermission(perm[3])], accesstypes.UnmarshalResource(perm[2]))
 		}
-
-		sort.Slice(perms, func(i, j int) bool {
-			return perms[i] < perms[j]
-		})
-
-		userPermissions[domain] = perms
 	}
 
 	return userPermissions, nil
@@ -421,7 +418,24 @@ func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes
 	}
 
 	for _, permission := range permissions {
-		if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), "*", permission.Marshal(), "allow"); err != nil {
+		if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), permission.Marshal(), "allow"); err != nil {
+			return errors.Wrap(err, "enforcer.AddPolicy()")
+		}
+	}
+
+	return nil
+}
+
+func (u *userManager) AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRolePermissions()")
+	defer span.End()
+
+	if !u.RoleExists(ctx, domain, role) {
+		return httpio.NewNotFoundMessagef("Permissions cannot be added to a role that doesn't exist")
+	}
+
+	for _, resource := range resources {
+		if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), resource.Marshal(), permission.Marshal(), "allow"); err != nil {
 			return errors.Wrap(err, "enforcer.AddPolicy()")
 		}
 	}
@@ -439,6 +453,25 @@ func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accessty
 
 	for _, permission := range permissions {
 		if _, err := u.Enforcer().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), "*", permission.Marshal()); err != nil {
+			return errors.Wrapf(err, "enforcer.RemoveFilteredPolicy() role=%q, domain=%q", role, domain)
+		}
+	}
+
+	return nil
+}
+
+func (u *userManager) DeleteRolePermissionResources(
+	ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource,
+) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRolePermissionResourcess()")
+	defer span.End()
+
+	if !u.RoleExists(ctx, domain, role) {
+		return httpio.NewNotFoundMessagef("Permissions cannot be removed from a role that doesn't exist")
+	}
+
+	for _, resource := range resources {
+		if _, err := u.Enforcer().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), resource.Marshal(), permission.Marshal()); err != nil {
 			return errors.Wrapf(err, "enforcer.RemoveFilteredPolicy() role=%q, domain=%q", role, domain)
 		}
 	}
@@ -466,7 +499,7 @@ func (u *userManager) RoleUsers(ctx context.Context, domain accesstypes.Domain, 
 	return actualUsers, nil
 }
 
-func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.Permission, error) {
+func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "client.RolePermissions()")
 	defer span.End()
 
@@ -479,9 +512,9 @@ func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Do
 		return nil, errors.Wrap(err, "enforcer.GetFilteredPolicy()")
 	}
 
-	permissions := make([]accesstypes.Permission, 0, len(policies))
+	permissions := make(accesstypes.RolePermissionCollection, len(policies))
 	for _, p := range policies {
-		permissions = append(permissions, accesstypes.UnmarshalPermission(p[3]))
+		permissions[accesstypes.UnmarshalPermission(p[3])] = append(permissions[accesstypes.UnmarshalPermission(p[3])], accesstypes.UnmarshalResource(p[2]))
 	}
 
 	return permissions, nil

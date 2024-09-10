@@ -47,12 +47,12 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			},
 			want: &UserAccess{
 				Name: "charlie",
-				Roles: map[accesstypes.Domain][]accesstypes.Role{
+				Roles: accesstypes.RoleCollection{
 					"global": {},
 					"755":    {},
 					"712":    {},
 				},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
+				Permissions: accesstypes.UserPermissionCollection{
 					"global": {},
 					"755":    {},
 					"712":    {},
@@ -60,12 +60,12 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			},
 			wantAdd: &UserAccess{
 				Name: "charlie",
-				Roles: map[accesstypes.Domain][]accesstypes.Role{
+				Roles: accesstypes.RoleCollection{
 					"global": {},
 					"755":    {},
 					"712":    {"Viewer"},
 				},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
+				Permissions: accesstypes.UserPermissionCollection{
 					"global": {},
 					"755":    {},
 					"712":    {},
@@ -93,12 +93,12 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			},
 			want: &UserAccess{
 				Name: "bill",
-				Roles: map[accesstypes.Domain][]accesstypes.Role{
+				Roles: accesstypes.RoleCollection{
 					"global": {},
 					"755":    {},
 					"712":    {},
 				},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
+				Permissions: accesstypes.UserPermissionCollection{
 					"global": {},
 					"755":    {},
 					"712":    {},
@@ -191,25 +191,25 @@ func TestClient_Users(t *testing.T) {
 			want: []*UserAccess{
 				{
 					Name: "alice",
-					Roles: map[accesstypes.Domain][]accesstypes.Role{
+					Roles: accesstypes.RoleCollection{
 						"global": {},
 						"712":    {},
 						"755":    {},
 					},
-					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
+					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
-						"712":    {"ViewUsers"},
+						"712":    {"ViewUsers": {"*"}},
 						"755":    {},
 					},
 				},
 				{
 					Name: "bob",
-					Roles: map[accesstypes.Domain][]accesstypes.Role{
+					Roles: accesstypes.RoleCollection{
 						"global": {},
 						"712":    {"Editor"},
 						"755":    {},
 					},
-					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
+					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
 						"712":    {},
 						"755":    {},
@@ -217,15 +217,15 @@ func TestClient_Users(t *testing.T) {
 				},
 				{
 					Name: "charlie",
-					Roles: map[accesstypes.Domain][]accesstypes.Role{
+					Roles: accesstypes.RoleCollection{
 						"global": {},
 						"712":    {},
 						"755":    {"Administrator"},
 					},
-					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
+					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
 						"712":    {},
-						"755":    {"AddUsers", "DeleteUsers"},
+						"755":    {"AddUsers": {"*"}, "DeleteUsers": {"*"}},
 					},
 				},
 			},
@@ -295,28 +295,28 @@ func TestClient_RolePermissions(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    []accesstypes.Permission
+		want    accesstypes.RolePermissionCollection
 		wantErr bool
 	}{
 		{
 			name:    "ReturnsListOfPermissions",
 			fields:  fields{e: enforcer},
 			args:    args{role: "Administrator", domain: "755"},
-			want:    []accesstypes.Permission{"DeleteUsers", "AddUsers"},
+			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"*"}, "AddUsers": {"*"}},
 			wantErr: false,
 		},
 		{
 			name:    "No Permissions Found",
 			fields:  fields{e: enforcer},
 			args:    args{role: "Administrator", domain: "712"},
-			want:    []accesstypes.Permission{},
+			want:    accesstypes.RolePermissionCollection{},
 			wantErr: false,
 		},
 		{
 			name:    "Bad role",
 			fields:  fields{e: enforcer},
 			args:    args{role: "asdvsdb", domain: "712"},
-			want:    []accesstypes.Permission{},
+			want:    accesstypes.RolePermissionCollection{},
 			wantErr: true,
 		},
 	}
@@ -920,7 +920,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 		name    string
 		args    args
 		wantErr bool
-		want    []accesstypes.Permission
+		want    accesstypes.RolePermissionCollection
 	}{
 		{
 			name: "Successfully removes permissions from a role",
@@ -930,8 +930,8 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				domain:      "755",
 			},
 			wantErr: false,
-			want: []accesstypes.Permission{
-				"DeleteUsers",
+			want: accesstypes.RolePermissionCollection{
+				"DeleteUsers": {"*"},
 			},
 		},
 		{
@@ -942,7 +942,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				domain:      "755",
 			},
 			wantErr: true,
-			want:    []accesstypes.Permission(nil),
+			want:    accesstypes.RolePermissionCollection(nil),
 		},
 		{
 			name: "fails to delete permissions due to wrong domain",
@@ -952,7 +952,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				domain:      "701",
 			},
 			wantErr: true,
-			want:    []accesstypes.Permission(nil),
+			want:    accesstypes.RolePermissionCollection(nil),
 		},
 	}
 	for _, tt := range tests {
@@ -1003,7 +1003,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 		name    string
 		args    args
 		wantErr bool
-		want    []accesstypes.Permission
+		want    accesstypes.RolePermissionCollection
 	}{
 		{
 			name: "Successfully removes permissions from a role",
@@ -1012,7 +1012,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 				domain: accesstypes.Domain("755"),
 			},
 			wantErr: false,
-			want:    []accesstypes.Permission{},
+			want:    accesstypes.RolePermissionCollection{},
 		},
 		{
 			name: "fails to delete permissions from non-existent role",
@@ -1021,7 +1021,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 				domain: accesstypes.Domain("755"),
 			},
 			wantErr: true,
-			want:    []accesstypes.Permission(nil),
+			want:    accesstypes.RolePermissionCollection(nil),
 		},
 		{
 			name: "fails to delete permissions due to wrong domain",
@@ -1030,7 +1030,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 				domain: accesstypes.Domain("701"),
 			},
 			wantErr: true,
-			want:    []accesstypes.Permission(nil),
+			want:    accesstypes.RolePermissionCollection(nil),
 		},
 	}
 	for _, tt := range tests {
@@ -1082,7 +1082,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 		name    string
 		args    args
 		wantErr bool
-		want    []accesstypes.Permission
+		want    accesstypes.RolePermissionCollection
 	}{
 		{
 			name: "Adds permissions successfully",
@@ -1092,7 +1092,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 				domain:      "712",
 			},
 			wantErr: false,
-			want:    []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
+			want:    accesstypes.RolePermissionCollection{"AddUser": {"*"}, "ViewUser": {"*"}, "AddName": {"*"}},
 		},
 		{
 			name: "fails due to missing role",
@@ -1102,7 +1102,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 				domain:      "712",
 			},
 			wantErr: true,
-			want:    []accesstypes.Permission{},
+			want:    accesstypes.RolePermissionCollection{},
 		},
 		{
 			name: "fails due to wrong domain",
@@ -1112,7 +1112,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 				domain:      "755",
 			},
 			wantErr: true,
-			want:    []accesstypes.Permission{},
+			want:    accesstypes.RolePermissionCollection{},
 		},
 	}
 	for _, tt := range tests {

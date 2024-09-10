@@ -33,16 +33,16 @@ func TestHandlerClient_Users(t *testing.T) {
 			name: "gets a list of users",
 			want: []UserAccess{{
 				Name:        "zach",
-				Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Administrator"}},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{accesstypes.Domain("755"): {ViewRolePermissions}},
+				Roles:       accesstypes.RoleCollection{accesstypes.Domain("755"): {"Administrator"}},
+				Permissions: accesstypes.UserPermissionCollection{accesstypes.Domain("755"): {ViewRolePermissions: {accesstypes.GlobalResource}}},
 			}},
 			prepare: func(accessManager *MockUserManager) {
 				// configuring the mock to expect a call to accessManager.Users and to return a list of users. This is set to only be called once
 				accessManager.EXPECT().Users(gomock.Any()).Return(
 					[]*UserAccess{{
 						Name:        "zach",
-						Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Administrator"}},
-						Permissions: map[accesstypes.Domain][]accesstypes.Permission{accesstypes.Domain("755"): {ViewRolePermissions}},
+						Roles:       accesstypes.RoleCollection{accesstypes.Domain("755"): {"Administrator"}},
+						Permissions: accesstypes.UserPermissionCollection{accesstypes.Domain("755"): {ViewRolePermissions: {accesstypes.GlobalResource}}},
 					}}, nil).Times(1)
 			},
 		},
@@ -127,15 +127,15 @@ func TestHandlerClient_User(t *testing.T) {
 			name: "Gets Zach",
 			want: &UserAccess{
 				Name:        "zach",
-				Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Viewer"}},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
+				Roles:       accesstypes.RoleCollection{accesstypes.Domain("755"): {"Viewer"}},
+				Permissions: accesstypes.UserPermissionCollection{},
 			},
 			args: args{username: "zach"},
 			prepare: func(user *MockUserManager) {
 				user.EXPECT().User(gomock.Any(), accesstypes.User("zach")).Return(&UserAccess{
 					Name:        "zach",
-					Roles:       map[accesstypes.Domain][]accesstypes.Role{accesstypes.Domain("755"): {"Viewer"}},
-					Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
+					Roles:       accesstypes.RoleCollection{accesstypes.Domain("755"): {"Viewer"}},
+					Permissions: accesstypes.UserPermissionCollection{},
 				}, nil).Times(1)
 			},
 		},
@@ -143,8 +143,8 @@ func TestHandlerClient_User(t *testing.T) {
 			name: "gets the wrong user",
 			want: &UserAccess{
 				Name:        "billy",
-				Roles:       map[accesstypes.Domain][]accesstypes.Role{},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
+				Roles:       accesstypes.RoleCollection{},
+				Permissions: accesstypes.UserPermissionCollection{},
 			},
 			wantErr: true,
 			args: args{
@@ -153,8 +153,8 @@ func TestHandlerClient_User(t *testing.T) {
 			prepare: func(user *MockUserManager) {
 				user.EXPECT().User(gomock.Any(), accesstypes.User("zach")).Return(&UserAccess{
 					Name:        "zach",
-					Roles:       map[accesstypes.Domain][]accesstypes.Role{},
-					Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
+					Roles:       accesstypes.RoleCollection{},
+					Permissions: accesstypes.UserPermissionCollection{},
 				}, nil).Times(1)
 			},
 		},
@@ -162,8 +162,8 @@ func TestHandlerClient_User(t *testing.T) {
 			name: "fails validation",
 			want: &UserAccess{
 				Name:        "billy",
-				Roles:       map[accesstypes.Domain][]accesstypes.Role{},
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{},
+				Roles:       accesstypes.RoleCollection{},
+				Permissions: accesstypes.UserPermissionCollection{},
 			},
 			wantErr: true,
 			args: args{
@@ -1147,19 +1147,19 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []string
+		want    accesstypes.RolePermissionCollection
 		prepare func(accessManager *MockUserManager)
 		wantErr bool
 	}{
 		{
 			name: "gets a list of permissions for role",
-			want: []string{"daddy"},
+			want: accesstypes.RolePermissionCollection{"daddy": {"*"}},
 			args: args{
 				guarantorID: "755",
 				role:        "Admin",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().RolePermissions(gomock.Any(), accesstypes.Domain("755"), gomock.Any()).Return([]accesstypes.Permission{"daddy"}, nil)
+				accessManager.EXPECT().RolePermissions(gomock.Any(), accesstypes.Domain("755"), gomock.Any()).Return(accesstypes.RolePermissionCollection{"daddy": {"*"}}, nil)
 			},
 		},
 		{
@@ -1234,7 +1234,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 				t.Errorf("App.RolePermissions() error = %v, wantErr = %v", got, tt.wantErr)
 			}
 
-			var got []string
+			var got accesstypes.RolePermissionCollection
 			if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 				t.Errorf("json.Unmarshal() error=%v", err)
 			}

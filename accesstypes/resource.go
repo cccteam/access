@@ -7,7 +7,7 @@ import (
 
 // GlobalResource is the resource used when a permission is applied to the entire application, (i.e. Global level)
 // instead of to a specific resource.
-const GlobalResource = Resource("global")
+const GlobalResource = Resource("*")
 
 const resourcePrefix = "resource:"
 

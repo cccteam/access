@@ -44,10 +44,10 @@ type UserManager interface {
 	Users(ctx context.Context, domain ...accesstypes.Domain) ([]*UserAccess, error)
 
 	// UserRoles returns a map of the domain
-	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error)
+	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.RoleCollection, error)
 
 	// UserPermissions returns a map of domains with a slice of permissions for each
-	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error)
+	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 
 	// AddRole adds a new role to a domain without assigning it to a user
 	//
@@ -67,8 +67,14 @@ type UserManager interface {
 	// AddRolePermissions adds a list of permissions to a role in a given domain
 	AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error
 
+	// AddRolePermissionResources adds a list of resources to a permission for a role in a domain
+	AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
+
 	// DeleteRolePermissions removes a list of permissions to a role in a given domain
 	DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error
+
+	// DeleteRolePermissionResources removes a list of resources from a permission for a role in a domain
+	DeleteRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
 	// DeleteAllRolePermissions removes all permissions for a given role in a domain
 	DeleteAllRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
@@ -77,7 +83,7 @@ type UserManager interface {
 	RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// RolePermissions returns the list of permissions attached to a role in a given domain
-	RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.Permission, error)
+	RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 
 	// Domains returns the full list of domains
 	Domains(ctx context.Context) ([]accesstypes.Domain, error)

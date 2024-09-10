@@ -19,9 +19,9 @@ const (
 // Permissions Required: ViewUsers
 func (a *HandlerClient) Users() http.HandlerFunc {
 	type user struct {
-		Name        string                                          `json:"name"`
-		Roles       map[accesstypes.Domain][]accesstypes.Role       `json:"roles"`
-		Permissions map[accesstypes.Domain][]accesstypes.Permission `json:"permissions"`
+		Name        string                               `json:"name"`
+		Roles       accesstypes.RoleCollection           `json:"roles"`
+		Permissions accesstypes.UserPermissionCollection `json:"permissions"`
 	}
 
 	type response []*user
@@ -49,9 +49,9 @@ func (a *HandlerClient) Users() http.HandlerFunc {
 // Permissions Required: ViewUsers
 func (a *HandlerClient) User() http.HandlerFunc {
 	type response struct {
-		Name        string                                          `json:"name"`
-		Roles       map[accesstypes.Domain][]accesstypes.Role       `json:"roles"`
-		Permissions map[accesstypes.Domain][]accesstypes.Permission `json:"permissions"`
+		Name        string                               `json:"name"`
+		Roles       accesstypes.RoleCollection           `json:"roles"`
+		Permissions accesstypes.UserPermissionCollection `json:"permissions"`
 	}
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
@@ -274,7 +274,7 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 //
 // Permissions Required: ListRolePermissions
 func (a *HandlerClient) RolePermissions() http.HandlerFunc {
-	type response []accesstypes.Permission
+	type response accesstypes.RolePermissionCollection
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RolePermissions()")
