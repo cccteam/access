@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/cccteam/access/compare/v0.1.3...v0.1.4) (2024-09-10)
+
+
+### Features
+
+* Move resource type to acesstype package ([#17](https://github.com/cccteam/access/issues/17)) ([ef4cb59](https://github.com/cccteam/access/commit/ef4cb5965ae343aa50d4d8be6ad21a6d848935aa))
+
 ## [0.1.3](https://github.com/cccteam/access/compare/v0.1.2...v0.1.3) (2024-08-30)
 
 
