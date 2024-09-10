@@ -12,10 +12,10 @@ import (
 type Set struct {
 	requiredPermission accesstypes.Permission
 	requiredPermFields []string
-	resource           Resource
+	resource           accesstypes.Resource
 }
 
-func New(v any, resource Resource, requiredPermission accesstypes.Permission) (*Set, error) {
+func New(v any, resource accesstypes.Resource, requiredPermission accesstypes.Permission) (*Set, error) {
 	requiredPermFields, err := permissionsFromTags(v)
 	if err != nil {
 		panic(err)
@@ -46,8 +46,8 @@ func (m *Set) Contains(fieldName string) bool {
 	return false
 }
 
-func (m *Set) ResourceName(fieldName string) Name {
-	return Name(fmt.Sprintf("%s.%s", m.resource, fieldName))
+func (m *Set) Resource(fieldName string) accesstypes.Resource {
+	return accesstypes.Resource(fmt.Sprintf("%s.%s", m.resource, fieldName))
 }
 
 func permissionsFromTags(v any) (fields []string, err error) {
