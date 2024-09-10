@@ -46,8 +46,8 @@ func (m *Set) Contains(fieldName string) bool {
 	return false
 }
 
-func (m *Set) Resource(fieldName string) accesstypes.Resource {
-	return accesstypes.Resource(fmt.Sprintf("%s.%s", m.resource, fieldName))
+func (m *Set) ResourceName(fieldName string) Name {
+	return Name(fmt.Sprintf("%s.%s", m.resource, fieldName))
 }
 
 func permissionsFromTags(v any) (fields []string, err error) {
