@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	github.com/casbin/casbin/v2 v2.98.0
-	github.com/cccteam/httpio v0.3.0
+	github.com/cccteam/httpio v0.3.1
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/errors/v5 v5.4.0
@@ -29,6 +29,7 @@ require (
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.14 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.5.0 // indirect
 	github.com/casbin/govaluate v1.2.0 // indirect
+	github.com/cccteam/ccc v0.2.1 // indirect
 	github.com/cccteam/logger v0.1.12 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -42,6 +43,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/pkg/v5 v5.30.0 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
