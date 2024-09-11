@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/cccteam/access/compare/v0.1.4...v0.2.0) (2024-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* Refactored the interface for consistency and adding in support for Resources ([#13](https://github.com/cccteam/access/issues/13))
+
+### Features
+
+* Implement Resources in Casbin ([#13](https://github.com/cccteam/access/issues/13)) ([0bbf51a](https://github.com/cccteam/access/commit/0bbf51a1c44d73e2c876b88c3bc169a06cc5db37))
+
+
+### Code Refactoring
+
+* Refactored the interface for consistency and adding in support for Resources ([#13](https://github.com/cccteam/access/issues/13)) ([0bbf51a](https://github.com/cccteam/access/commit/0bbf51a1c44d73e2c876b88c3bc169a06cc5db37))
+
 ## [0.1.4](https://github.com/cccteam/access/compare/v0.1.3...v0.1.4) (2024-09-10)
 
 
