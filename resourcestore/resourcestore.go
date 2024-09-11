@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/cccteam/access/accesstypes"
-	"github.com/cccteam/access/resourceset"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -23,18 +22,18 @@ type Store struct {
 	//	│   └── ...
 	//	├── Resource2
 	//	└── Resource...
-	store map[resourceset.Resource]map[accesstypes.Permission][]string
+	store map[accesstypes.Resource]map[accesstypes.Permission][]string
 }
 
 func New() *Store {
 	store := &Store{
-		store: map[resourceset.Resource]map[accesstypes.Permission][]string{},
+		store: map[accesstypes.Resource]map[accesstypes.Permission][]string{},
 	}
 
 	return store
 }
 
-func (s *Store) Add(res resourceset.Resource, permission accesstypes.Permission, fields []string) error {
+func (s *Store) Add(res accesstypes.Resource, permission accesstypes.Permission, fields []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -50,7 +49,7 @@ func (s *Store) Add(res resourceset.Resource, permission accesstypes.Permission,
 	return nil
 }
 
-func (s *Store) Fields(parent resourceset.Resource, permission accesstypes.Permission) []string {
+func (s *Store) Fields(parent accesstypes.Resource, permission accesstypes.Permission) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -62,7 +61,7 @@ func (s *Store) Fields(parent resourceset.Resource, permission accesstypes.Permi
 	return copyOfFields(fields)
 }
 
-func (s *Store) PermissionsWithFields(parent resourceset.Resource) map[accesstypes.Permission][]string {
+func (s *Store) PermissionsWithFields(parent accesstypes.Resource) map[accesstypes.Permission][]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

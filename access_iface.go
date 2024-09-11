@@ -25,29 +25,29 @@ var _ UserManager = &userManager{}
 // UserManager is the interface for managing RBAC including the management of roles and permissions for users
 type UserManager interface {
 	// AddRoleUsers assigns a given role to a slice of users if the role exists
-	AddRoleUsers(ctx context.Context, users []accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error
+	AddRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error
 
 	// AddUserRoles assigns a list of roles to a user if the role exists
-	AddUserRoles(ctx context.Context, user accesstypes.User, roles []accesstypes.Role, domain accesstypes.Domain) error
+	AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
 
 	// DeleteRoleUsers removes users from a given role
-	DeleteRoleUsers(ctx context.Context, users []accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error
+	DeleteRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error
 
-	// DeleteUserRole deletes the role assignment for a user in a specific domain.
+	// DeleteUserRoles deletes the role assignment for a user in a specific domain.
 	// Behavior is the same whether or not the role exists for the user.
-	DeleteUserRole(ctx context.Context, username accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error
+	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
 
 	// User returns a User by the given username with the roles that have been assigned.
-	User(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error)
+	User(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error)
 
 	// Users gets a list of users with their assigned roles
 	Users(ctx context.Context, domain ...accesstypes.Domain) ([]*UserAccess, error)
 
 	// UserRoles returns a map of the domain
-	UserRoles(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error)
+	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.RoleCollection, error)
 
 	// UserPermissions returns a map of domains with a slice of permissions for each
-	UserPermissions(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error)
+	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 
 	// AddRole adds a new role to a domain without assigning it to a user
 	//
@@ -55,29 +55,35 @@ type UserManager interface {
 	AddRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
 
 	// RoleExists determines if the given Role exists for Domain
-	RoleExists(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) bool
+	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool
 
 	// Roles returns the full list of roles for a given domain
 	Roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error)
 
 	// DeleteRole deletes a role from the system.
 	// If there are users assigned, it will not be deleted.
-	DeleteRole(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) (bool, error)
+	DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
 
 	// AddRolePermissions adds a list of permissions to a role in a given domain
-	AddRolePermissions(ctx context.Context, permissions []accesstypes.Permission, role accesstypes.Role, domain accesstypes.Domain) error
+	AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error
+
+	// AddRolePermissionResources adds a list of resources to a permission for a role in a domain
+	AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
 	// DeleteRolePermissions removes a list of permissions to a role in a given domain
-	DeleteRolePermissions(ctx context.Context, permissions []accesstypes.Permission, role accesstypes.Role, domain accesstypes.Domain) error
+	DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error
+
+	// DeleteRolePermissionResources removes a list of resources from a permission for a role in a domain
+	DeleteRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
 	// DeleteAllRolePermissions removes all permissions for a given role in a domain
-	DeleteAllRolePermissions(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) error
+	DeleteAllRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
 
 	// RoleUsers returns the list of users attached to a role in a given domain
-	RoleUsers(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) ([]accesstypes.User, error)
+	RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// RolePermissions returns the list of permissions attached to a role in a given domain
-	RolePermissions(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) ([]accesstypes.Permission, error)
+	RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 
 	// Domains returns the full list of domains
 	Domains(ctx context.Context) ([]accesstypes.Domain, error)
