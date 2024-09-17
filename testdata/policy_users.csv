@@ -1,8 +1,8 @@
-p, role:Editor,         domain:755,         *, perm:ViewUsers, allow
-p, user:alice,          domain:712,         *, perm:ViewUsers, allow
-p, role:Editor,         domain:755,         *, perm:ViewUsers, allow
-p, role:Administrator,  domain:755,         *, perm:DeleteUsers, allow
-p, role:Administrator,  domain:755,         *, perm:AddUsers, allow
+p, role:Editor,         domain:755,         resource:global, perm:ViewUsers, allow
+p, user:alice,          domain:712,         resource:global, perm:ViewUsers, allow
+p, role:Editor,         domain:755,         resource:global, perm:ViewUsers, allow
+p, role:Administrator,  domain:755,         resource:global, perm:DeleteUsers, allow
+p, role:Administrator,  domain:755,         resource:global, perm:AddUsers, allow
 g, user:charlie,        role:Administrator, domain:755
 g, noop,                role:Editor,        domain:712
 g, user:bob,            role:Editor,        domain:712

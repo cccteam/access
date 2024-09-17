@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cccteam/access/accesstypes"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
@@ -1153,13 +1153,13 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 	}{
 		{
 			name: "gets a list of permissions for role",
-			want: accesstypes.RolePermissionCollection{"daddy": {"*"}},
+			want: accesstypes.RolePermissionCollection{"daddy": {"resource:global"}},
 			args: args{
 				guarantorID: "755",
 				role:        "Admin",
 			},
 			prepare: func(accessManager *MockUserManager) {
-				accessManager.EXPECT().RolePermissions(gomock.Any(), accesstypes.Domain("755"), gomock.Any()).Return(accesstypes.RolePermissionCollection{"daddy": {"*"}}, nil)
+				accessManager.EXPECT().RolePermissions(gomock.Any(), accesstypes.Domain("755"), gomock.Any()).Return(accesstypes.RolePermissionCollection{"daddy": {"resource:global"}}, nil)
 			},
 		},
 		{

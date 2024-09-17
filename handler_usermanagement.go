@@ -3,7 +3,7 @@ package access
 import (
 	"net/http"
 
-	"github.com/cccteam/access/accesstypes"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"go.opentelemetry.io/otel"
 )
