@@ -4,7 +4,7 @@ package resourcestore
 import (
 	"sync"
 
-	"github.com/cccteam/access/accesstypes"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 )
 

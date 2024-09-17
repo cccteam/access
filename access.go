@@ -4,7 +4,7 @@ package access
 import (
 	"context"
 
-	"github.com/cccteam/access/accesstypes"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"

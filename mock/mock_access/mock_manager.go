@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	access "github.com/cccteam/access"
-	accesstypes "github.com/cccteam/access/accesstypes"
+	accesstypes "github.com/cccteam/ccc/accesstypes"
 	validator "github.com/go-playground/validator/v10"
 	gomock "go.uber.org/mock/gomock"
 )
