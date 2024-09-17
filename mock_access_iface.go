@@ -74,6 +74,25 @@ func (mr *MockControllerMockRecorder) RequireAll(ctx, user, domain any, permissi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequireAll", reflect.TypeOf((*MockController)(nil).RequireAll), varargs...)
 }
 
+// RequireResources mocks base method.
+func (m *MockController) RequireResources(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, username, domain, perm}
+	for _, a := range resources {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RequireResources", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RequireResources indicates an expected call of RequireResources.
+func (mr *MockControllerMockRecorder) RequireResources(ctx, username, domain, perm any, resources ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, username, domain, perm}, resources...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequireResources", reflect.TypeOf((*MockController)(nil).RequireResources), varargs...)
+}
+
 // UserManager mocks base method.
 func (m *MockController) UserManager() UserManager {
 	m.ctrl.T.Helper()

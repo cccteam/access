@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/casbin/casbin/v2"
-	"github.com/cccteam/access/accesstypes"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/mock/gomock"
 )
@@ -198,7 +198,7 @@ func TestClient_Users(t *testing.T) {
 					},
 					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
-						"712":    {"ViewUsers": {"*"}},
+						"712":    {"ViewUsers": {"global"}},
 						"755":    {},
 					},
 				},
@@ -225,7 +225,7 @@ func TestClient_Users(t *testing.T) {
 					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
 						"712":    {},
-						"755":    {"AddUsers": {"*"}, "DeleteUsers": {"*"}},
+						"755":    {"AddUsers": {"global"}, "DeleteUsers": {"global"}},
 					},
 				},
 			},
@@ -302,7 +302,7 @@ func TestClient_RolePermissions(t *testing.T) {
 			name:    "ReturnsListOfPermissions",
 			fields:  fields{e: enforcer},
 			args:    args{role: "Administrator", domain: "755"},
-			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"*"}, "AddUsers": {"*"}},
+			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"global"}, "AddUsers": {"global"}},
 			wantErr: false,
 		},
 		{
@@ -931,7 +931,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			},
 			wantErr: false,
 			want: accesstypes.RolePermissionCollection{
-				"DeleteUsers": {"*"},
+				"DeleteUsers": {"global"},
 			},
 		},
 		{
@@ -1092,7 +1092,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 				domain:      "712",
 			},
 			wantErr: false,
-			want:    accesstypes.RolePermissionCollection{"AddUser": {"*"}, "ViewUser": {"*"}, "AddName": {"*"}},
+			want:    accesstypes.RolePermissionCollection{"AddUser": {"global"}, "ViewUser": {"global"}, "AddName": {"global"}},
 		},
 		{
 			name: "fails due to missing role",

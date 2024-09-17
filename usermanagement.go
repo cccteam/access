@@ -452,7 +452,7 @@ func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accessty
 	}
 
 	for _, permission := range permissions {
-		if _, err := u.Enforcer().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), "*", permission.Marshal()); err != nil {
+		if _, err := u.Enforcer().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), permission.Marshal()); err != nil {
 			return errors.Wrapf(err, "enforcer.RemoveFilteredPolicy() role=%q, domain=%q", role, domain)
 		}
 	}

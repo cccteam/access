@@ -37,7 +37,7 @@ func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) H
 }
 
 func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perms ...accesstypes.Permission) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "App.Require()")
+	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireAll()")
 	defer span.End()
 
 	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
@@ -47,7 +47,30 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 	}
 
 	for _, perm := range perms {
-		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), "*", perm.Marshal())
+		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), perm.Marshal())
+		if err != nil {
+			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
+		}
+		if !authorized {
+			return httpio.NewForbiddenMessagef("user %s does not have %s", username, perm)
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) RequireResources(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireResources()")
+	defer span.End()
+
+	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
+		return err
+	} else if !exists {
+		return httpio.NewBadRequestMessage("Invalid Domain")
+	}
+
+	for _, resource := range resources {
+		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal())
 		if err != nil {
 			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
 		}
