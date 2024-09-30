@@ -1195,10 +1195,12 @@ github.com/casbin/govaluate v1.1.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO7
 github.com/casbin/govaluate v1.1.1/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
 github.com/casbin/govaluate v1.2.0 h1:wXCXFmqyY+1RwiKfYo3jMKyrtZmOL3kHwaqDyCPOYak=
 github.com/casbin/govaluate v1.2.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
-github.com/cccteam/ccc v0.2.2 h1:P5NPtl37TX+TVOn9WWbkvH176iKQbyZIzOj/JBD7JGY=
-github.com/cccteam/ccc v0.2.2/go.mod h1:25HYwHhGDaySryecj23Zj+WiMq57NVoKGfOTcHON8yg=
-github.com/cccteam/httpio v0.4.0 h1:1rE5Vvu5sXdQ0j18XNUWY1NEpqvdMMmIdmcMr5L56Tc=
-github.com/cccteam/httpio v0.4.0/go.mod h1:C+Ge9K/uQXpCLfcH9UAy5ZyU5kytIbC4EJ1IBzJkmyY=
+github.com/cccteam/ccc v0.2.7 h1:Ok+llkrmHJMOVjZ7ddChkJkCEHKz+LtE7WPqZ1blRgE=
+github.com/cccteam/ccc v0.2.7/go.mod h1:25HYwHhGDaySryecj23Zj+WiMq57NVoKGfOTcHON8yg=
+github.com/cccteam/ccc/accesstypes v0.2.4 h1:/HzXNdopOUN+afwMmnO7caBn6TeZmYpsL4FSXRHP9Zo=
+github.com/cccteam/ccc/accesstypes v0.2.4/go.mod h1:b/h5mdhoRGPB6q27wde4VTIMMYPT2MMOw4NqBEG7FZ8=
+github.com/cccteam/httpio v0.4.1 h1:wuItKkjswPzJNsKVLwSjyg5NTEIrO1NXpK7XlkT0Ti8=
+github.com/cccteam/httpio v0.4.1/go.mod h1:C4WCgs+YrTNh7YNDwy68UDR61g5Kmvk48rM+y+SH57Q=
 github.com/cccteam/logger v0.1.12 h1:qmNPJKb9wOlTHYN+WUUaOkKM1YxVyXsOusuA2Xp7/tE=
 github.com/cccteam/logger v0.1.12/go.mod h1:sctqFYiCg0KkKszjmAkWV4ynkuHNbFwTdsAPn8IlWh0=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
