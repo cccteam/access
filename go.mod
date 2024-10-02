@@ -5,7 +5,7 @@ go 1.23.1
 require (
 	github.com/casbin/casbin/v2 v2.100.0
 	github.com/cccteam/ccc/accesstypes v0.2.5
-	github.com/cccteam/httpio v0.4.1
+	github.com/cccteam/httpio v0.5.0
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/errors/v5 v5.4.0
@@ -34,6 +34,8 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/cccteam/ccc v0.2.7 // indirect
+	github.com/cccteam/ccc/patchset v0.1.0 // indirect
+	github.com/cccteam/ccc/resourceset v0.1.1 // indirect
 	github.com/cccteam/logger v0.1.12 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
