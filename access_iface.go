@@ -16,7 +16,7 @@ type Controller interface {
 	// RequireResource checks if a user has the given permission for a list of resources in a domain
 	RequireResources(
 		ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (ok bool, missing accesstypes.Resource, err error)
+	) (ok bool, missing []accesstypes.Resource, err error)
 
 	// UserManager returns the UserManager interface for managing users, roles, and permissions
 	UserManager() UserManager
