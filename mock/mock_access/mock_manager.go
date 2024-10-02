@@ -76,15 +76,17 @@ func (mr *MockControllerMockRecorder) RequireAll(ctx, user, domain any, permissi
 }
 
 // RequireResources mocks base method.
-func (m *MockController) RequireResources(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) error {
+func (m *MockController) RequireResources(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) (bool, []accesstypes.Resource, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username, domain, perm}
 	for _, a := range resources {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "RequireResources", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].([]accesstypes.Resource)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // RequireResources indicates an expected call of RequireResources.
