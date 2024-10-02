@@ -59,27 +59,34 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 	return nil
 }
 
-func (c *Client) RequireResources(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) error {
+func (c *Client) RequireResources(
+	ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) (bool, []accesstypes.Resource, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireResources()")
 	defer span.End()
 
 	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
-		return err
+		return false, nil, err
 	} else if !exists {
-		return httpio.NewBadRequestMessage("Invalid Domain")
+		return false, nil, httpio.NewBadRequestMessage("Invalid Domain")
 	}
 
+	missing := make([]accesstypes.Resource, 0)
 	for _, resource := range resources {
 		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal())
 		if err != nil {
-			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
+			return false, nil, errors.Wrap(err, "casbin.IEnforcer Enforce()")
 		}
 		if !authorized {
-			return httpio.NewForbiddenMessagef("user %s does not have %s", username, perm)
+			missing = append(missing, resource)
 		}
 	}
 
-	return nil
+	if len(missing) > 0 {
+		return false, missing, nil
+	}
+
+	return true, nil, nil
 }
 
 func (c *Client) UserManager() UserManager {
