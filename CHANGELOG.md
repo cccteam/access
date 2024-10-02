@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/cccteam/access/compare/v0.3.0...v0.4.0) (2024-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* Changed the signature of RequireResources() method. We now return a slice of missing resources ([#24](https://github.com/cccteam/access/issues/24))
+
+### Code Refactoring
+
+* Changed the signature of RequireResources() method. We now return a slice of missing resources ([#24](https://github.com/cccteam/access/issues/24)) ([3bf3e6b](https://github.com/cccteam/access/commit/3bf3e6b20e7e24f9f0c56eac88913867761c20ec))
+* Move resourcestore package to a new location ([#24](https://github.com/cccteam/access/issues/24)) ([3bf3e6b](https://github.com/cccteam/access/commit/3bf3e6b20e7e24f9f0c56eac88913867761c20ec))
+
 ## [0.3.0](https://github.com/cccteam/access/compare/v0.2.0...v0.3.0) (2024-09-17)
 
 
