@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	github.com/casbin/casbin/v2 v2.100.0
-	github.com/cccteam/ccc/accesstypes v0.2.5
+	github.com/cccteam/ccc/accesstypes v0.3.0
 	github.com/cccteam/httpio v0.5.0
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.1.0
