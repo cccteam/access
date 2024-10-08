@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/cccteam/access/compare/v0.4.0...v0.4.1) (2024-10-08)
+
+
+### Code Upgrade
+
+* Go dependency updates ([#29](https://github.com/cccteam/access/issues/29)) ([3bc8181](https://github.com/cccteam/access/commit/3bc81819b4d980f5b0d058086d07269809f98487))
+
 ## [0.4.0](https://github.com/cccteam/access/compare/v0.3.0...v0.4.0) (2024-10-02)
 
 
