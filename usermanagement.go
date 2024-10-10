@@ -320,7 +320,7 @@ func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User
 
 	userPermissions := make(accesstypes.UserPermissionCollection)
 	for _, domain := range domains {
-		userPermissions[domain] = make(map[accesstypes.Permission][]accesstypes.Resource)
+		userPermissions[domain] = make(map[accesstypes.Resource][]accesstypes.Permission)
 
 		strPerms, err := u.Enforcer().GetImplicitPermissionsForUser(user.Marshal(), domain.Marshal())
 		if err != nil {
@@ -328,7 +328,10 @@ func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User
 		}
 
 		for _, perm := range strPerms {
-			userPermissions[domain][accesstypes.UnmarshalPermission(perm[3])] = append(userPermissions[domain][accesstypes.UnmarshalPermission(perm[3])], accesstypes.UnmarshalResource(perm[2]))
+			if slices.Contains(userPermissions[domain][accesstypes.UnmarshalResource(perm[2])], accesstypes.UnmarshalPermission(perm[3])) {
+				continue
+			}
+			userPermissions[domain][accesstypes.UnmarshalResource(perm[2])] = append(userPermissions[domain][accesstypes.UnmarshalResource(perm[2])], accesstypes.UnmarshalPermission(perm[3]))
 		}
 	}
 

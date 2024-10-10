@@ -34,7 +34,7 @@ func TestHandlerClient_Users(t *testing.T) {
 			want: []UserAccess{{
 				Name:        "zach",
 				Roles:       accesstypes.RoleCollection{accesstypes.Domain("755"): {"Administrator"}},
-				Permissions: accesstypes.UserPermissionCollection{accesstypes.Domain("755"): {ViewRolePermissions: {accesstypes.GlobalResource}}},
+				Permissions: accesstypes.UserPermissionCollection{accesstypes.Domain("755"): {accesstypes.GlobalResource: {ViewRolePermissions}}},
 			}},
 			prepare: func(accessManager *MockUserManager) {
 				// configuring the mock to expect a call to accessManager.Users and to return a list of users. This is set to only be called once
@@ -42,7 +42,7 @@ func TestHandlerClient_Users(t *testing.T) {
 					[]*UserAccess{{
 						Name:        "zach",
 						Roles:       accesstypes.RoleCollection{accesstypes.Domain("755"): {"Administrator"}},
-						Permissions: accesstypes.UserPermissionCollection{accesstypes.Domain("755"): {ViewRolePermissions: {accesstypes.GlobalResource}}},
+						Permissions: accesstypes.UserPermissionCollection{accesstypes.Domain("755"): {accesstypes.GlobalResource: {ViewRolePermissions}}},
 					}}, nil).Times(1)
 			},
 		},
