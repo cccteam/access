@@ -49,7 +49,7 @@ func NewSpannerAdapter(databaseName, tableName string) *SpannerAdapter {
 }
 
 func (s *SpannerAdapter) NewAdapter() (persist.Adapter, error) {
-	a, err := spanneradapter.NewAdapter(s.databaseName, spanneradapter.WithTableName(s.tableName))
+	a, err := spanneradapter.NewAdapter(s.databaseName, spanneradapter.WithSkipDatabaseCreation(true), spanneradapter.WithTableName(s.tableName))
 	if err != nil {
 		return nil, errors.Wrap(err, "spanneradapter.NewAdapter()")
 	}
