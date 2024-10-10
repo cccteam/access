@@ -198,7 +198,7 @@ func TestClient_Users(t *testing.T) {
 					},
 					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
-						"712":    {"ViewUsers": {"global"}},
+						"712":    {"global": {"ViewUsers"}},
 						"755":    {},
 					},
 				},
@@ -225,7 +225,7 @@ func TestClient_Users(t *testing.T) {
 					Permissions: accesstypes.UserPermissionCollection{
 						"global": {},
 						"712":    {},
-						"755":    {"AddUsers": {"global"}, "DeleteUsers": {"global"}},
+						"755":    {"global": {"DeleteUsers", "AddUsers"}},
 					},
 				},
 			},
