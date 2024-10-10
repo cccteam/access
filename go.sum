@@ -1207,6 +1207,8 @@ github.com/cccteam/ccc/patchset v0.2.0 h1:mIiIw1Pbkg/UACMGncj4waiT6kN+ng2YTgcMLq
 github.com/cccteam/ccc/patchset v0.2.0/go.mod h1:UQeUOFwua72/QSUS7dz7gEjA47T88zFmqePwo8byxeM=
 github.com/cccteam/ccc/resourceset v0.3.0 h1:BhPNXYo3g8CBY+7W297FOp9kvkTuLB+FJkTJ47U4HIk=
 github.com/cccteam/ccc/resourceset v0.3.0/go.mod h1:fpga+CoS0qmlUbq02hwlo8FOGoY5WKjsBi134q6xW5s=
+github.com/cccteam/ccc/resourcestore v0.3.1 h1:/GdfqvJppyh2fcoS4CpmA+QH+2ZjaHjkv3mEih0ls4k=
+github.com/cccteam/ccc/resourcestore v0.3.1/go.mod h1:Jif/35NMnawtKUeXZE/xo0JN39EYzteXiBoX7OXGOIA=
 github.com/cccteam/httpio v0.5.0 h1:Oy0bdiUzaBim2+bdLI1EBIy5jfX/lFBYapJ5YZRPYVs=
 github.com/cccteam/httpio v0.5.0/go.mod h1:zx2ZivBgXM0gakuO61H+Nj+ia4c+n29d4vC/BJ28gSg=
 github.com/cccteam/logger v0.1.12 h1:qmNPJKb9wOlTHYN+WUUaOkKM1YxVyXsOusuA2Xp7/tE=
