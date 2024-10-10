@@ -1201,8 +1201,8 @@ github.com/casbin/govaluate v1.2.0 h1:wXCXFmqyY+1RwiKfYo3jMKyrtZmOL3kHwaqDyCPOYa
 github.com/casbin/govaluate v1.2.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
 github.com/cccteam/ccc v0.2.8 h1:LShJOt6Svr20pyjbErCZOPPPFj6wtwvtpaU4dPi3RYY=
 github.com/cccteam/ccc v0.2.8/go.mod h1:25HYwHhGDaySryecj23Zj+WiMq57NVoKGfOTcHON8yg=
-github.com/cccteam/ccc/accesstypes v0.3.0 h1:a90sPmLtBTlR79zBUyqzTXXXpmqbgbc9S40PH8mYbqw=
-github.com/cccteam/ccc/accesstypes v0.3.0/go.mod h1:b/h5mdhoRGPB6q27wde4VTIMMYPT2MMOw4NqBEG7FZ8=
+github.com/cccteam/ccc/accesstypes v0.4.0 h1:2+w1fwTzB68AwAFjCpmJrqJ6C9dnNrfqU6J8tCoNFJU=
+github.com/cccteam/ccc/accesstypes v0.4.0/go.mod h1:b/h5mdhoRGPB6q27wde4VTIMMYPT2MMOw4NqBEG7FZ8=
 github.com/cccteam/ccc/patchset v0.2.0 h1:mIiIw1Pbkg/UACMGncj4waiT6kN+ng2YTgcMLqFDFRo=
 github.com/cccteam/ccc/patchset v0.2.0/go.mod h1:UQeUOFwua72/QSUS7dz7gEjA47T88zFmqePwo8byxeM=
 github.com/cccteam/ccc/resourceset v0.3.0 h1:BhPNXYo3g8CBY+7W297FOp9kvkTuLB+FJkTJ47U4HIk=
