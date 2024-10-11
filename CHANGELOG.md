@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.5.0](https://github.com/cccteam/access/compare/v0.4.1...v0.5.0) (2024-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* Update for changes in the UserPermissionCollection type from accesstypes ([#35](https://github.com/cccteam/access/issues/35))
+
+### Features
+
+* Implement support for loading role configuration ([#36](https://github.com/cccteam/access/issues/36)) ([0317a69](https://github.com/cccteam/access/commit/0317a693726e35f8bc77b178d7c68c1803c0226d))
+
+
+### Bug Fixes
+
+* Disable database creation for Spanner adapter ([#34](https://github.com/cccteam/access/issues/34)) ([1957664](https://github.com/cccteam/access/commit/195766485bb39d2db8e547df39d3b9791b3e46af))
+* Reword error message in NewAdapter function on SpannerAdapter to return the correct package ([#32](https://github.com/cccteam/access/issues/32)) ([743a989](https://github.com/cccteam/access/commit/743a9894775338672340881d51216b44127d8c15))
+
+
+### Code Refactoring
+
+* Update for changes in the UserPermissionCollection type from accesstypes ([#35](https://github.com/cccteam/access/issues/35)) ([3f05aca](https://github.com/cccteam/access/commit/3f05acadacce283279eccad88c1fddca68a56e9a))
+
+
+### Code Upgrade
+
+* Update go dependencies ([#37](https://github.com/cccteam/access/issues/37)) ([8dd9c59](https://github.com/cccteam/access/commit/8dd9c598272099ee1e7343bfd3fdb992529e7346))
+
 ## [0.4.1](https://github.com/cccteam/access/compare/v0.4.0...v0.4.1) (2024-10-08)
 
 
