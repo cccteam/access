@@ -4,9 +4,9 @@ go 1.23.1
 
 require (
 	github.com/casbin/casbin/v2 v2.100.0
-	github.com/cccteam/ccc/accesstypes v0.4.0
-	github.com/cccteam/ccc/resourcestore v0.4.0
-	github.com/cccteam/httpio v0.5.0
+	github.com/cccteam/ccc/accesstypes v0.4.1
+	github.com/cccteam/ccc/resourcestore v0.4.1
+	github.com/cccteam/httpio v0.5.1
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/errors/v5 v5.4.0
@@ -14,8 +14,8 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/pckhoi/casbin-pgx-adapter/v3 v3.2.0
-	go.opentelemetry.io/otel v1.30.0
-	go.uber.org/mock v0.4.0
+	go.opentelemetry.io/otel v1.31.0
+	go.uber.org/mock v0.5.0
 )
 
 require (
@@ -66,10 +66,10 @@ require (
 	go.opentelemetry.io/contrib/detectors/gcp v1.30.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.55.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0 // indirect
-	go.opentelemetry.io/otel/metric v1.30.0 // indirect
+	go.opentelemetry.io/otel/metric v1.31.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.30.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.30.0 // indirect
-	go.opentelemetry.io/otel/trace v1.30.0 // indirect
+	go.opentelemetry.io/otel/trace v1.31.0 // indirect
 	golang.org/x/crypto v0.28.0 // indirect
 	golang.org/x/net v0.30.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
