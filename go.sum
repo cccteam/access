@@ -1210,8 +1210,8 @@ github.com/cccteam/ccc/resourceset v0.3.3 h1:T/6HTMIYJwcvtjP6Umy8R9rQMZP1LL2sKR6
 github.com/cccteam/ccc/resourceset v0.3.3/go.mod h1:WRe4vcTTOzwvGCiPcYLBQAIsZMlDrn7+w2YVOAb5YG8=
 github.com/cccteam/ccc/resourcestore v0.4.2 h1:d8c/E58l99eLmCTHJg9ngFddpsKKXmWAyJJywNQMNSo=
 github.com/cccteam/ccc/resourcestore v0.4.2/go.mod h1:KIoS2b/YPx+mGifNshIHQGTAxxZvs3TiIjrS28CMp5o=
-github.com/cccteam/httpio v0.6.0 h1:Wpjcvz9hypEJGqQFr6hHewICu0wq/Lr0jrcO55kW7i0=
-github.com/cccteam/httpio v0.6.0/go.mod h1:t+y8mIsu3Wxj12c2H0OBQ7vxIrB2z9euFkSENZqv8Z4=
+github.com/cccteam/httpio v0.6.1 h1:c2JcfpqDINK7GTqFGFFDQiQR9rG7F7pPZfLeAGr4pEw=
+github.com/cccteam/httpio v0.6.1/go.mod h1:/pfKsDUOZ/PDdA3Ojn/za0WniizVrQ19YAirmbo/NKI=
 github.com/cccteam/logger v0.1.12 h1:qmNPJKb9wOlTHYN+WUUaOkKM1YxVyXsOusuA2Xp7/tE=
 github.com/cccteam/logger v0.1.12/go.mod h1:sctqFYiCg0KkKszjmAkWV4ynkuHNbFwTdsAPn8IlWh0=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
