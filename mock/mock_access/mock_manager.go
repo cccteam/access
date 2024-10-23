@@ -23,6 +23,7 @@ import (
 type MockController struct {
 	ctrl     *gomock.Controller
 	recorder *MockControllerMockRecorder
+	isgomock struct{}
 }
 
 // MockControllerMockRecorder is the mock recorder for MockController.
@@ -114,6 +115,7 @@ func (mr *MockControllerMockRecorder) UserManager() *gomock.Call {
 type MockUserManager struct {
 	ctrl     *gomock.Controller
 	recorder *MockUserManagerMockRecorder
+	isgomock struct{}
 }
 
 // MockUserManagerMockRecorder is the mock recorder for MockUserManager.
@@ -501,6 +503,7 @@ func (mr *MockUserManagerMockRecorder) Users(ctx any, domain ...any) *gomock.Cal
 type MockDomains struct {
 	ctrl     *gomock.Controller
 	recorder *MockDomainsMockRecorder
+	isgomock struct{}
 }
 
 // MockDomainsMockRecorder is the mock recorder for MockDomains.
