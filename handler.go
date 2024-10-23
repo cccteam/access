@@ -40,8 +40,8 @@ func newHandler(client *Client, validate *validator.Validate, logHandler LogHand
 }
 
 // NewDecoder returns an httpio.Decoder to simplify the validator call to a single location
-func NewDecoder[T any](a *HandlerClient) *httpio.Decoder[T] {
-	decoder, err := httpio.NewDecoder[T]()
+func NewDecoder[T any](a *HandlerClient) *httpio.StructDecoder[T] {
+	decoder, err := httpio.NewStructDecoder[T]()
 	if err != nil {
 		panic(err)
 	}
