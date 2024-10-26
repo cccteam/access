@@ -6,7 +6,7 @@ require (
 	github.com/casbin/casbin/v2 v2.100.0
 	github.com/cccteam/ccc/accesstypes v0.4.1
 	github.com/cccteam/ccc/resourcestore v0.4.2
-	github.com/cccteam/httpio v0.6.1
+	github.com/cccteam/httpio v0.6.3
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/errors/v5 v5.4.0

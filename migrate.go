@@ -90,6 +90,8 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestor
 				if err := client.AddRolePermissionResources(ctx, domain, r.Name, permission, resources...); err != nil {
 					return errors.Wrapf(err, "permissions %v, role %s", perms, r.Name)
 				}
+			}
+			if len(newPermissions) > 0 {
 				fmt.Printf("Added Permissions %v to role %s and domain %s\n", newPermissions, r.Name, domain)
 			}
 
