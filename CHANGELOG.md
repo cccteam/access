@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/cccteam/access/compare/v0.6.0...v0.7.0) (2024-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* Fix for breaking change from httpio ([#42](https://github.com/cccteam/access/issues/42))
+
+### Bug Fixes
+
+* Fix for breaking change from httpio ([#42](https://github.com/cccteam/access/issues/42)) ([e4ce5eb](https://github.com/cccteam/access/commit/e4ce5eb58ba3ccb8f8dcdee1894c33925d0fa86d))
+
 ## [0.6.0](https://github.com/cccteam/access/compare/v0.5.0...v0.6.0) (2024-10-23)
 
 
