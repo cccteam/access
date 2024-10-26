@@ -46,5 +46,5 @@ func NewDecoder[T any](a *HandlerClient) *httpio.StructDecoder[T] {
 		panic(err)
 	}
 
-	return decoder.WithValidator(a.validate.Struct)
+	return decoder.WithValidator(a.validate)
 }
