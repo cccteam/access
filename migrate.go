@@ -100,6 +100,8 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestor
 				if err := client.DeleteRolePermissionResources(ctx, domain, r.Name, permission, resources...); err != nil {
 					return errors.Wrapf(err, "permissions %v, role %s", perms, r.Name)
 				}
+			}
+			if len(removePermissions) > 0 {
 				fmt.Printf("Removed Permissions %v from role %s and domain %s\n", removePermissions, r.Name, domain)
 			}
 		}
