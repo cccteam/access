@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/cccteam/access/compare/v0.7.0...v0.7.1) (2024-10-28)
+
+
+### Bug Fixes
+
+* Remove duplicate logging of permissions being removed ([#44](https://github.com/cccteam/access/issues/44)) ([a65a8f7](https://github.com/cccteam/access/commit/a65a8f7d7fa1a5e24006716dfc0f74056dd6e91c))
+
 ## [0.7.0](https://github.com/cccteam/access/compare/v0.6.0...v0.7.0) (2024-10-26)
 
 
