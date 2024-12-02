@@ -52,6 +52,8 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestor
 		return err
 	}
 
+	storePermissions := store.List()
+
 	for _, r := range roles {
 		globalPermResources := make(map[accesstypes.Permission][]accesstypes.Resource)
 		domainPermResources := make(map[accesstypes.Permission][]accesstypes.Resource)
@@ -63,6 +65,15 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestor
 					globalPermResources[perm] = append(globalPermResources[perm], resource)
 				} else {
 					domainPermResources[perm] = append(domainPermResources[perm], resource)
+				}
+
+				if !slices.Contains(storePermissions[perm], resource) {
+					return errors.Newf("resource %s does not require permission %s", resource, perm)
+				}
+
+				if perm == accesstypes.Update {
+					// Check that permission is not dis-allowed on resource
+					// return errors.Newf("resource %s does not allow permission %s", resource, perm)
 				}
 			}
 		}
