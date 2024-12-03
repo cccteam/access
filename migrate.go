@@ -70,6 +70,13 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Col
 				if !slices.Contains(storePermissions[perm], resource) {
 					return errors.Newf("resource %s does not require permission %s", resource, perm)
 				}
+
+				if perm == accesstypes.Update && store.IsResourceImmutable(store.Scope(resource), resource) {
+					if r.Name != "Administrator" {
+						return errors.Newf("role %s cannot have update permission on immutable resource %s", r.Name, resource)
+					}
+
+				}
 			}
 		}
 
