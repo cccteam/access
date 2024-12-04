@@ -75,7 +75,6 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Col
 					if r.Name != "Administrator" {
 						return errors.Newf("role %s cannot have update permission on immutable resource %s", r.Name, resource)
 					}
-
 				}
 			}
 		}
