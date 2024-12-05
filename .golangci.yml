@@ -171,6 +171,11 @@ issues:
         - gochecknoinits
         - lll
 
+    - path: migrate\.go
+      linters:
+        - gocognit
+      text: bootstrapRoles
+
   include:
     - EXC0002
     - EXC0005

@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/cccteam/ccc/accesstypes"
-	"github.com/cccteam/ccc/resourcestore"
+	"github.com/cccteam/ccc/resource"
 	"github.com/go-playground/errors/v5"
 	"go.opentelemetry.io/otel"
 )
@@ -22,7 +22,7 @@ type Role struct {
 }
 
 // MigrateRoles runs through and adds the specified roles with specific permissions to the application
-func MigrateRoles(ctx context.Context, client UserManager, store *resourcestore.Store, roleConfig *RoleConfig) error {
+func MigrateRoles(ctx context.Context, client UserManager, store *resource.Collection, roleConfig *RoleConfig) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "MigrateRoles()")
 	defer span.End()
 
@@ -39,7 +39,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store *resourcestore.
 	return nil
 }
 
-func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestore.Store, roles []*Role) error {
+func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Collection, roles []*Role) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "bootstrapRoles()")
 	defer span.End()
 
@@ -52,6 +52,8 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestor
 		return err
 	}
 
+	storePermissions := store.List()
+
 	for _, r := range roles {
 		globalPermResources := make(map[accesstypes.Permission][]accesstypes.Resource)
 		domainPermResources := make(map[accesstypes.Permission][]accesstypes.Resource)
@@ -63,6 +65,10 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resourcestor
 					globalPermResources[perm] = append(globalPermResources[perm], resource)
 				} else {
 					domainPermResources[perm] = append(domainPermResources[perm], resource)
+				}
+
+				if !slices.Contains(storePermissions[perm], resource) {
+					return errors.Newf("resource %s does not require permission %s", resource, perm)
 				}
 			}
 		}
