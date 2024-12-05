@@ -4,8 +4,8 @@ go 1.23.1
 
 require (
 	github.com/casbin/casbin/v2 v2.100.0
-	github.com/cccteam/ccc/accesstypes v0.4.1
-	github.com/cccteam/ccc/resourcestore v0.4.2
+	github.com/cccteam/ccc/accesstypes v0.5.0
+	github.com/cccteam/ccc/resource v0.0.2
 	github.com/cccteam/httpio v0.6.3
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.1.0
@@ -28,7 +28,7 @@ require (
 	cloud.google.com/go/logging v1.12.0 // indirect
 	cloud.google.com/go/longrunning v0.6.1 // indirect
 	cloud.google.com/go/monitoring v1.21.1 // indirect
-	cloud.google.com/go/spanner v1.70.0 // indirect
+	cloud.google.com/go/spanner v1.73.0 // indirect
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.14 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.5.1 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.24.3 // indirect
