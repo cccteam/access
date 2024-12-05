@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/cccteam/access/compare/v0.7.1...v0.7.2) (2024-12-05)
+
+
+### Features
+
+* Add strict Role permission checking ([#50](https://github.com/cccteam/access/issues/50)) ([c59159b](https://github.com/cccteam/access/commit/c59159bbcf30f0498aad07107722cc58d617cb98))
+
 ## [0.7.1](https://github.com/cccteam/access/compare/v0.7.0...v0.7.1) (2024-10-28)
 
 
