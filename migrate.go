@@ -70,11 +70,6 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Col
 				if !slices.Contains(storePermissions[perm], resource) {
 					return errors.Newf("resource %s does not require permission %s", resource, perm)
 				}
-
-				if perm == accesstypes.Update {
-					// Check that permission is not dis-allowed on resource
-					// return errors.Newf("resource %s does not allow permission %s", resource, perm)
-				}
 			}
 		}
 
