@@ -162,7 +162,7 @@ func exclude(source, exclude map[accesstypes.Permission][]accesstypes.Resource) 
 }
 
 // The Administrator should have all legal permissions, this function will prevent any updates to immutable resources
-func adminPermissions(store *resourcestore.Store) map[accesstypes.Permission][]accesstypes.Resource {
+func adminPermissions(store *resource.Collection) map[accesstypes.Permission][]accesstypes.Resource {
 	list := store.List()
 	list[accesstypes.Update] = slices.DeleteFunc(list[accesstypes.Update], func(res accesstypes.Resource) bool {
 		return store.IsResourceImmutable(store.Scope(res), res)
