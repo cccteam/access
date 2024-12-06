@@ -29,7 +29,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store *resource.Colle
 	// Default Administrator role has all permissions
 	roleConfig.Roles = append(roleConfig.Roles, &Role{
 		Name:        "Administrator",
-		Permissions: store.List(),
+		Permissions: adminPermissions(store),
 	})
 
 	if err := bootstrapRoles(ctx, client, store, roleConfig.Roles); err != nil {
@@ -69,6 +69,10 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Col
 
 				if !slices.Contains(storePermissions[perm], resource) {
 					return errors.Newf("resource %s does not require permission %s", resource, perm)
+				}
+
+				if perm == accesstypes.Update && store.IsResourceImmutable(store.Scope(resource), resource) {
+					return errors.Newf("role %s cannot have update permission on immutable resource %s", r.Name, resource)
 				}
 			}
 		}
@@ -153,6 +157,16 @@ func exclude(source, exclude map[accesstypes.Permission][]accesstypes.Resource) 
 			list[sk] = append(list[sk], item)
 		}
 	}
+
+	return list
+}
+
+// The Administrator should have all legal permissions, this function will prevent any updates to immutable resources
+func adminPermissions(store *resource.Collection) map[accesstypes.Permission][]accesstypes.Resource {
+	list := store.List()
+	list[accesstypes.Update] = slices.DeleteFunc(list[accesstypes.Update], func(res accesstypes.Resource) bool {
+		return store.IsResourceImmutable(store.Scope(res), res)
+	})
 
 	return list
 }
