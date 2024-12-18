@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0](https://github.com/cccteam/access/compare/v0.7.2...v0.8.0) (2024-12-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* Update for dependency changes ([#55](https://github.com/cccteam/access/issues/55))
+
+### Features
+
+* validate update permission against immutable fields ([#51](https://github.com/cccteam/access/issues/51)) ([4c79fd9](https://github.com/cccteam/access/commit/4c79fd97c616c60ce9e2be24fff7af24e4d7a707))
+
+
+### Bug Fixes
+
+* Update for dependency changes ([#55](https://github.com/cccteam/access/issues/55)) ([0c6e23e](https://github.com/cccteam/access/commit/0c6e23efbbc05bb8eb3a00109b5e2a0208a9dbc0))
+
 ## [0.7.2](https://github.com/cccteam/access/compare/v0.7.1...v0.7.2) (2024-12-05)
 
 
