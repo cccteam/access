@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.1](https://github.com/cccteam/access/compare/v0.8.0...v0.8.1) (2025-02-12)
+
+
+### Bug Fixes
+
+* upgrade go version ([#60](https://github.com/cccteam/access/issues/60)) ([8e4ab49](https://github.com/cccteam/access/commit/8e4ab4923c2840818a35cede95afc58de5e1597c))
+
+
+### Code Upgrade
+
+* go dependencies ([#62](https://github.com/cccteam/access/issues/62)) ([970b710](https://github.com/cccteam/access/commit/970b710d22989efe6e6b41cbb274d9a672f6724b))
+
 ## [0.8.0](https://github.com/cccteam/access/compare/v0.7.2...v0.8.0) (2024-12-18)
 
 
