@@ -1202,10 +1202,10 @@ github.com/casbin/govaluate v1.3.0 h1:VA0eSY0M2lA86dYd5kPPuNZMUD9QkWnOCnavGrw9my
 github.com/casbin/govaluate v1.3.0/go.mod h1:G/UnbIjZk/0uMNaLwZZmFQrR72tYRZWQkO70si/iR7A=
 github.com/cccteam/ccc v0.2.9 h1:fcoLnajq1Rvpcix4rb/ehfuYBbzeQucr/dwGYZfYSs0=
 github.com/cccteam/ccc v0.2.9/go.mod h1:25HYwHhGDaySryecj23Zj+WiMq57NVoKGfOTcHON8yg=
-github.com/cccteam/ccc/accesstypes v0.5.0 h1:puGqjSsVOkQGDqwWd4tJGPgrySQOnRsLY6MEGZfe0KE=
-github.com/cccteam/ccc/accesstypes v0.5.0/go.mod h1:b/h5mdhoRGPB6q27wde4VTIMMYPT2MMOw4NqBEG7FZ8=
-github.com/cccteam/ccc/resource v0.0.12 h1:i+TsWkB0Z+5L6n1bPGqPdBF1kBfr6qRcqjEojuQHteo=
-github.com/cccteam/ccc/resource v0.0.12/go.mod h1:YxY/2/YiPXifv6wRtq7C5ffnb7qfuO7oz+KgPlJVNk8=
+github.com/cccteam/ccc/accesstypes v0.5.1-0.20250222014135-244851aa50b3 h1:/7rFOeCLnzbl9ljV7mBu7hc+NSOR4yxDz51Q/ublFsQ=
+github.com/cccteam/ccc/accesstypes v0.5.1-0.20250222014135-244851aa50b3/go.mod h1:iQZ6g/wZQSpBOapQeS57Csfe+AAm16wIVrsuZH5NLOs=
+github.com/cccteam/ccc/resource v0.0.17 h1:4hkAJoKzk2FurTQp5dGnlP5SQgR3RriokfWUyR4Ihh8=
+github.com/cccteam/ccc/resource v0.0.17/go.mod h1:kDm0pDIGS3jUeNOubs2kvsVshK/w1A4oRcjnqXKPDa8=
 github.com/cccteam/httpio v0.7.6 h1:FFDq4EMqzF7A2AlzzOsKngRgUilDiHx9/XxNjn9vLPY=
 github.com/cccteam/httpio v0.7.6/go.mod h1:bcU1D9xcFjLNYEUt/sg2vrQxbfYa4e42RxocuQGNBdU=
 github.com/cccteam/logger v0.1.12 h1:qmNPJKb9wOlTHYN+WUUaOkKM1YxVyXsOusuA2Xp7/tE=
