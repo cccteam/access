@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/cccteam/access/compare/v0.8.1...v0.8.2) (2025-03-20)
+
+
+### Bug Fixes
+
+* Upstream breaking change fix ([#63](https://github.com/cccteam/access/issues/63)) ([51c0bb2](https://github.com/cccteam/access/commit/51c0bb2be2155229b21cb24843f46fe04f71c4eb))
+
 ## [0.8.1](https://github.com/cccteam/access/compare/v0.8.0...v0.8.1) (2025-02-12)
 
 
