@@ -87,7 +87,7 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRole()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		req, err := decoder.DecodeWithoutPermissions(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -119,7 +119,7 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRolePermissions()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		req, err := decoder.DecodeWithoutPermissions(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -149,7 +149,7 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRoleUsers()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		req, err := decoder.DecodeWithoutPermissions(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -178,7 +178,7 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRoleUsers()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		req, err := decoder.DecodeWithoutPermissions(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -207,7 +207,7 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRolePermissions()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		req, err := decoder.DecodeWithoutPermissions(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}

@@ -1,11 +1,11 @@
 module github.com/cccteam/access
 
-go 1.23.6
+go 1.24.1
 
 require (
 	github.com/casbin/casbin/v2 v2.103.0
-	github.com/cccteam/ccc/accesstypes v0.5.0
-	github.com/cccteam/ccc/resource v0.0.12
+	github.com/cccteam/ccc/accesstypes v0.5.1-0.20250222014135-244851aa50b3
+	github.com/cccteam/ccc/resource v0.0.17
 	github.com/cccteam/httpio v0.7.6
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3
 	github.com/go-chi/chi/v5 v5.2.1
