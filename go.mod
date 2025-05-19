@@ -5,14 +5,14 @@ go 1.24.1
 require (
 	github.com/casbin/casbin/v2 v2.105.0
 	github.com/cccteam/ccc/accesstypes v0.5.2
-	github.com/cccteam/ccc/resource v0.1.0
+	github.com/cccteam/ccc/resource v0.1.11
 	github.com/cccteam/httpio v0.7.7
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/google/go-cmp v0.7.0
-	github.com/jackc/pgx/v5 v5.7.4
+	github.com/jackc/pgx/v5 v5.7.5
 	github.com/pckhoi/casbin-pgx-adapter/v3 v3.2.0
 	go.opentelemetry.io/otel v1.35.0
 	go.uber.org/mock v0.5.2
