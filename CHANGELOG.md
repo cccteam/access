@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.5](https://github.com/cccteam/access/compare/v0.8.4...v0.8.5) (2025-06-13)
+
+
+### Code Upgrade
+
+* bump Go minor version ([#82](https://github.com/cccteam/access/issues/82)) ([2277a58](https://github.com/cccteam/access/commit/2277a587afd1523ef4274ea9d1f9c2beee1a3807))
+
 ## [0.8.4](https://github.com/cccteam/access/compare/v0.8.3...v0.8.4) (2025-05-22)
 
 
