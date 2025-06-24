@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.6](https://github.com/cccteam/access/compare/v0.8.5...v0.8.6) (2025-06-24)
+
+
+### Code Upgrade
+
+* bump Go dependencies version to address vuln (https://github.com/cccteam/access/pull/88) ([b9e2393](https://github.com/cccteam/access/commit/b9e2393efe3093ca71f498ba7428e98ab64f9a59))
+
 ## [0.8.5](https://github.com/cccteam/access/compare/v0.8.4...v0.8.5) (2025-06-13)
 
 
