@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.7](https://github.com/cccteam/access/compare/v0.8.6...v0.8.7) (2025-09-22)
+
+
+### Features
+
+* bump Go version to 1.24.6 due to vuln ([#98](https://github.com/cccteam/access/issues/98)) ([3c8a62c](https://github.com/cccteam/access/commit/3c8a62c6cff8dbd8a36b775738cb7ac3ff152933))
+
 ## [0.8.6](https://github.com/cccteam/access/compare/v0.8.5...v0.8.6) (2025-06-24)
 
 
