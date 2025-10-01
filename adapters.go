@@ -8,16 +8,20 @@ import (
 	pgxadapter "github.com/pckhoi/casbin-pgx-adapter/v3"
 )
 
+// Adapter creates casbin persistence adapters.
 type Adapter interface {
+	// NewAdapter returns a casbin persistence adapter.
 	NewAdapter() (persist.Adapter, error)
 }
 
+// PostgresAdapter provides PostgreSQL persistence for casbin policies.
 type PostgresAdapter struct {
 	connConfig   *pgx.ConnConfig
 	databaseName string
 	tableName    string
 }
 
+// NewPostgresAdapter creates PostgreSQL adapter for storing casbin policies.
 func NewPostgresAdapter(connConfig *pgx.ConnConfig, databaseName, tableName string) *PostgresAdapter {
 	return &PostgresAdapter{
 		connConfig:   connConfig,
@@ -26,6 +30,7 @@ func NewPostgresAdapter(connConfig *pgx.ConnConfig, databaseName, tableName stri
 	}
 }
 
+// NewAdapter creates PostgreSQL casbin adapter.
 func (p *PostgresAdapter) NewAdapter() (persist.Adapter, error) {
 	a, err := pgxadapter.NewAdapter(p.connConfig, pgxadapter.WithDatabase(p.databaseName), pgxadapter.WithTableName(p.tableName))
 	if err != nil {
@@ -35,12 +40,13 @@ func (p *PostgresAdapter) NewAdapter() (persist.Adapter, error) {
 	return a, nil
 }
 
+// SpannerAdapter provides Spanner persistence for casbin policies.
 type SpannerAdapter struct {
-	connConfig   *pgx.ConnConfig
 	databaseName string
 	tableName    string
 }
 
+// NewSpannerAdapter creates Spanner adapter for storing casbin policies.
 func NewSpannerAdapter(databaseName, tableName string) *SpannerAdapter {
 	return &SpannerAdapter{
 		databaseName: databaseName,
@@ -48,6 +54,7 @@ func NewSpannerAdapter(databaseName, tableName string) *SpannerAdapter {
 	}
 }
 
+// NewAdapter creates Spanner casbin adapter. Skips database creation.
 func (s *SpannerAdapter) NewAdapter() (persist.Adapter, error) {
 	a, err := spanneradapter.NewAdapter(s.databaseName, spanneradapter.WithSkipDatabaseCreation(true), spanneradapter.WithTableName(s.tableName))
 	if err != nil {

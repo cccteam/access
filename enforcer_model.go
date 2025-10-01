@@ -1,6 +1,6 @@
 package access
 
-// rbacModel is the perm model for the casbin enforcer
+// rbacModel returns casbin RBAC model configuration for domain-based access control with allow/deny effects.
 func rbacModel() string {
 	return `
 		[request_definition]

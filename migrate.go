@@ -1,4 +1,3 @@
-// deployment provides the utilities to bootstrap the application with preset configuration
 package access
 
 import (
@@ -12,16 +11,19 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// RoleConfig contains roles for migration.
 type RoleConfig struct {
 	Roles []*Role `json:"roles"`
 }
 
+// Role defines role name and permissions mapped to resources.
 type Role struct {
 	Name        accesstypes.Role
 	Permissions map[accesstypes.Permission][]accesstypes.Resource
 }
 
-// MigrateRoles runs through and adds the specified roles with specific permissions to the application
+// MigrateRoles applies role configuration across all domains. Adds missing roles and permissions,
+// removes extras, and includes Administrator role with all permissions.
 func MigrateRoles(ctx context.Context, client UserManager, store *resource.Collection, roleConfig *RoleConfig) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "MigrateRoles()")
 	defer span.End()
