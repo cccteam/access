@@ -21,8 +21,8 @@ type Client struct {
 }
 
 // New creates a new user client
-func New(domains Domains, adapter Adapter) (*Client, error) {
-	userManager, err := newUserManager(domains, adapter)
+func New(domains Domains, store Store) (*Client, error) {
+	userManager, err := newUserManager(domains, store)
 	if err != nil {
 		return nil, errors.Wrap(err, "newUserManager()")
 	}
@@ -47,9 +47,9 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 	}
 
 	for _, perm := range perms {
-		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), perm.Marshal())
+		authorized, err := c.userManager.enforcer.Enforce(ctx, username.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), perm.Marshal())
 		if err != nil {
-			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
+			return errors.Wrap(err, "enforcer.Enforce()")
 		}
 		if !authorized {
 			return httpio.NewForbiddenMessagef("user %s does not have %s", username, perm)
@@ -73,9 +73,9 @@ func (c *Client) RequireResources(
 
 	missing := make([]accesstypes.Resource, 0)
 	for _, resource := range resources {
-		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal())
+		authorized, err := c.userManager.enforcer.Enforce(ctx, username.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal())
 		if err != nil {
-			return false, nil, errors.Wrap(err, "casbin.IEnforcer Enforce()")
+			return false, nil, errors.Wrap(err, "enforcer.Enforce()")
 		}
 		if !authorized {
 			missing = append(missing, resource)
