@@ -37,11 +37,12 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				ctx:      context.Background(),
 				username: "charlie",
 				role:     "Viewer",
-				domain:   accesstypes.Domain("712"),
+				domain:   "712",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
-				domains.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(3)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				domains.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 			want: &UserAccess{
 				Name: "charlie",
@@ -86,8 +87,8 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				username: "bill",
-				role:     accesstypes.Role("Non-Existent"),
-				domain:   accesstypes.Domain("712"),
+				role:     "Non-Existent",
+				domain:   "712",
 			},
 			want: &UserAccess{
 				Name: "bill",
@@ -103,7 +104,7 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				},
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
-				domains.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).MaxTimes(3)
+				domains.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).AnyTimes()
 				store.EXPECT().RoleByName(gomock.Any(), "Non-Existent").Return(nil, nil).AnyTimes()
 			},
 			want2Err: true,
@@ -281,7 +282,8 @@ func TestClient_RolePermissions(t *testing.T) {
 			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"global"}, "AddUsers": {"global"}},
 			wantErr: false,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Administrator"
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
@@ -290,13 +292,14 @@ func TestClient_RolePermissions(t *testing.T) {
 			want:    accesstypes.RolePermissionCollection{},
 			wantErr: false,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Administrator"
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
 			name:    "Bad role",
 			args:    args{role: "asdvsdb", domain: "712"},
-			want:    accesstypes.RolePermissionCollection{},
+			want:    nil,
 			wantErr: true,
 			prepare: func(store *MockStore) {
 				store.EXPECT().RoleByName(gomock.Any(), "asdvsdb").Return(nil, nil).AnyTimes()
@@ -411,11 +414,12 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			args: args{
 				users:  []accesstypes.User{"charlie"},
 				role:   "Administrator",
-				domain: accesstypes.Domain("755"),
+				domain: "755",
 			},
 			wantErr: false,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Administrator"
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
@@ -423,7 +427,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			args: args{
 				users:  []accesstypes.User{"charlie"},
 				role:   "Viewer",
-				domain: accesstypes.Domain("755"),
+				domain: "755",
 			},
 			wantErr: true,
 			prepare: func(store *MockStore) {
@@ -471,8 +475,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Successfully add a new role",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
-				role:   accesstypes.Role("AddUser"),
+				domain: "755",
+				role:   "AddUser",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
@@ -484,8 +488,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
-				role:   accesstypes.Role("AddUser"),
+				domain: "733",
+				role:   "AddUser",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
@@ -496,8 +500,8 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
-				role:   accesstypes.Role("AddUser"),
+				domain: "733",
+				role:   "AddUser",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "733").Return(false, errors.New("failed to get domain"))
@@ -508,12 +512,13 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Role Already Exists",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
-				role:   accesstypes.Role("Viewer"),
+				domain: "755",
+				role:   "Viewer",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 			wantErr: true,
 		},
@@ -559,26 +564,28 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Successfully add roles to a user",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: "712",
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: "712",
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 			wantErr: false,
 		},
@@ -586,13 +593,14 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: "712",
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 			wantErr: false,
 		},
@@ -646,7 +654,7 @@ func TestClient_Roles(t *testing.T) {
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: "733",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
@@ -657,7 +665,7 @@ func TestClient_Roles(t *testing.T) {
 			name: "returns error checking if domain exists ",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: "733",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "733").Return(false, errors.New("failed to get DomainIDs"))
@@ -668,17 +676,17 @@ func TestClient_Roles(t *testing.T) {
 			name: "Returns list of roles",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: "712",
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "712").Return(true, nil)
 			},
 			wantErr: false,
 			want: []accesstypes.Role{
-				accesstypes.Role("Administrator"),
-				accesstypes.Role("Auditor"),
-				accesstypes.Role("Editor"),
-				accesstypes.Role("Viewer"),
+				"Administrator",
+				"Auditor",
+				"Editor",
+				"Viewer",
 			},
 		},
 	}
@@ -731,7 +739,7 @@ func TestClient_DomainIDs(t *testing.T) {
 			prepare: func(domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).Return([]string{"755", "712"}, nil)
 			},
-			want:    []accesstypes.Domain{accesstypes.GlobalDomain, accesstypes.Domain("755"), accesstypes.Domain("712")},
+			want:    []accesstypes.Domain{accesstypes.GlobalDomain, "755", "712"},
 			wantErr: false,
 		},
 		{
@@ -789,8 +797,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Success",
 			args: args{
-				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("755"),
+				role:   "Viewer",
+				domain: "755",
 			},
 			want:      true,
 			wantErr:   false,
@@ -799,8 +807,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Success when noop exists",
 			args: args{
-				role:   accesstypes.Role("Writer"),
-				domain: accesstypes.Domain("712"),
+				role:   "Writer",
+				domain: "712",
 			},
 			want:      true,
 			wantErr:   false,
@@ -809,8 +817,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Success when it doesn't exist already",
 			args: args{
-				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("712"),
+				role:   "Viewer",
+				domain: "712",
 			},
 			want:      true,
 			wantErr:   false,
@@ -819,8 +827,8 @@ func TestClient_DeleteRole(t *testing.T) {
 		{
 			name: "Fails when users are assigned",
 			args: args{
-				role:   accesstypes.Role("Administrator"),
-				domain: accesstypes.Domain("755"),
+				role:   "Administrator",
+				domain: "755",
 			},
 			want:      false,
 			wantErr:   true,
@@ -886,7 +894,8 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				"DeleteUsers": {"global"},
 			},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Administrator"
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
@@ -897,7 +906,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				domain:      "755",
 			},
 			wantErr: true,
-			want:    accesstypes.RolePermissionCollection(nil),
+			want:    nil,
 			prepare: func(store *MockStore) {
 				store.EXPECT().RoleByName(gomock.Any(), "Administrator123").Return(nil, nil).AnyTimes()
 			},
@@ -910,9 +919,10 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				domain:      "701",
 			},
 			wantErr: true,
-			want:    accesstypes.RolePermissionCollection(nil),
+			want:    nil,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 		},
 	}
@@ -968,23 +978,24 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 		{
 			name: "Successfully removes permissions from a role",
 			args: args{
-				role:   accesstypes.Role("Administrator"),
-				domain: accesstypes.Domain("755"),
+				role:   "Administrator",
+				domain: "755",
 			},
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Administrator"
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
 			name: "fails to delete permissions from non-existent role",
 			args: args{
-				role:   accesstypes.Role("Administrator123"),
-				domain: accesstypes.Domain("755"),
+				role:   "Administrator123",
+				domain: "755",
 			},
 			wantErr: true,
-			want:    accesstypes.RolePermissionCollection(nil),
+			want:    nil,
 			prepare: func(store *MockStore) {
 				store.EXPECT().RoleByName(gomock.Any(), "Administrator123").Return(nil, nil).AnyTimes()
 			},
@@ -992,13 +1003,14 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 		{
 			name: "fails to delete permissions due to wrong domain",
 			args: args{
-				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("701"),
+				role:   "Viewer",
+				domain: "701",
 			},
 			wantErr: true,
-			want:    accesstypes.RolePermissionCollection(nil),
+			want:    nil,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 		},
 	}
@@ -1061,7 +1073,8 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{"AddUser": {"global"}, "ViewUser": {"global"}, "AddName": {"global"}},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 		},
 		{
@@ -1087,7 +1100,8 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection{},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
+				var r accesstypes.Role = "Viewer"
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&r, nil).AnyTimes()
 			},
 		},
 	}
@@ -1144,7 +1158,7 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain found",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: "755",
 			},
 			prepare: func(domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
@@ -1156,7 +1170,7 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain not found",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: "733",
 			},
 			prepare: func(domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
@@ -1168,7 +1182,7 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "error returned",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: "755",
 			},
 			prepare: func(domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "755").Return(false, errors.New("error returned"))
