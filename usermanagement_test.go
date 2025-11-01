@@ -41,7 +41,7 @@ func TestClient_User_Add_Delete(t *testing.T) {
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(3)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 			want: &UserAccess{
 				Name: "charlie",
@@ -281,7 +281,7 @@ func TestClient_RolePermissions(t *testing.T) {
 			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"global"}, "AddUsers": {"global"}},
 			wantErr: false,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -290,7 +290,7 @@ func TestClient_RolePermissions(t *testing.T) {
 			want:    accesstypes.RolePermissionCollection{},
 			wantErr: false,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -415,7 +415,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			},
 			wantErr: false,
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -513,7 +513,7 @@ func TestClient_AddRole(t *testing.T) {
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 			wantErr: true,
 		},
@@ -565,7 +565,7 @@ func TestClient_AddUserRoles(t *testing.T) {
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -578,7 +578,7 @@ func TestClient_AddUserRoles(t *testing.T) {
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 			wantErr: false,
 		},
@@ -592,7 +592,7 @@ func TestClient_AddUserRoles(t *testing.T) {
 			},
 			prepare: func(store *MockStore, domains *MockDomains) {
 				domains.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 			wantErr: false,
 		},
@@ -886,7 +886,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 				"DeleteUsers": {"global"},
 			},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -912,7 +912,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection(nil),
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 	}
@@ -974,7 +974,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Administrator").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -998,7 +998,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection(nil),
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 	}
@@ -1061,7 +1061,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{"AddUser": {"global"}, "ViewUser": {"global"}, "AddName": {"global"}},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 		{
@@ -1087,7 +1087,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection{},
 			prepare: func(store *MockStore) {
-				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&accesstypes.Role{}, nil).AnyTimes()
+				store.EXPECT().RoleByName(gomock.Any(), "Viewer").Return(&Role{}, nil).AnyTimes()
 			},
 		},
 	}

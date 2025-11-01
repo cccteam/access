@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"slices"
-	"sort"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
@@ -45,6 +44,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domai
 	}
 
 	for _, user := range users {
+		_ = user
 		// TODO: Implement
 	}
 
@@ -66,6 +66,7 @@ func (u *userManager) AddUserRoles(ctx context.Context, domain accesstypes.Domai
 	}
 
 	for _, role := range roles {
+		_ = role
 		// TODO: Implement
 	}
 
@@ -85,6 +86,7 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, domain accesstypes.Do
 	}
 
 	for _, user := range users {
+		_ = user
 		// TODO: Implement
 	}
 
@@ -112,6 +114,7 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Do
 	defer span.End()
 
 	for _, role := range roles {
+		_ = role
 		// TODO: Implement
 	}
 
@@ -299,6 +302,7 @@ func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes
 	}
 
 	for _, permission := range permissions {
+		_ = permission
 		// TODO: Implement
 	}
 
@@ -318,6 +322,7 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, domain acc
 	}
 
 	for _, resource := range resources {
+		_ = resource
 		// TODO: Implement
 	}
 
@@ -337,6 +342,7 @@ func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accessty
 	}
 
 	for _, permission := range permissions {
+		_ = permission
 		// TODO: Implement
 	}
 
@@ -358,6 +364,7 @@ func (u *userManager) DeleteRolePermissionResources(
 	}
 
 	for _, resource := range resources {
+		_ = resource
 		// TODO: Implement
 	}
 
