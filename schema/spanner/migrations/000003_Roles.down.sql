@@ -1,0 +1,2 @@
+DROP INDEX RolesByName;
+DROP TABLE Roles;

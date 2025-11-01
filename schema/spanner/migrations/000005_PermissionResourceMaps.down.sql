@@ -1,0 +1,2 @@
+DROP INDEX PermissionResourceMapsByPermissionIdAndResourceId;
+DROP TABLE PermissionResourceMaps;

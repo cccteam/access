@@ -1,0 +1,2 @@
+DROP INDEX RolePermissionResourceMapsByRoleIdAndPermissionResourceMapId;
+DROP TABLE RolePermissionResourceMaps;

@@ -1,0 +1,2 @@
+DROP INDEX ConditionsByRolePermissionResourceMapIdAndCondition;
+DROP TABLE Conditions;
