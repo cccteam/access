@@ -1,0 +1,2 @@
+DROP INDEX UsersByName;
+DROP TABLE Users;

@@ -1,0 +1,7 @@
+CREATE TABLE UserRoleMaps (
+  UserId INT64 NOT NULL,
+  RoleId INT64 NOT NULL,
+  Domain STRING(MAX) NOT NULL,
+  CONSTRAINT FK_UserRoleMaps_Users FOREIGN KEY (UserId) REFERENCES Users (Id),
+  CONSTRAINT FK_UserRoleMaps_Roles FOREIGN KEY (RoleId) REFERENCES Roles (Id),
+) PRIMARY KEY (UserId, RoleId, Domain);
