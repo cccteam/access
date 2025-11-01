@@ -49,7 +49,7 @@ type UserManager interface {
 	Users(ctx context.Context, domain ...accesstypes.Domain) ([]*UserAccess, error)
 
 	// UserRoles returns a map of the domain
-	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.RoleCollection, error)
+	UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error)
 
 	// UserPermissions returns a map of domains with a slice of permissions for each
 	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)

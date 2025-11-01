@@ -4,9 +4,8 @@ import (
 	"context"
 
 	"cloud.google.com/go/spanner"
-	"github.com/cccteam/ccc/accesstypes"
+	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
-	"google.golang.org/grpc/codes"
 )
 
 var _ Store = &SpannerStore{}
@@ -22,25 +21,32 @@ func NewSpannerStore(client *spanner.Client) *SpannerStore {
 }
 
 // Users
-func (s *SpannerStore) CreateUser(ctx context.Context, user *accesstypes.User) error {
-	m := spanner.Insert("Users", []string{"Name"}, []interface{}{user.Marshal()})
+func (s *SpannerStore) CreateUser(ctx context.Context, user *User) (int64, error) {
+	user.ID = int64(uuid.New().ID())
+	m := spanner.Insert("Users", []string{"Id", "Name"}, []interface{}{user.ID, user.Name})
 	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
-	return err
+	return user.ID, err
 }
 
-func (s *SpannerStore) UserByName(ctx context.Context, name string) (*accesstypes.User, error) {
-	row, err := s.client.Single().ReadRow(ctx, "Users", spanner.Key{name}, []string{"Name"})
+func (s *SpannerStore) UserByName(ctx context.Context, name string) (*User, error) {
+	stmt := spanner.NewStatement("SELECT Id, Name FROM Users WHERE Name = @name")
+	stmt.Params["name"] = name
+	iter := s.client.Single().Query(ctx, stmt)
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err == iterator.Done {
+		return nil, nil
+	}
 	if err != nil {
-		if spanner.ErrCode(err) == codes.NotFound {
-			return nil, nil // Or a specific not found error
-		}
 		return nil, err
 	}
-	var userName string
-	if err := row.Column(0, &userName); err != nil {
+
+	var user User
+	if err := row.ToStruct(&user); err != nil {
 		return nil, err
 	}
-	user := accesstypes.User(userName)
+
 	return &user, nil
 }
 
@@ -51,25 +57,32 @@ func (s *SpannerStore) DeleteUser(ctx context.Context, name string) error {
 }
 
 // Roles
-func (s *SpannerStore) CreateRole(ctx context.Context, role *accesstypes.Role) error {
-	m := spanner.Insert("Roles", []string{"Name"}, []interface{}{role.Marshal()})
+func (s *SpannerStore) CreateRole(ctx context.Context, role *Role) (int64, error) {
+	role.ID = int64(uuid.New().ID())
+	m := spanner.Insert("Roles", []string{"Id", "Name"}, []interface{}{role.ID, role.Name})
 	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
-	return err
+	return role.ID, err
 }
 
-func (s *SpannerStore) RoleByName(ctx context.Context, name string) (*accesstypes.Role, error) {
-	row, err := s.client.Single().ReadRow(ctx, "Roles", spanner.Key{name}, []string{"Name"})
+func (s *SpannerStore) RoleByName(ctx context.Context, name string) (*Role, error) {
+	stmt := spanner.NewStatement("SELECT Id, Name FROM Roles WHERE Name = @name")
+	stmt.Params["name"] = name
+	iter := s.client.Single().Query(ctx, stmt)
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err == iterator.Done {
+		return nil, nil
+	}
 	if err != nil {
-		if spanner.ErrCode(err) == codes.NotFound {
-			return nil, nil
-		}
 		return nil, err
 	}
-	var roleName string
-	if err := row.Column(0, &roleName); err != nil {
+
+	var role Role
+	if err := row.ToStruct(&role); err != nil {
 		return nil, err
 	}
-	role := accesstypes.Role(roleName)
+
 	return &role, nil
 }
 
@@ -80,37 +93,75 @@ func (s *SpannerStore) DeleteRole(ctx context.Context, name string) error {
 }
 
 // Permissions
-func (s *SpannerStore) CreatePermission(ctx context.Context, permission *accesstypes.Permission) error {
-	m := spanner.Insert("Permissions", []string{"Name"}, []interface{}{permission.Marshal()})
+func (s *SpannerStore) CreatePermission(ctx context.Context, permission *Permission) (int64, error) {
+	permission.ID = int64(uuid.New().ID())
+	m := spanner.Insert("Permissions", []string{"Id", "Name"}, []interface{}{permission.ID, permission.Name})
 	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
-	return err
+	return permission.ID, err
 }
 
-func (s *SpannerStore) PermissionByName(ctx context.Context, name string) (*accesstypes.Permission, error) {
-	// ... implementation similar to UserByName/RoleByName
-	return nil, nil
+func (s *SpannerStore) PermissionByName(ctx context.Context, name string) (*Permission, error) {
+	stmt := spanner.NewStatement("SELECT Id, Name FROM Permissions WHERE Name = @name")
+	stmt.Params["name"] = name
+	iter := s.client.Single().Query(ctx, stmt)
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err == iterator.Done {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var perm Permission
+	if err := row.ToStruct(&perm); err != nil {
+		return nil, err
+	}
+
+	return &perm, nil
 }
 
 func (s *SpannerStore) DeletePermission(ctx context.Context, name string) error {
-	// ... implementation similar to DeleteUser/DeleteRole
-	return nil
-}
-
-// Resources
-func (s *SpannerStore) CreateResource(ctx context.Context, resource *accesstypes.Resource) error {
-	m := spanner.Insert("Resources", []string{"Name"}, []interface{}{resource.Marshal()})
+	m := spanner.Delete("Permissions", spanner.Key{name})
 	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
 	return err
 }
 
-func (s *SpannerStore) ResourceByName(ctx context.Context, name string) (*accesstypes.Resource, error) {
-	// ... implementation similar to UserByName/RoleByName
-	return nil, nil
+// Resources
+func (s *SpannerStore) CreateResource(ctx context.Context, resource *Resource) (int64, error) {
+	resource.ID = int64(uuid.New().ID())
+	m := spanner.Insert("Resources", []string{"Id", "Name"}, []interface{}{resource.ID, resource.Name})
+	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
+	return resource.ID, err
+}
+
+func (s *SpannerStore) ResourceByName(ctx context.Context, name string) (*Resource, error) {
+	stmt := spanner.NewStatement("SELECT Id, Name FROM Resources WHERE Name = @name")
+	stmt.Params["name"] = name
+	iter := s.client.Single().Query(ctx, stmt)
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err == iterator.Done {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var res Resource
+	if err := row.ToStruct(&res); err != nil {
+		return nil, err
+	}
+
+	return &res, nil
 }
 
 func (s *SpannerStore) DeleteResource(ctx context.Context, name string) error {
-	// ... implementation similar to DeleteUser/DeleteRole
-	return nil
+	m := spanner.Delete("Resources", spanner.Key{name})
+	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
+	return err
 }
 
 // Mappings
@@ -123,7 +174,6 @@ func (s *SpannerStore) CreateUserRoleMap(ctx context.Context, userID, roleID int
 func (s *SpannerStore) CreatePermissionResourceMap(ctx context.Context, permissionID, resourceID int64) error {
 	m := spanner.Insert("PermissionResourceMaps", []string{"PermissionId", "ResourceId"}, []interface{}{permissionID, resourceID})
 	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
-
 	return err
 }
 
@@ -180,5 +230,5 @@ func (s *SpannerStore) CheckPermission(ctx context.Context, user, domain, resour
 		return false, "", err
 	}
 
-	return true, condition.StringVal, nil
+	return true, condition.String(), nil
 }

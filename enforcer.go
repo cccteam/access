@@ -2,28 +2,29 @@ package access
 
 import (
 	"context"
+
 	"github.com/cccteam/ccc/accesstypes"
 )
 
 // Store defines the interface for database operations.
 type Store interface {
 	// Users
-	CreateUser(ctx context.Context, user *accesstypes.User) error
+	CreateUser(ctx context.Context, user *accesstypes.User) (int64, error)
 	UserByName(ctx context.Context, name string) (*accesstypes.User, error)
 	DeleteUser(ctx context.Context, name string) error
 
 	// Roles
-	CreateRole(ctx context.Context, role *accesstypes.Role) error
+	CreateRole(ctx context.Context, role *accesstypes.Role) (int64, error)
 	RoleByName(ctx context.Context, name string) (*accesstypes.Role, error)
 	DeleteRole(ctx context.Context, name string) error
 
 	// Permissions
-	CreatePermission(ctx context.Context, permission *accesstypes.Permission) error
+	CreatePermission(ctx context.Context, permission *accesstypes.Permission) (int64, error)
 	PermissionByName(ctx context.Context, name string) (*accesstypes.Permission, error)
 	DeletePermission(ctx context.Context, name string) error
 
 	// Resources
-	CreateResource(ctx context.Context, resource *accesstypes.Resource) error
+	CreateResource(ctx context.Context, resource *accesstypes.Resource) (int64, error)
 	ResourceByName(ctx context.Context, name string) (*accesstypes.Resource, error)
 	DeleteResource(ctx context.Context, name string) error
 
