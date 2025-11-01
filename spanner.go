@@ -123,7 +123,8 @@ func (s *SpannerStore) CreateUserRoleMap(ctx context.Context, userID, roleID int
 func (s *SpannerStore) CreatePermissionResourceMap(ctx context.Context, permissionID, resourceID int64) error {
 	m := spanner.Insert("PermissionResourceMaps", []string{"PermissionId", "ResourceId"}, []interface{}{permissionID, resourceID})
 	_, err := s.client.Apply(ctx, []*spanner.Mutation{m})
-	return err.Error
+
+	return err
 }
 
 func (s *SpannerStore) CreateRoleMap(ctx context.Context, roleID, permResID int64) error {
@@ -179,5 +180,5 @@ func (s *SpannerStore) CheckPermission(ctx context.Context, user, domain, resour
 		return false, "", err
 	}
 
-	return true, condition.StringValue, nil
+	return true, condition.StringVal, nil
 }
