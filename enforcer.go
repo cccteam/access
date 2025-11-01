@@ -1,91 +1,66 @@
 package access
 
 import (
-	"time"
-
-	"github.com/casbin/casbin/v2"
-	"github.com/casbin/casbin/v2/model"
-	"github.com/go-playground/errors/v5"
+	"context"
+	"github.com/cccteam/ccc/accesstypes"
 )
 
-func createEnforcer(rbacModel string) (*casbin.SyncedEnforcer, error) {
-	m, err := model.NewModelFromString(rbacModel)
-	if err != nil {
-		return nil, errors.Wrap(err, "model.NewModelFromString()")
-	}
+// Store defines the interface for database operations.
+type Store interface {
+	// Users
+	CreateUser(ctx context.Context, user *accesstypes.User) error
+	UserByName(ctx context.Context, name string) (*accesstypes.User, error)
+	DeleteUser(ctx context.Context, name string) error
 
-	e, err := casbin.NewSyncedEnforcer(m)
-	if err != nil {
-		return nil, errors.Wrapf(err, "casbin.NewSyncedEnforcer()")
-	}
+	// Roles
+	CreateRole(ctx context.Context, role *accesstypes.Role) error
+	RoleByName(ctx context.Context, name string) (*accesstypes.Role, error)
+	DeleteRole(ctx context.Context, name string) error
 
-	e.EnableAutoSave(true)
+	// Permissions
+	CreatePermission(ctx context.Context, permission *accesstypes.Permission) error
+	PermissionByName(ctx context.Context, name string) (*accesstypes.Permission, error)
+	DeletePermission(ctx context.Context, name string) error
 
-	return e, nil
+	// Resources
+	CreateResource(ctx context.Context, resource *accesstypes.Resource) error
+	ResourceByName(ctx context.Context, name string) (*accesstypes.Resource, error)
+	DeleteResource(ctx context.Context, name string) error
+
+	// Mappings
+	CreateUserRoleMap(ctx context.Context, userID, roleID int64, domain string) error
+	CreatePermissionResourceMap(ctx context.Context, permissionID, resourceID int64) error
+	CreateRoleMap(ctx context.Context, roleID, permResID int64) error
+
+	// Conditions
+	CreateCondition(ctx context.Context, roleMapID int64, condition string) error
+
+	// Query
+	CheckPermission(ctx context.Context, user, domain, resource, permission string) (bool, string, error)
 }
 
-func (u *userManager) refreshEnforcer() casbin.IEnforcer {
-	u.initEnforcer()
-
-	return u.loadPolicy()
+// Enforcer is responsible for checking permissions against the database.
+type Enforcer struct {
+	store Store
 }
 
-func (u *userManager) initEnforcer() {
-	u.enforcerMu.RLock()
-	if u.enforcerInitialized {
-		u.enforcerMu.RUnlock()
+// NewEnforcer creates a new Enforcer with the given store.
+func NewEnforcer(store Store) *Enforcer {
+	return &Enforcer{store: store}
+}
 
-		return
-	}
-	u.enforcerMu.RUnlock()
-
-	u.enforcerMu.Lock()
-	defer u.enforcerMu.Unlock()
-
-	if u.enforcerInitialized {
-		// lost race for lock
-		return
-	}
-	// won race for lock
-
-	a, err := u.adapter.NewAdapter()
+// Enforce checks if a user has the required permission for a resource in a domain.
+func (e *Enforcer) Enforce(ctx context.Context, user, domain, resource, permission string) (bool, error) {
+	ok, condition, err := e.store.CheckPermission(ctx, user, domain, resource, permission)
 	if err != nil {
-		panic(errors.Wrapf(err, "pgxadapter.NewAdapter(): failed to create casbin adapter with db"))
+		return false, err
+	}
+	if !ok {
+		return false, nil
 	}
 
-	u.enforcer.SetAdapter(a)
+	// TODO: Evaluate the condition here.
+	_ = condition
 
-	u.enforcerInitialized = true
-}
-
-func (u *userManager) loadPolicy() casbin.IEnforcer {
-	u.policyMu.RLock()
-	if u.policyLoaded {
-		defer u.policyMu.RUnlock()
-
-		return u.enforcer
-	}
-	u.policyMu.RUnlock()
-
-	u.policyMu.Lock()
-	defer u.policyMu.Unlock()
-
-	if u.policyLoaded {
-		return u.enforcer
-	}
-
-	if err := u.enforcer.LoadPolicy(); err != nil {
-		panic(errors.Wrapf(err, "casbin.SyncedEnforcer.LoadPolicy()"))
-	}
-
-	u.policyLoaded = true
-
-	go func() {
-		time.Sleep(time.Minute)
-		u.policyMu.Lock()
-		u.policyLoaded = false
-		u.policyMu.Unlock()
-	}()
-
-	return u.enforcer
+	return true, nil
 }
