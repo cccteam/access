@@ -3,6 +3,7 @@ package access
 import (
 	"testing"
 
+	"github.com/cccteam/access/store"
 	"go.uber.org/mock/gomock"
 )
 
@@ -20,7 +21,7 @@ func TestNew(t *testing.T) {
 
 	type args struct {
 		domains *MockDomains
-		store   Store
+		store   store.Store
 	}
 	tests := []struct {
 		name string

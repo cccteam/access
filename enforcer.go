@@ -2,15 +2,17 @@ package access
 
 import (
 	"context"
+
+	"github.com/cccteam/access/store"
 )
 
 // Enforcer is responsible for checking permissions against the database.
 type Enforcer struct {
-	store Store
+	store store.Store
 }
 
 // NewEnforcer creates a new Enforcer with the given store.
-func NewEnforcer(store Store) *Enforcer {
+func NewEnforcer(store store.Store) *Enforcer {
 	return &Enforcer{store: store}
 }
 
