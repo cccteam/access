@@ -4,6 +4,7 @@ package access
 import (
 	"context"
 
+	"github.com/cccteam/access/store"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
@@ -13,7 +14,7 @@ import (
 
 const name = "github.com/cccteam/access"
 
-var _ Controller = &Client{}
+var _ Access = &Client{}
 
 // Client is the users client
 type Client struct {
@@ -21,7 +22,7 @@ type Client struct {
 }
 
 // New creates a new user client
-func New(domains Domains, store Store) (*Client, error) {
+func New(domains Domains, store store.Store) (*Client, error) {
 	userManager, err := newUserManager(domains, store)
 	if err != nil {
 		return nil, errors.Wrap(err, "newUserManager()")
