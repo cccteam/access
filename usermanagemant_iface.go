@@ -6,7 +6,7 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 )
 
-var _ UserManager = &userManager{}
+var _ UserManager = &SpannerStore{}
 
 // UserManager is the interface for managing RBAC including the management of roles and permissions for users
 type UserManager interface {
