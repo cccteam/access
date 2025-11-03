@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/httpio"
 	"go.opentelemetry.io/otel"
 )
@@ -81,13 +82,15 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 		Role accesstypes.Role `json:"role"`
 	}
 
-	decoder := NewDecoder[request](a)
-
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRole()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		decoder, err := resource.NewStructDecoder[request]()
+		if err != nil {
+			return err
+		}
+		req, err := decoder.WithValidator(a.validate).Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -113,13 +116,15 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 		Permissions []accesstypes.Permission `json:"permissions"`
 	}
 
-	decoder := NewDecoder[request](a)
-
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRolePermissions()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		decoder, err := resource.NewStructDecoder[request]()
+		if err != nil {
+			return err
+		}
+		req, err := decoder.WithValidator(a.validate).Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -143,13 +148,15 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		Users []accesstypes.User
 	}
 
-	decoder := NewDecoder[request](a)
-
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRoleUsers()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		decoder, err := resource.NewStructDecoder[request]()
+		if err != nil {
+			return err
+		}
+		req, err := decoder.WithValidator(a.validate).Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -172,13 +179,15 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		Users []accesstypes.User
 	}
 
-	decoder := NewDecoder[request](a)
-
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRoleUsers()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		decoder, err := resource.NewStructDecoder[request]()
+		if err != nil {
+			return err
+		}
+		req, err := decoder.WithValidator(a.validate).Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
@@ -201,13 +210,15 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 		Permissions []accesstypes.Permission `json:"permissions" validate:"min=1"`
 	}
 
-	decoder := NewDecoder[request](a)
-
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRolePermissions()")
 		defer span.End()
 
-		req, err := decoder.Decode(r)
+		decoder, err := resource.NewStructDecoder[request]()
+		if err != nil {
+			return err
+		}
+		req, err := decoder.WithValidator(a.validate).Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
