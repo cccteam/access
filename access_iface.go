@@ -9,6 +9,7 @@ import (
 
 var _ Controller = &Client{}
 
+// Controller is the main interface for the access package
 type Controller interface {
 	// CheckPermissions checks if a user has the given permissions in a domain
 	RequireAll(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, permissions ...accesstypes.Permission) error
@@ -97,6 +98,7 @@ type UserManager interface {
 	DomainExists(ctx context.Context, domain accesstypes.Domain) (bool, error)
 }
 
+// Domains is an interface that provides info about valid domains
 type Domains interface {
 	DomainIDs(ctx context.Context) ([]string, error)
 
