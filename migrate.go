@@ -13,10 +13,10 @@ import (
 )
 
 type RoleConfig struct {
-	Roles []*Role `json:"roles"`
+	Roles []*RoleMapping `json:"roles"`
 }
 
-type Role struct {
+type RoleMapping struct {
 	Name        accesstypes.Role
 	Permissions map[accesstypes.Permission][]accesstypes.Resource
 }
@@ -27,7 +27,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store *resource.Colle
 	defer span.End()
 
 	// Default Administrator role has all permissions
-	roleConfig.Roles = append(roleConfig.Roles, &Role{
+	roleConfig.Roles = append(roleConfig.Roles, &RoleMapping{
 		Name:        "Administrator",
 		Permissions: adminPermissions(store),
 	})
@@ -39,7 +39,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store *resource.Colle
 	return nil
 }
 
-func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Collection, roles []*Role) error {
+func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Collection, roles []*RoleMapping) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "bootstrapRoles()")
 	defer span.End()
 
@@ -120,7 +120,7 @@ func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Col
 	return nil
 }
 
-func removeUnusedRoles(ctx context.Context, domains []accesstypes.Domain, client UserManager, newRoles []*Role) error {
+func removeUnusedRoles(ctx context.Context, domains []accesstypes.Domain, client UserManager, newRoles []*RoleMapping) error {
 	for _, domain := range domains {
 		existingRoles, err := client.Roles(ctx, domain)
 		if err != nil {

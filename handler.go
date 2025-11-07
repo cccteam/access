@@ -3,7 +3,6 @@ package access
 import (
 	"net/http"
 
-	"github.com/cccteam/ccc/resource"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -31,20 +30,10 @@ type HandlerClient struct {
 
 var _ Handlers = &HandlerClient{}
 
-func newHandler(client *Client, validate *validator.Validate, logHandler LogHandler) *HandlerClient {
+func newHandler(manager UserManager, validate *validator.Validate, logHandler LogHandler) *HandlerClient {
 	return &HandlerClient{
-		manager:  client.UserManager(),
+		manager:  manager,
 		validate: validate,
 		handler:  logHandler,
 	}
-}
-
-// NewDecoder returns an httpio.Decoder to simplify the validator call to a single location
-func NewDecoder[T any](a *HandlerClient) *resource.StructDecoder[T] {
-	decoder, err := resource.NewStructDecoder[T]()
-	if err != nil {
-		panic(err)
-	}
-
-	return decoder.WithValidator(a.validate)
 }
