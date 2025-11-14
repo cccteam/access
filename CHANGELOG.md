@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.9](https://github.com/cccteam/access/compare/v0.8.8...v0.8.9) (2025-11-14)
+
+
+### Features
+
+* upgrade to Go v1.25 ([#110](https://github.com/cccteam/access/issues/110)) ([db98280](https://github.com/cccteam/access/commit/db9828002ad0bb5e0a95c4327440ade946e13d03))
+
 ## [0.8.8](https://github.com/cccteam/access/compare/v0.8.7...v0.8.8) (2025-11-03)
 
 
