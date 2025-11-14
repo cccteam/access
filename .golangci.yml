@@ -42,10 +42,12 @@ linters:
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
+    - tagalign
     - tagliatelle
     - tparallel
     - unconvert
     - unparam
+    - unused
     - wastedassign
     - whitespace
     - wrapcheck
