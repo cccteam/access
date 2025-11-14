@@ -41,7 +41,6 @@ func (p *PostgresAdapter) NewAdapter() (persist.Adapter, error) {
 
 // SpannerAdapter is the adapter for connecting to a Spanner database
 type SpannerAdapter struct {
-	connConfig   *pgx.ConnConfig
 	databaseName string
 	tableName    string
 }
