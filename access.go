@@ -1,4 +1,4 @@
-// package access implements tools to manage access to resources. It is a wrapper around casbin using an rbac model.
+// Package access implements tools to manage access to resources. It is a wrapper around casbin using an rbac model.
 package access
 
 import (
@@ -32,10 +32,12 @@ func New(domains Domains, adapter Adapter) (*Client, error) {
 	}, nil
 }
 
+// Handlers returns the HandlerClient
 func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) Handlers {
 	return newHandler(c, validate, logHandler)
 }
 
+// RequireAll checks if a user has all the given permissions in a domain
 func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perms ...accesstypes.Permission) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireAll()")
 	defer span.End()
@@ -59,6 +61,7 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 	return nil
 }
 
+// RequireResources checks if a user has the given permission for a list of resources in a domain
 func (c *Client) RequireResources(
 	ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (bool, []accesstypes.Resource, error) {
@@ -89,6 +92,7 @@ func (c *Client) RequireResources(
 	return true, nil, nil
 }
 
+// UserManager returns the UserManager
 func (c *Client) UserManager() UserManager {
 	return c.userManager
 }

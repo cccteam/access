@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+// Handlers is an interface for the http handlers for the access package
 type Handlers interface {
 	AddRole() http.HandlerFunc
 	AddRolePermissions() http.HandlerFunc
@@ -21,8 +22,10 @@ type Handlers interface {
 	Users() http.HandlerFunc
 }
 
+// LogHandler is a function that wraps a handler that returns an error and returns a standard http.HandlerFunc
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
+// HandlerClient is the client for the access handlers
 type HandlerClient struct {
 	manager  UserManager
 	validate *validator.Validate
