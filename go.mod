@@ -1,6 +1,6 @@
 module github.com/cccteam/access
 
-go 1.25.1
+go 1.25.4
 
 require (
 	github.com/casbin/casbin/v2 v2.108.0
