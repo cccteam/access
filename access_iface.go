@@ -102,5 +102,5 @@ type Domains interface {
 	DomainIDs(ctx context.Context) ([]string, error)
 
 	// DomainExists returns true if domain ID exists.
-	DomainExists(ctx context.Context, guarantorID string) (bool, error)
+	DomainExists(ctx context.Context, domain string) (bool, error)
 }

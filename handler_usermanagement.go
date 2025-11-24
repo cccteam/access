@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	paramUser        httpio.ParamType = "user"
-	paramGuarantorID httpio.ParamType = "guarantorId"
-	paramRole        httpio.ParamType = "role"
+	paramUser   httpio.ParamType = "user"
+	paramDomain httpio.ParamType = "domain"
+	paramRole   httpio.ParamType = "role"
 )
 
 // Users is the handler to get the list of users in the system
@@ -92,7 +92,7 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		if err := a.manager.AddRole(ctx, domain, req.RoleName); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -124,7 +124,7 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.AddRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
@@ -153,7 +153,7 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.AddRoleUsers(ctx, domain, role, req.Users...); err != nil {
@@ -182,7 +182,7 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.DeleteRoleUsers(ctx, domain, role, req.Users...); err != nil {
@@ -211,7 +211,7 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.DeleteRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
@@ -234,7 +234,7 @@ func (a *HandlerClient) Roles() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Roles()")
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		roles, err := a.manager.Roles(ctx, domain)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -256,7 +256,7 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RoleUsers()")
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		roleUsers, err := a.manager.RoleUsers(ctx, domain, role)
@@ -280,7 +280,7 @@ func (a *HandlerClient) RolePermissions() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RolePermissions()")
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		rolePermissions, err := a.manager.RolePermissions(ctx, domain, role)
@@ -302,7 +302,7 @@ func (a *HandlerClient) DeleteRole() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRole()")
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		_, err := a.manager.DeleteRole(ctx, domain, role)

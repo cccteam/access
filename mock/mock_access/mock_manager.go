@@ -523,18 +523,18 @@ func (m *MockDomains) EXPECT() *MockDomainsMockRecorder {
 }
 
 // DomainExists mocks base method.
-func (m *MockDomains) DomainExists(ctx context.Context, guarantorID string) (bool, error) {
+func (m *MockDomains) DomainExists(ctx context.Context, domain string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DomainExists", ctx, guarantorID)
+	ret := m.ctrl.Call(m, "DomainExists", ctx, domain)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DomainExists indicates an expected call of DomainExists.
-func (mr *MockDomainsMockRecorder) DomainExists(ctx, guarantorID any) *gomock.Call {
+func (mr *MockDomainsMockRecorder) DomainExists(ctx, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainExists", reflect.TypeOf((*MockDomains)(nil).DomainExists), ctx, guarantorID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainExists", reflect.TypeOf((*MockDomains)(nil).DomainExists), ctx, domain)
 }
 
 // DomainIDs mocks base method.
