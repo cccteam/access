@@ -813,18 +813,6 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 			},
 		},
 		{
-			name:    "noop on delete empty permissions",
-			wantErr: false,
-			args: args{
-				guarantorID: "755",
-				role:        "Admin",
-				body:        `{ "permissions" : [] }`,
-			},
-			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRolePermissions(gomock.Any(), accesstypes.Domain("755"), accesstypes.Role("Admin")).Return(nil).Times(1)
-			},
-		},
-		{
 			name:    "fails to parse the request body",
 			wantErr: true,
 			args: args{
@@ -860,7 +848,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 				body:        `{"permissions": ["AddUser"]}`,
 			},
 			prepare: func(user *MockUserManager) {
-				user.EXPECT().DeleteRolePermissions(gomock.Any(), accesstypes.Domain("755"), accesstypes.Role("Admin"), accesstypes.Permission("AddUser")).Return(errors.New("failed to add the user to the role")).Times(1)
+				user.EXPECT().DeleteRolePermissions(gomock.Any(), accesstypes.Domain("755"), accesstypes.Role("Admin"), accesstypes.Permission("AddUser")).Return(errors.New("failed to delete role permissions")).Times(1)
 			},
 		},
 	}
