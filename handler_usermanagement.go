@@ -74,14 +74,14 @@ func (a *HandlerClient) User() http.HandlerFunc {
 // Permissions Required: AddRole
 func (a *HandlerClient) AddRole() http.HandlerFunc {
 	type request struct {
-		RoleName accesstypes.Role `json:"roleName" validate:"min=1"`
+		RoleName accesstypes.Role `json:"roleName"`
 	}
 
 	type response struct {
 		Role accesstypes.Role `json:"role"`
 	}
 
-	decoder := NewDecoder[request](a)
+	decoder := NewDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRole()")
@@ -113,7 +113,7 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 		Permissions []accesstypes.Permission `json:"permissions"`
 	}
 
-	decoder := NewDecoder[request](a)
+	decoder := NewDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRolePermissions()")
@@ -140,10 +140,10 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 // Permissions Required: AddRoleUsers
 func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 	type request struct {
-		Users []accesstypes.User
+		Users []accesstypes.User `json:"users"`
 	}
 
-	decoder := NewDecoder[request](a)
+	decoder := NewDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRoleUsers()")
@@ -169,10 +169,10 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 // Permissions Required: DeleteRoleUsers
 func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 	type request struct {
-		Users []accesstypes.User
+		Users []accesstypes.User `json:"users"`
 	}
 
-	decoder := NewDecoder[request](a)
+	decoder := NewDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRoleUsers()")
@@ -198,10 +198,10 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 // Permissions Required: DeleteRolePermissions
 func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 	type request struct {
-		Permissions []accesstypes.Permission `json:"permissions" validate:"min=1"`
+		Permissions []accesstypes.Permission `json:"permissions"`
 	}
 
-	decoder := NewDecoder[request](a)
+	decoder := NewDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRolePermissions()")

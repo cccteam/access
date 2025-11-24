@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc/accesstypes"
-	"github.com/go-playground/validator/v10"
 )
 
 var _ Controller = &Client{}
@@ -24,7 +23,7 @@ type Controller interface {
 	UserManager() UserManager
 
 	// Handlers returns HTTP handlers for access management with validation and logging.
-	Handlers(validate *validator.Validate, handler LogHandler) Handlers
+	Handlers(handler LogHandler) Handlers
 }
 
 var _ UserManager = &userManager{}

@@ -14,7 +14,6 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
-	"github.com/go-playground/validator/v10"
 	"go.uber.org/mock/gomock"
 )
 
@@ -62,8 +61,7 @@ func TestHandlerClient_Users(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -187,8 +185,7 @@ func TestHandlerClient_User(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -285,8 +282,7 @@ func TestHandlerClient_AddRole(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -379,8 +375,7 @@ func TestHandlerClient_DeleteRole(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -504,8 +499,7 @@ func TestHandlerClient_AddRolePermissions(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -629,8 +623,7 @@ func TestHandlerClient_AddRoleUsers(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -754,8 +747,7 @@ func TestHandlerClient_DeleteRoleUsers(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -876,8 +868,7 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -964,8 +955,7 @@ func TestHandlerClient_Roles(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -1078,8 +1068,7 @@ func TestHandlerClient_RoleUsers(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -1187,8 +1176,7 @@ func TestHandlerClient_RolePermissions(t *testing.T) {
 			accessManager := NewMockUserManager(ctrl)
 
 			h := &HandlerClient{
-				manager:  accessManager,
-				validate: validator.New(),
+				manager: accessManager,
 				handler: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
