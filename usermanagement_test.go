@@ -40,35 +40,35 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				ctx:      context.Background(),
 				username: "charlie",
 				role:     "Viewer",
-				domain:   accesstypes.Domain("712"),
+				domain:   accesstypes.Domain("tenant2"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(3)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant2", "tenant1"}, nil).Times(3)
 			},
 			want: &UserAccess{
 				Name: "charlie",
 				Roles: accesstypes.RoleCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 				Permissions: accesstypes.UserPermissionCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 			},
 			wantAdd: &UserAccess{
 				Name: "charlie",
 				Roles: accesstypes.RoleCollection{
-					"global": {},
-					"755":    {},
-					"712":    {"Viewer"},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {"Viewer"},
 				},
 				Permissions: accesstypes.UserPermissionCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 			},
 		},
@@ -89,23 +89,23 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				ctx:      context.Background(),
 				username: "bill",
 				role:     accesstypes.Role("Non-Existent"),
-				domain:   accesstypes.Domain("712"),
+				domain:   accesstypes.Domain("tenant2"),
 			},
 			want: &UserAccess{
 				Name: "bill",
 				Roles: accesstypes.RoleCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 				Permissions: accesstypes.UserPermissionCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).MaxTimes(3)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant2", "tenant1"}, nil).MaxTimes(3)
 			},
 			want2Err: true,
 		},
@@ -191,45 +191,45 @@ func TestClient_Users(t *testing.T) {
 				{
 					Name: "alice",
 					Roles: accesstypes.RoleCollection{
-						"global": {},
-						"712":    {},
-						"755":    {},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {},
 					},
 					Permissions: accesstypes.UserPermissionCollection{
-						"global": {},
-						"712":    {"global": {"ViewUsers"}},
-						"755":    {},
+						"global":  {},
+						"tenant2": {"global": {"ViewUsers"}},
+						"tenant1": {},
 					},
 				},
 				{
 					Name: "bob",
 					Roles: accesstypes.RoleCollection{
-						"global": {},
-						"712":    {"Editor"},
-						"755":    {},
+						"global":  {},
+						"tenant2": {"Editor"},
+						"tenant1": {},
 					},
 					Permissions: accesstypes.UserPermissionCollection{
-						"global": {},
-						"712":    {},
-						"755":    {},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {},
 					},
 				},
 				{
 					Name: "charlie",
 					Roles: accesstypes.RoleCollection{
-						"global": {},
-						"712":    {},
-						"755":    {"Administrator"},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {"Administrator"},
 					},
 					Permissions: accesstypes.UserPermissionCollection{
-						"global": {},
-						"712":    {},
-						"755":    {"global": {"DeleteUsers", "AddUsers"}},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {"global": {"DeleteUsers", "AddUsers"}},
 					},
 				},
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(1)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant2", "tenant1"}, nil).Times(1)
 			},
 		},
 		{
@@ -299,21 +299,21 @@ func TestClient_RolePermissions(t *testing.T) {
 		{
 			name:    "ReturnsListOfPermissions",
 			fields:  fields{e: enforcer},
-			args:    args{role: "Administrator", domain: "755"},
+			args:    args{role: "Administrator", domain: "tenant1"},
 			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"global"}, "AddUsers": {"global"}},
 			wantErr: false,
 		},
 		{
 			name:    "No Permissions Found",
 			fields:  fields{e: enforcer},
-			args:    args{role: "Administrator", domain: "712"},
+			args:    args{role: "Administrator", domain: "tenant2"},
 			want:    accesstypes.RolePermissionCollection{},
 			wantErr: false,
 		},
 		{
 			name:    "Bad role",
 			fields:  fields{e: enforcer},
-			args:    args{role: "asdvsdb", domain: "712"},
+			args:    args{role: "asdvsdb", domain: "tenant2"},
 			want:    accesstypes.RolePermissionCollection{},
 			wantErr: true,
 		},
@@ -360,19 +360,19 @@ func TestClient_RoleUsers(t *testing.T) {
 	}{
 		{
 			name:    "Filters Noop User",
-			args:    args{role: "Administrator", domain: "755"},
+			args:    args{role: "Administrator", domain: "tenant1"},
 			want:    []accesstypes.User{"charlie"},
 			wantErr: false,
 		},
 		{
 			name:    "No users found",
-			args:    args{role: "Administrator", domain: "712"},
+			args:    args{role: "Administrator", domain: "tenant2"},
 			want:    []accesstypes.User{},
 			wantErr: false,
 		},
 		{
 			name:    "No users found in given roll",
-			args:    args{role: "Admin", domain: "755"},
+			args:    args{role: "Admin", domain: "tenant1"},
 			want:    []accesstypes.User{},
 			wantErr: false,
 		},
@@ -424,7 +424,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			args: args{
 				users:  []accesstypes.User{"charlie"},
 				role:   "Administrator",
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: false,
 		},
@@ -433,7 +433,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			args: args{
 				users:  []accesstypes.User{"charlie"},
 				role:   "Viewer",
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: true,
 		},
@@ -480,11 +480,11 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Successfully add a new role",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 		},
 		{
@@ -515,11 +515,11 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Role Already Exists",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 				role:   accesstypes.Role("Viewer"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 			wantErr: true,
 		},
@@ -573,24 +573,24 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Successfully add roles to a user",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"tenant1", "tenant2"}, nil)
 			},
 		},
 		{
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"tenant1", "tenant2"}, nil)
 			},
 			wantErr: false,
 		},
@@ -598,12 +598,12 @@ func TestClient_AddUserRoles(t *testing.T) {
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"tenant1", "tenant2"}, nil)
 			},
 			wantErr: false,
 		},
@@ -703,10 +703,10 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "712").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant2").Return(true, nil)
 			},
 			wantErr: false,
 			want: []accesstypes.Role{
@@ -765,9 +765,9 @@ func TestClient_DomainIDs(t *testing.T) {
 				ctx: context.Background(),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant1", "tenant2"}, nil)
 			},
-			want:    []accesstypes.Domain{accesstypes.GlobalDomain, accesstypes.Domain("755"), accesstypes.Domain("712")},
+			want:    []accesstypes.Domain{accesstypes.GlobalDomain, accesstypes.Domain("tenant1"), accesstypes.Domain("tenant2")},
 			wantErr: false,
 		},
 		{
@@ -827,7 +827,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Success",
 			args: args{
 				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -837,7 +837,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Success when noop exists",
 			args: args{
 				role:   accesstypes.Role("Writer"),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -847,7 +847,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Success when it doesn't exist already",
 			args: args{
 				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -857,7 +857,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Fails when users are assigned",
 			args: args{
 				role:   accesstypes.Role("Administrator"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			want:      false,
 			wantErr:   true,
@@ -916,7 +916,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUsers"},
 				role:        "Administrator",
-				domain:      "755",
+				domain:      "tenant1",
 			},
 			wantErr: false,
 			want: accesstypes.RolePermissionCollection{
@@ -928,7 +928,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"DELETE * FROM accesspolicies"},
 				role:        "Administrator123",
-				domain:      "755",
+				domain:      "tenant1",
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection(nil),
@@ -997,7 +997,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			name: "Successfully removes permissions from a role",
 			args: args{
 				role:   accesstypes.Role("Administrator"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{},
@@ -1006,7 +1006,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			name: "fails to delete permissions from non-existent role",
 			args: args{
 				role:   accesstypes.Role("Administrator123"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection(nil),
@@ -1076,7 +1076,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Viewer",
-				domain:      "712",
+				domain:      "tenant2",
 			},
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{"AddUser": {"global"}, "ViewUser": {"global"}, "AddName": {"global"}},
@@ -1086,7 +1086,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Administrator",
-				domain:      "712",
+				domain:      "tenant2",
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection{},
@@ -1096,7 +1096,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Viewer",
-				domain:      "755",
+				domain:      "tenant1",
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection{},
@@ -1155,10 +1155,10 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain found",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 			want:    true,
 			wantErr: false,
@@ -1179,10 +1179,10 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "error returned",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(false, errors.New("error returned"))
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(false, errors.New("error returned"))
 			},
 			want:    false,
 			wantErr: true,

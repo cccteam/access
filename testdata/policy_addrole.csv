@@ -1,3 +1,3 @@
-g, noop,     role:Viewer, domain:712
-g, user:bob, role:Editor, domain:712
-g, noop,     role:Viewer, domain:755
+g, noop,     role:Viewer, domain:tenant2
+g, user:bob, role:Editor, domain:tenant2
+g, noop,     role:Viewer, domain:tenant1

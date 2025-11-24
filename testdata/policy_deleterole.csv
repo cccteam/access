@@ -1,10 +1,10 @@
-p, role:Editor,         domain:755,         resource:global, perm:ViewUsers,   allow
-p, role:Writer,         domain:712,         resource:global, perm:ViewUsers,   allow
-p, role:Administrator,  domain:755,         resource:global, perm:DeleteUsers, allow
-p, role:Administrator,  domain:755,         resource:global, perm:AddUsers,    allow
-g, user:charlie,        role:Administrator, domain:755
-g, user:bob,            role:Editor,        domain:712
-g, noop,                role:Viewer,        domain:755
-g, role:Editor,         role:Reader,        domain:712
-g, noop,                role:Administrator, domain:755
-g, noop,                role:Writer,        domain:712
+p, role:Editor,         domain:tenant1,     resource:global, perm:ViewUsers,   allow
+p, role:Writer,         domain:tenant2,     resource:global, perm:ViewUsers,   allow
+p, role:Administrator,  domain:tenant1,     resource:global, perm:DeleteUsers, allow
+p, role:Administrator,  domain:tenant1,     resource:global, perm:AddUsers,    allow
+g, user:charlie,        role:Administrator, domain:tenant1
+g, user:bob,            role:Editor,        domain:tenant2
+g, noop,                role:Viewer,        domain:tenant1
+g, role:Editor,         role:Reader,        domain:tenant2
+g, noop,                role:Administrator, domain:tenant1
+g, noop,                role:Writer,        domain:tenant2
