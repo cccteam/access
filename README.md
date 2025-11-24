@@ -146,7 +146,7 @@ mgr.DeleteRoleUsers(ctx, "tenant1", "admin", "user1")
 ### Permission Management
 
 ```go
-// Global permissions
+// Domain-specific permissions
 mgr.AddRolePermissions(ctx, "tenant1", "admin", "create", "delete")
 mgr.DeleteRolePermissions(ctx, "tenant1", "admin", "delete")
 mgr.DeleteAllRolePermissions(ctx, "tenant1", "admin")
@@ -235,7 +235,7 @@ func migrateRoles(client *access.Client, store *resource.Collection) error {
 - Applies roles across all domains (global and domain-specific)
 - Creates missing roles and adds missing permissions
 - Removes permissions not in configuration
-- Removes unused roles (if no users assigned)
+- Removes roles not in configuration
 - Validates resources and permissions against resource store
 - Prevents update permissions on immutable resources
 
