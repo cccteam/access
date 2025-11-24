@@ -8,19 +8,20 @@ import (
 	pgxadapter "github.com/pckhoi/casbin-pgx-adapter/v3"
 )
 
-// Adapter is an interface for creating a new casbin adapter
+// Adapter creates casbin persistence adapters.
 type Adapter interface {
+	// NewAdapter returns a casbin persistence adapter.
 	NewAdapter() (persist.Adapter, error)
 }
 
-// PostgresAdapter is the adapter for connecting to a Postgres database
+// PostgresAdapter provides PostgreSQL persistence for casbin policies.
 type PostgresAdapter struct {
 	connConfig   *pgx.ConnConfig
 	databaseName string
 	tableName    string
 }
 
-// NewPostgresAdapter creates a new PostgresAdapter
+// NewPostgresAdapter creates PostgreSQL adapter for storing casbin policies.
 func NewPostgresAdapter(connConfig *pgx.ConnConfig, databaseName, tableName string) *PostgresAdapter {
 	return &PostgresAdapter{
 		connConfig:   connConfig,
@@ -29,7 +30,7 @@ func NewPostgresAdapter(connConfig *pgx.ConnConfig, databaseName, tableName stri
 	}
 }
 
-// NewAdapter creates a new casbin adapter for postgres
+// NewAdapter creates PostgreSQL casbin adapter.
 func (p *PostgresAdapter) NewAdapter() (persist.Adapter, error) {
 	a, err := pgxadapter.NewAdapter(p.connConfig, pgxadapter.WithDatabase(p.databaseName), pgxadapter.WithTableName(p.tableName))
 	if err != nil {
@@ -39,13 +40,13 @@ func (p *PostgresAdapter) NewAdapter() (persist.Adapter, error) {
 	return a, nil
 }
 
-// SpannerAdapter is the adapter for connecting to a Spanner database
+// SpannerAdapter provides Spanner persistence for casbin policies.
 type SpannerAdapter struct {
 	databaseName string
 	tableName    string
 }
 
-// NewSpannerAdapter creates a new SpannerAdapter
+// NewSpannerAdapter creates Spanner adapter for storing casbin policies.
 func NewSpannerAdapter(databaseName, tableName string) *SpannerAdapter {
 	return &SpannerAdapter{
 		databaseName: databaseName,
@@ -53,7 +54,7 @@ func NewSpannerAdapter(databaseName, tableName string) *SpannerAdapter {
 	}
 }
 
-// NewAdapter creates a new casbin adapter for spanner
+// NewAdapter creates Spanner casbin adapter. Skips database creation.
 func (s *SpannerAdapter) NewAdapter() (persist.Adapter, error) {
 	a, err := spanneradapter.NewAdapter(s.databaseName, spanneradapter.WithSkipDatabaseCreation(true), spanneradapter.WithTableName(s.tableName))
 	if err != nil {

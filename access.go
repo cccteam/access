@@ -1,4 +1,4 @@
-// Package access implements tools to manage access to resources. It is a wrapper around casbin using an rbac model.
+// Package access implements tools to manage access to resources.
 package access
 
 import (
@@ -15,12 +15,12 @@ const name = "github.com/cccteam/access"
 
 var _ Controller = &Client{}
 
-// Client is the users client
+// Client is the main access control client for permission checking and user management.
 type Client struct {
 	userManager *userManager
 }
 
-// New creates a new user client
+// New creates a new Client with specified domains and adapter. Errors if user manager initialization fails.
 func New(domains Domains, adapter Adapter) (*Client, error) {
 	userManager, err := newUserManager(domains, adapter)
 	if err != nil {
@@ -32,12 +32,12 @@ func New(domains Domains, adapter Adapter) (*Client, error) {
 	}, nil
 }
 
-// Handlers returns the HandlerClient
+// Handlers returns the Handlers for enforcing access control
 func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) Handlers {
 	return newHandler(c, validate, logHandler)
 }
 
-// RequireAll checks if a user has all the given permissions in a domain
+// RequireAll checks if user has all permissions in domain. Errors if domain invalid or user lacks permissions.
 func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perms ...accesstypes.Permission) error {
 	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireAll()")
 	defer span.End()
@@ -61,7 +61,8 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 	return nil
 }
 
-// RequireResources checks if a user has the given permission for a list of resources in a domain
+// RequireResources checks if user has permission for resources in domain.
+// Returns ok=true if all accessible, ok=false with missing resources otherwise. Errors if domain invalid.
 func (c *Client) RequireResources(
 	ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (bool, []accesstypes.Resource, error) {
@@ -92,7 +93,7 @@ func (c *Client) RequireResources(
 	return true, nil, nil
 }
 
-// UserManager returns the UserManager
+// UserManager returns the UserManager for managing users, roles, and permissions.
 func (c *Client) UserManager() UserManager {
 	return c.userManager
 }
