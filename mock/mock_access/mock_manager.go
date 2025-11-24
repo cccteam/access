@@ -15,7 +15,6 @@ import (
 
 	access "github.com/cccteam/access"
 	accesstypes "github.com/cccteam/ccc/accesstypes"
-	validator "github.com/go-playground/validator/v10"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,17 +43,17 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 }
 
 // Handlers mocks base method.
-func (m *MockController) Handlers(validate *validator.Validate, handler access.LogHandler) access.Handlers {
+func (m *MockController) Handlers(handler access.LogHandler) access.Handlers {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Handlers", validate, handler)
+	ret := m.ctrl.Call(m, "Handlers", handler)
 	ret0, _ := ret[0].(access.Handlers)
 	return ret0
 }
 
 // Handlers indicates an expected call of Handlers.
-func (mr *MockControllerMockRecorder) Handlers(validate, handler any) *gomock.Call {
+func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), validate, handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
 }
 
 // RequireAll mocks base method.

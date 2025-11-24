@@ -813,12 +813,15 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 			},
 		},
 		{
-			name:    "fails to delete permissions empty",
-			wantErr: true,
+			name:    "noop on delete empty permissions",
+			wantErr: false,
 			args: args{
 				guarantorID: "755",
 				role:        "Admin",
 				body:        `{ "permissions" : [] }`,
+			},
+			prepare: func(user *MockUserManager) {
+				user.EXPECT().DeleteRolePermissions(gomock.Any(), accesstypes.Domain("755"), accesstypes.Role("Admin")).Return(nil).Times(1)
 			},
 		},
 		{
@@ -902,6 +905,8 @@ func TestHandlerClient_DeleteRolePermissions(t *testing.T) {
 					t.Errorf("json.Unmarshal() error=%v", err)
 				}
 				t.Errorf("App.DeleteRolePermissions() error = %v, wantErr = %v", got, tt.wantErr)
+			} else if tt.wantErr {
+				t.Errorf("App.DeleteRolePermissions() code = %v, wantErr = %v", rr.Code, tt.wantErr)
 			}
 		})
 	}
