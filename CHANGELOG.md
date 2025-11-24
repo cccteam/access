@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.10](https://github.com/cccteam/access/compare/v0.8.9...v0.8.10) (2025-11-24)
+
+
+### Features
+
+* upgrade x/crypto pkg to address vulns ([#115](https://github.com/cccteam/access/issues/115)) ([8c5905b](https://github.com/cccteam/access/commit/8c5905b6b34675b2c8fc2354fb3d324ee2d2fe7c))
+
+
+### Documentation
+
+* Add documentation ([#116](https://github.com/cccteam/access/issues/116)) ([a47e1a7](https://github.com/cccteam/access/commit/a47e1a712e94d96f212240f64ca2720d58083e18))
+
 ## [0.8.9](https://github.com/cccteam/access/compare/v0.8.8...v0.8.9) (2025-11-14)
 
 
