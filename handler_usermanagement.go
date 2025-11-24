@@ -58,9 +58,9 @@ func (a *HandlerClient) User() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.User()")
 		defer span.End()
 
-		username := httpio.Param[string](r, paramUser)
+		username := httpio.Param[accesstypes.User](r, paramUser)
 
-		user, err := a.manager.User(ctx, accesstypes.User(username))
+		user, err := a.manager.User(ctx, username)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -92,7 +92,7 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
 		if err := a.manager.AddRole(ctx, domain, req.RoleName); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -124,8 +124,8 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.AddRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -153,8 +153,8 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.AddRoleUsers(ctx, domain, role, req.Users...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -182,8 +182,8 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.DeleteRoleUsers(ctx, domain, role, req.Users...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -211,8 +211,8 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.DeleteRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -234,7 +234,7 @@ func (a *HandlerClient) Roles() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Roles()")
 		defer span.End()
 
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
 		roles, err := a.manager.Roles(ctx, domain)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -256,8 +256,8 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RoleUsers()")
 		defer span.End()
 
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		roleUsers, err := a.manager.RoleUsers(ctx, domain, role)
 		if err != nil {
@@ -280,8 +280,8 @@ func (a *HandlerClient) RolePermissions() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RolePermissions()")
 		defer span.End()
 
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		rolePermissions, err := a.manager.RolePermissions(ctx, domain, role)
 		if err != nil {
@@ -302,8 +302,8 @@ func (a *HandlerClient) DeleteRole() http.HandlerFunc {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRole()")
 		defer span.End()
 
-		domain := accesstypes.Domain(httpio.Param[string](r, paramGuarantorID))
-		role := accesstypes.Role(httpio.Param[string](r, paramRole))
+		domain := httpio.Param[accesstypes.Domain](r, paramGuarantorID)
+		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		_, err := a.manager.DeleteRole(ctx, domain, role)
 		if err != nil {
