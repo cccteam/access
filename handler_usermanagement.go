@@ -81,7 +81,7 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 		Role accesstypes.Role `json:"role"`
 	}
 
-	decoder := NewDecoder[request]()
+	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRole()")
@@ -113,7 +113,7 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 		Permissions []accesstypes.Permission `json:"permissions"`
 	}
 
-	decoder := NewDecoder[request]()
+	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRolePermissions()")
@@ -143,7 +143,7 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		Users []accesstypes.User `json:"users"`
 	}
 
-	decoder := NewDecoder[request]()
+	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRoleUsers()")
@@ -172,7 +172,7 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		Users []accesstypes.User `json:"users"`
 	}
 
-	decoder := NewDecoder[request]()
+	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRoleUsers()")
@@ -201,7 +201,7 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 		Permissions []accesstypes.Permission `json:"permissions"`
 	}
 
-	decoder := NewDecoder[request]()
+	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRolePermissions()")

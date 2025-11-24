@@ -39,8 +39,8 @@ func newHandler(client *Client, logHandler LogHandler) *HandlerClient {
 	}
 }
 
-// NewDecoder creates a struct decoder with validation for HTTP requests. Panics on error.
-func NewDecoder[T any]() *resource.StructDecoder[T] {
+// newDecoder creates a struct decoder with validation for HTTP requests. Panics on error.
+func newDecoder[T any]() *resource.StructDecoder[T] {
 	decoder, err := resource.NewStructDecoder[T]()
 	if err != nil {
 		panic(err)
