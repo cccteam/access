@@ -615,9 +615,6 @@ func Test_userManager_AddUserRoles(t *testing.T) {
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "",
 			},
-			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).MinTimes(1).Return([]string{"tenant1", "tenant2"}, nil)
-			},
 			wantErr: true,
 		},
 		{
