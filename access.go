@@ -7,7 +7,6 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
-	"github.com/go-playground/validator/v10"
 	"go.opentelemetry.io/otel"
 )
 
@@ -33,8 +32,8 @@ func New(domains Domains, adapter Adapter) (*Client, error) {
 }
 
 // Handlers returns the Handlers for enforcing access control
-func (c *Client) Handlers(validate *validator.Validate, logHandler LogHandler) Handlers {
-	return newHandler(c, validate, logHandler)
+func (c *Client) Handlers(logHandler LogHandler) Handlers {
+	return newHandler(c, logHandler)
 }
 
 // RequireAll checks if user has all permissions in domain. Errors if domain invalid or user lacks permissions.

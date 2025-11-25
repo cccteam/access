@@ -2,19 +2,19 @@ package access
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/mock/gomock"
 )
 
-// TestClient_User_Add_Delete tests adding and deleting roles from a user. It also tests the User method.
+// Test_userManager_User_Add_Delete tests adding and deleting roles from a user. It also tests the User method.
 // This ties all  three methods together, but it is the easiest way to check the results of Add/Delete.
-func TestClient_User_Add_Delete(t *testing.T) {
+func Test_userManager_User_Add_Delete(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_add_delete.csv"
@@ -40,35 +40,35 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				ctx:      context.Background(),
 				username: "charlie",
 				role:     "Viewer",
-				domain:   accesstypes.Domain("712"),
+				domain:   accesstypes.Domain("tenant2"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(3)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant2", "tenant1"}, nil).Times(3)
 			},
 			want: &UserAccess{
 				Name: "charlie",
 				Roles: accesstypes.RoleCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 				Permissions: accesstypes.UserPermissionCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 			},
 			wantAdd: &UserAccess{
 				Name: "charlie",
 				Roles: accesstypes.RoleCollection{
-					"global": {},
-					"755":    {},
-					"712":    {"Viewer"},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {"Viewer"},
 				},
 				Permissions: accesstypes.UserPermissionCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 			},
 		},
@@ -89,23 +89,23 @@ func TestClient_User_Add_Delete(t *testing.T) {
 				ctx:      context.Background(),
 				username: "bill",
 				role:     accesstypes.Role("Non-Existent"),
-				domain:   accesstypes.Domain("712"),
+				domain:   accesstypes.Domain("tenant2"),
 			},
 			want: &UserAccess{
 				Name: "bill",
 				Roles: accesstypes.RoleCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 				Permissions: accesstypes.UserPermissionCollection{
-					"global": {},
-					"755":    {},
-					"712":    {},
+					"global":  {},
+					"tenant1": {},
+					"tenant2": {},
 				},
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).MaxTimes(3)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant2", "tenant1"}, nil).MaxTimes(3)
 			},
 			want2Err: true,
 		},
@@ -167,7 +167,7 @@ func TestClient_User_Add_Delete(t *testing.T) {
 	}
 }
 
-func TestClient_Users(t *testing.T) {
+func Test_userManager_Users(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_users.csv"
@@ -191,45 +191,45 @@ func TestClient_Users(t *testing.T) {
 				{
 					Name: "alice",
 					Roles: accesstypes.RoleCollection{
-						"global": {},
-						"712":    {},
-						"755":    {},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {},
 					},
 					Permissions: accesstypes.UserPermissionCollection{
-						"global": {},
-						"712":    {"global": {"ViewUsers"}},
-						"755":    {},
+						"global":  {},
+						"tenant2": {"global": {"ViewUsers"}},
+						"tenant1": {},
 					},
 				},
 				{
 					Name: "bob",
 					Roles: accesstypes.RoleCollection{
-						"global": {},
-						"712":    {"Editor"},
-						"755":    {},
+						"global":  {},
+						"tenant2": {"Editor"},
+						"tenant1": {},
 					},
 					Permissions: accesstypes.UserPermissionCollection{
-						"global": {},
-						"712":    {},
-						"755":    {},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {},
 					},
 				},
 				{
 					Name: "charlie",
 					Roles: accesstypes.RoleCollection{
-						"global": {},
-						"712":    {},
-						"755":    {"Administrator"},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {"Administrator"},
 					},
 					Permissions: accesstypes.UserPermissionCollection{
-						"global": {},
-						"712":    {},
-						"755":    {"global": {"DeleteUsers", "AddUsers"}},
+						"global":  {},
+						"tenant2": {},
+						"tenant1": {"global": {"DeleteUsers", "AddUsers"}},
 					},
 				},
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"712", "755"}, nil).Times(1)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant2", "tenant1"}, nil).Times(1)
 			},
 		},
 		{
@@ -274,7 +274,7 @@ func TestClient_Users(t *testing.T) {
 	}
 }
 
-func TestClient_RolePermissions(t *testing.T) {
+func Test_userManager_RolePermissions(t *testing.T) {
 	t.Parallel()
 
 	enforcer, err := mockEnforcer("testdata/policy_users.csv")
@@ -299,21 +299,21 @@ func TestClient_RolePermissions(t *testing.T) {
 		{
 			name:    "ReturnsListOfPermissions",
 			fields:  fields{e: enforcer},
-			args:    args{role: "Administrator", domain: "755"},
+			args:    args{role: "Administrator", domain: "tenant1"},
 			want:    accesstypes.RolePermissionCollection{"DeleteUsers": {"global"}, "AddUsers": {"global"}},
 			wantErr: false,
 		},
 		{
 			name:    "No Permissions Found",
 			fields:  fields{e: enforcer},
-			args:    args{role: "Administrator", domain: "712"},
+			args:    args{role: "Administrator", domain: "tenant2"},
 			want:    accesstypes.RolePermissionCollection{},
 			wantErr: false,
 		},
 		{
 			name:    "Bad role",
 			fields:  fields{e: enforcer},
-			args:    args{role: "asdvsdb", domain: "712"},
+			args:    args{role: "asdvsdb", domain: "tenant2"},
 			want:    accesstypes.RolePermissionCollection{},
 			wantErr: true,
 		},
@@ -344,7 +344,7 @@ func TestClient_RolePermissions(t *testing.T) {
 	}
 }
 
-func TestClient_RoleUsers(t *testing.T) {
+func Test_userManager_RoleUsers(t *testing.T) {
 	t.Parallel()
 	policyPath := "testdata/policy_users.csv"
 
@@ -360,19 +360,19 @@ func TestClient_RoleUsers(t *testing.T) {
 	}{
 		{
 			name:    "Filters Noop User",
-			args:    args{role: "Administrator", domain: "755"},
+			args:    args{role: "Administrator", domain: "tenant1"},
 			want:    []accesstypes.User{"charlie"},
 			wantErr: false,
 		},
 		{
 			name:    "No users found",
-			args:    args{role: "Administrator", domain: "712"},
+			args:    args{role: "Administrator", domain: "tenant2"},
 			want:    []accesstypes.User{},
 			wantErr: false,
 		},
 		{
 			name:    "No users found in given roll",
-			args:    args{role: "Admin", domain: "755"},
+			args:    args{role: "Admin", domain: "tenant1"},
 			want:    []accesstypes.User{},
 			wantErr: false,
 		},
@@ -403,7 +403,7 @@ func TestClient_RoleUsers(t *testing.T) {
 	}
 }
 
-func TestClient_DeleteRoleUsers(t *testing.T) {
+func Test_userManager_DeleteRoleUsers(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_deleteusersfromrole.csv"
@@ -424,7 +424,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			args: args{
 				users:  []accesstypes.User{"charlie"},
 				role:   "Administrator",
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: false,
 		},
@@ -433,7 +433,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 			args: args{
 				users:  []accesstypes.User{"charlie"},
 				role:   "Viewer",
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: true,
 		},
@@ -460,7 +460,7 @@ func TestClient_DeleteRoleUsers(t *testing.T) {
 	}
 }
 
-func TestClient_AddRole(t *testing.T) {
+func Test_userManager_AddRole(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_addrole.csv"
@@ -480,22 +480,22 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Successfully add a new role",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 		},
 		{
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: accesstypes.Domain("tenant3"),
 				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant3").Return(false, nil)
 			},
 			wantErr: true,
 		},
@@ -503,11 +503,23 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: accesstypes.Domain("tenant3"),
 				role:   accesstypes.Role("AddUser"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, errors.New("failed to get domain"))
+				db.EXPECT().DomainExists(gomock.Any(), "tenant3").Return(false, errors.New("failed to get domain"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "Role as empty string",
+			args: args{
+				ctx:    context.Background(),
+				domain: accesstypes.Domain("tenant1"),
+				role:   accesstypes.Role(""),
+			},
+			prepare: func(db *MockDomains) {
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 			wantErr: true,
 		},
@@ -515,11 +527,11 @@ func TestClient_AddRole(t *testing.T) {
 			name: "Role Already Exists",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 				role:   accesstypes.Role("Viewer"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 			wantErr: true,
 		},
@@ -552,7 +564,7 @@ func TestClient_AddRole(t *testing.T) {
 	}
 }
 
-func TestClient_AddUserRoles(t *testing.T) {
+func Test_userManager_AddUserRoles(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_adduserroles.csv"
@@ -564,46 +576,57 @@ func TestClient_AddUserRoles(t *testing.T) {
 		user   accesstypes.User
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-		prepare func(db *MockDomains)
+		name        string
+		args        args
+		wantErr     bool
+		wantUserErr bool
+		prepare     func(db *MockDomains)
 	}{
 		{
 			name: "Successfully add roles to a user",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).MinTimes(1).Return([]string{"tenant1", "tenant2"}, nil)
 			},
 		},
 		{
 			name: "Domain doesn't exist",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).MinTimes(1).Return([]string{"tenant1"}, nil)
 			},
-			wantErr: false,
+			wantUserErr: true,
+		},
+		{
+			name: "User as empty string",
+			args: args{
+				ctx:    context.Background(),
+				domain: accesstypes.Domain("tenant2"),
+				roles:  []accesstypes.Role{"Viewer"},
+				user:   "",
+			},
+			wantErr: true,
 		},
 		{
 			name: "Error getting domain",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 				roles:  []accesstypes.Role{"Viewer"},
 				user:   "Bill",
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).AnyTimes().Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).MinTimes(1).Return([]string{"tenant1", "tenant2"}, nil)
 			},
 			wantErr: false,
 		},
@@ -623,29 +646,32 @@ func TestClient_AddUserRoles(t *testing.T) {
 				t.Fatalf("failed to load policies. err=%s", err)
 			}
 
-			c := &userManager{
+			u := &userManager{
 				domains: domains,
 				Enforcer: func() casbin.IEnforcer {
 					return enforcer
 				},
 			}
 
-			if err := c.AddUserRoles(ctx, tt.args.domain, tt.args.user, tt.args.roles...); (err != nil) != tt.wantErr {
-				t.Errorf("Client.AddUserRoles() error = %v, wantErr %v", err, tt.wantErr)
+			if err := u.AddUserRoles(ctx, tt.args.domain, tt.args.user, tt.args.roles...); (err != nil) != tt.wantErr {
+				t.Errorf("userManager.AddUserRoles() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
 			}
 
-			user, err := c.User(context.Background(), tt.args.user)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("failed to get user. err=%s", err)
+			user, err := u.User(context.Background(), tt.args.user)
+			if err != nil {
+				t.Fatalf("userManager.User() error = %v, wantErr %v", err, tt.wantUserErr)
 			}
-			if !reflect.DeepEqual(tt.args.roles, user.Roles[tt.args.domain]) {
-				t.Errorf("Client.AddUserRoles() got=%v, want=%v", tt.args.roles, user.Roles[tt.args.domain])
+			if !reflect.DeepEqual(tt.args.roles, user.Roles[tt.args.domain]) != tt.wantUserErr {
+				t.Errorf("userManager.AddUserRoles() got=%v, want=%v", tt.args.roles, user.Roles[tt.args.domain])
 			}
 		})
 	}
 }
 
-func TestClient_Roles(t *testing.T) {
+func Test_userManager_Roles(t *testing.T) {
 	t.Parallel()
 
 	enforcer, err := mockEnforcer("testdata/policy.csv")
@@ -675,10 +701,10 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: accesstypes.Domain("tenant3"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant3").Return(false, nil)
 			},
 			wantErr: true,
 		},
@@ -689,10 +715,10 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: accesstypes.Domain("tenant3"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, errors.New("failed to get DomainIDs"))
+				db.EXPECT().DomainExists(gomock.Any(), "tenant3").Return(false, errors.New("failed to get DomainIDs"))
 			},
 			wantErr: true,
 		},
@@ -703,10 +729,10 @@ func TestClient_Roles(t *testing.T) {
 			},
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "712").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant2").Return(true, nil)
 			},
 			wantErr: false,
 			want: []accesstypes.Role{
@@ -746,7 +772,7 @@ func TestClient_Roles(t *testing.T) {
 	}
 }
 
-func TestClient_DomainIDs(t *testing.T) {
+func Test_userManager_DomainIDs(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -765,9 +791,9 @@ func TestClient_DomainIDs(t *testing.T) {
 				ctx: context.Background(),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"755", "712"}, nil)
+				db.EXPECT().DomainIDs(gomock.Any()).Return([]string{"tenant1", "tenant2"}, nil)
 			},
-			want:    []accesstypes.Domain{accesstypes.GlobalDomain, accesstypes.Domain("755"), accesstypes.Domain("712")},
+			want:    []accesstypes.Domain{accesstypes.GlobalDomain, accesstypes.Domain("tenant1"), accesstypes.Domain("tenant2")},
 			wantErr: false,
 		},
 		{
@@ -807,7 +833,7 @@ func TestClient_DomainIDs(t *testing.T) {
 	}
 }
 
-func TestClient_DeleteRole(t *testing.T) {
+func Test_userManager_DeleteRole(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_deleterole.csv"
@@ -827,7 +853,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Success",
 			args: args{
 				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -837,7 +863,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Success when noop exists",
 			args: args{
 				role:   accesstypes.Role("Writer"),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -847,7 +873,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Success when it doesn't exist already",
 			args: args{
 				role:   accesstypes.Role("Viewer"),
-				domain: accesstypes.Domain("712"),
+				domain: accesstypes.Domain("tenant2"),
 			},
 			want:      true,
 			wantErr:   false,
@@ -857,7 +883,7 @@ func TestClient_DeleteRole(t *testing.T) {
 			name: "Fails when users are assigned",
 			args: args{
 				role:   accesstypes.Role("Administrator"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			want:      false,
 			wantErr:   true,
@@ -896,7 +922,7 @@ func TestClient_DeleteRole(t *testing.T) {
 	}
 }
 
-func TestClient_DeleteRolePermissions(t *testing.T) {
+func Test_userManager_DeleteRolePermissions(t *testing.T) {
 	t.Parallel()
 	policyPath := "testdata/policy_deletepermissionsfromrole.csv"
 
@@ -916,7 +942,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUsers"},
 				role:        "Administrator",
-				domain:      "755",
+				domain:      "tenant1",
 			},
 			wantErr: false,
 			want: accesstypes.RolePermissionCollection{
@@ -928,7 +954,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"DELETE * FROM accesspolicies"},
 				role:        "Administrator123",
-				domain:      "755",
+				domain:      "tenant1",
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection(nil),
@@ -979,7 +1005,7 @@ func TestClient_DeleteRolePermissions(t *testing.T) {
 	}
 }
 
-func TestClient_DeleteAllRolePermissions(t *testing.T) {
+func Test_userManager_DeleteAllRolePermissions(t *testing.T) {
 	t.Parallel()
 	policyPath := "testdata/policy_deletepermissionsfromrole.csv"
 
@@ -997,7 +1023,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			name: "Successfully removes permissions from a role",
 			args: args{
 				role:   accesstypes.Role("Administrator"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{},
@@ -1006,7 +1032,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 			name: "fails to delete permissions from non-existent role",
 			args: args{
 				role:   accesstypes.Role("Administrator123"),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection(nil),
@@ -1055,7 +1081,7 @@ func TestClient_DeleteAllRolePermissions(t *testing.T) {
 	}
 }
 
-func TestClient_AddRolePermissions(t *testing.T) {
+func Test_userManager_AddRolePermissions(t *testing.T) {
 	t.Parallel()
 
 	policyPath := "testdata/policy_addpermissionstorole.csv"
@@ -1076,7 +1102,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Viewer",
-				domain:      "712",
+				domain:      "tenant2",
 			},
 			wantErr: false,
 			want:    accesstypes.RolePermissionCollection{"AddUser": {"global"}, "ViewUser": {"global"}, "AddName": {"global"}},
@@ -1086,7 +1112,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Administrator",
-				domain:      "712",
+				domain:      "tenant2",
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection{},
@@ -1096,7 +1122,17 @@ func TestClient_AddRolePermissions(t *testing.T) {
 			args: args{
 				permissions: []accesstypes.Permission{"AddUser", "ViewUser", "AddName"},
 				role:        "Viewer",
-				domain:      "755",
+				domain:      "tenant1",
+			},
+			wantErr: true,
+			want:    accesstypes.RolePermissionCollection{},
+		},
+		{
+			name: "Adds permissions failed due to role as empty string",
+			args: args{
+				permissions: []accesstypes.Permission{""},
+				role:        "Viewer",
+				domain:      "tenant2",
 			},
 			wantErr: true,
 			want:    accesstypes.RolePermissionCollection{},
@@ -1137,7 +1173,7 @@ func TestClient_AddRolePermissions(t *testing.T) {
 	}
 }
 
-func TestClient_DomainExists(t *testing.T) {
+func Test_userManager_DomainExists(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -1155,10 +1191,10 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain found",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(true, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(true, nil)
 			},
 			want:    true,
 			wantErr: false,
@@ -1167,10 +1203,10 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "Domain not found",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("733"),
+				domain: accesstypes.Domain("tenant3"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "733").Return(false, nil)
+				db.EXPECT().DomainExists(gomock.Any(), "tenant3").Return(false, nil)
 			},
 			want:    false,
 			wantErr: false,
@@ -1179,10 +1215,10 @@ func TestClient_DomainExists(t *testing.T) {
 			name: "error returned",
 			args: args{
 				ctx:    context.Background(),
-				domain: accesstypes.Domain("755"),
+				domain: accesstypes.Domain("tenant1"),
 			},
 			prepare: func(db *MockDomains) {
-				db.EXPECT().DomainExists(gomock.Any(), "755").Return(false, errors.New("error returned"))
+				db.EXPECT().DomainExists(gomock.Any(), "tenant1").Return(false, errors.New("error returned"))
 			},
 			want:    false,
 			wantErr: true,
@@ -1210,6 +1246,160 @@ func TestClient_DomainExists(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("Client.DomainExists() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_userManager_AddRoleUsers(t *testing.T) {
+	t.Parallel()
+
+	policyPath := "testdata/policy_adduserroles.csv"
+
+	type args struct {
+		ctx    context.Context
+		domain accesstypes.Domain
+		role   accesstypes.Role
+		users  []accesstypes.User
+	}
+	tests := []struct {
+		name    string
+		args    args
+		prepare func(db *MockDomains)
+		wantErr bool
+	}{
+		{
+			name: "Successfully add a role to users",
+			args: args{
+				ctx:    context.Background(),
+				domain: accesstypes.Domain("tenant2"),
+				role:   "Viewer",
+				users:  []accesstypes.User{"Bill", "Charlie"},
+			},
+		},
+		{
+			name: "Domain doesn't exist",
+			args: args{
+				ctx:    context.Background(),
+				domain: accesstypes.Domain("tenant3"),
+				role:   "Viewer",
+				users:  []accesstypes.User{"Bill", "Charlie"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Faile to add a role to users with user as empty string",
+			args: args{
+				ctx:    context.Background(),
+				domain: accesstypes.Domain("tenant2"),
+				role:   "Viewer",
+				users:  []accesstypes.User{"", "Charlie"},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			domains := NewMockDomains(ctrl)
+			if tt.prepare != nil {
+				tt.prepare(domains)
+			}
+
+			enforcer, err := mockEnforcer(policyPath)
+			if err != nil {
+				t.Fatalf("failed to load policies. err=%s", err)
+			}
+
+			u := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
+			}
+
+			if err := u.AddRoleUsers(tt.args.ctx, tt.args.domain, tt.args.role, tt.args.users...); (err != nil) != tt.wantErr {
+				t.Errorf("userManager.AddRoleUsers() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_userManager_AddRolePermissionResources(t *testing.T) {
+	t.Parallel()
+
+	policyPath := "testdata/policy_adduserroles.csv"
+
+	type args struct {
+		ctx        context.Context
+		domain     accesstypes.Domain
+		role       accesstypes.Role
+		permission accesstypes.Permission
+		resources  []accesstypes.Resource
+	}
+	tests := []struct {
+		name    string
+		args    args
+		prepare func(db *MockDomains)
+		wantErr bool
+	}{
+		{
+			name: "Successfully add a permission to resources",
+			args: args{
+				ctx:        context.Background(),
+				domain:     accesstypes.Domain("tenant2"),
+				role:       "Viewer",
+				permission: "Edit",
+				resources:  []accesstypes.Resource{"global"},
+			},
+		},
+		{
+			name: "Failed to add a permission to resources due to invalid domain",
+			args: args{
+				ctx:        context.Background(),
+				domain:     accesstypes.Domain("tenant3"),
+				role:       "Viewer",
+				permission: "Edit",
+				resources:  []accesstypes.Resource{"global"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Failed to add a permission to resources due to resource as empty string",
+			args: args{
+				ctx:        context.Background(),
+				domain:     accesstypes.Domain("tenant2"),
+				role:       "Viewer",
+				permission: "Edit",
+				resources:  []accesstypes.Resource{""},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			domains := NewMockDomains(ctrl)
+			if tt.prepare != nil {
+				tt.prepare(domains)
+			}
+
+			enforcer, err := mockEnforcer(policyPath)
+			if err != nil {
+				t.Fatalf("failed to load policies. err=%s", err)
+			}
+
+			u := &userManager{
+				domains: domains,
+				Enforcer: func() casbin.IEnforcer {
+					return enforcer
+				},
+			}
+
+			if err := u.AddRolePermissionResources(tt.args.ctx, tt.args.domain, tt.args.role, tt.args.permission, tt.args.resources...); (err != nil) != tt.wantErr {
+				t.Errorf("userManager.AddRolePermissionResources() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

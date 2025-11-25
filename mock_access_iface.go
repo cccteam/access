@@ -14,7 +14,6 @@ import (
 	reflect "reflect"
 
 	accesstypes "github.com/cccteam/ccc/accesstypes"
-	validator "github.com/go-playground/validator/v10"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -43,17 +42,17 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 }
 
 // Handlers mocks base method.
-func (m *MockController) Handlers(validate *validator.Validate, handler LogHandler) Handlers {
+func (m *MockController) Handlers(handler LogHandler) Handlers {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Handlers", validate, handler)
+	ret := m.ctrl.Call(m, "Handlers", handler)
 	ret0, _ := ret[0].(Handlers)
 	return ret0
 }
 
 // Handlers indicates an expected call of Handlers.
-func (mr *MockControllerMockRecorder) Handlers(validate, handler any) *gomock.Call {
+func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), validate, handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
 }
 
 // RequireAll mocks base method.
@@ -523,18 +522,18 @@ func (m *MockDomains) EXPECT() *MockDomainsMockRecorder {
 }
 
 // DomainExists mocks base method.
-func (m *MockDomains) DomainExists(ctx context.Context, guarantorID string) (bool, error) {
+func (m *MockDomains) DomainExists(ctx context.Context, domain string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DomainExists", ctx, guarantorID)
+	ret := m.ctrl.Call(m, "DomainExists", ctx, domain)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DomainExists indicates an expected call of DomainExists.
-func (mr *MockDomainsMockRecorder) DomainExists(ctx, guarantorID any) *gomock.Call {
+func (mr *MockDomainsMockRecorder) DomainExists(ctx, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainExists", reflect.TypeOf((*MockDomains)(nil).DomainExists), ctx, guarantorID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainExists", reflect.TypeOf((*MockDomains)(nil).DomainExists), ctx, domain)
 }
 
 // DomainIDs mocks base method.

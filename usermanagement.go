@@ -60,6 +60,10 @@ func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domai
 	}
 
 	for _, user := range users {
+		if user == "" {
+			return httpio.NewBadRequestMessage("user cannot be empty string")
+		}
+
 		if _, err := u.Enforcer().AddRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 			return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), user)
 		}
@@ -78,6 +82,10 @@ func (u *userManager) AddUserRoles(ctx context.Context, domain accesstypes.Domai
 		if roleFound := u.RoleExists(ctx, domain, role); !roleFound {
 			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
 		}
+	}
+
+	if user == "" {
+		return httpio.NewBadRequestMessage("user cannot be empty string")
 	}
 
 	for _, role := range roles {
@@ -370,6 +378,10 @@ func (u *userManager) AddRole(ctx context.Context, domain accesstypes.Domain, ro
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
 	}
 
+	if role == "" {
+		return httpio.NewBadRequestMessage("role cannot be empty string")
+	}
+
 	if _, err := u.Enforcer().AddGroupingPolicy(accesstypes.NoopUser, role.Marshal(), domain.Marshal()); err != nil {
 		return errors.Wrap(err, "enforcer.AddGroupingPolicy()")
 	}
@@ -439,6 +451,10 @@ func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes
 	}
 
 	for _, permission := range permissions {
+		if permission == "" {
+			return httpio.NewBadRequestMessage("permission cannot be empty string")
+		}
+
 		if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), permission.Marshal(), "allow"); err != nil {
 			return errors.Wrap(err, "enforcer.AddPolicy()")
 		}
@@ -456,6 +472,10 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, domain acc
 	}
 
 	for _, resource := range resources {
+		if resource == "" {
+			return httpio.NewBadRequestMessage("resource cannot be empty string")
+		}
+
 		if _, err := u.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), resource.Marshal(), permission.Marshal(), "allow"); err != nil {
 			return errors.Wrap(err, "enforcer.AddPolicy()")
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc/accesstypes"
-	"github.com/go-playground/validator/v10"
 )
 
 var _ Controller = &Client{}
@@ -24,7 +23,7 @@ type Controller interface {
 	UserManager() UserManager
 
 	// Handlers returns HTTP handlers for access management with validation and logging.
-	Handlers(validate *validator.Validate, handler LogHandler) Handlers
+	Handlers(handler LogHandler) Handlers
 }
 
 var _ UserManager = &userManager{}
@@ -103,5 +102,5 @@ type Domains interface {
 	DomainIDs(ctx context.Context) ([]string, error)
 
 	// DomainExists returns true if domain ID exists.
-	DomainExists(ctx context.Context, guarantorID string) (bool, error)
+	DomainExists(ctx context.Context, domain string) (bool, error)
 }

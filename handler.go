@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc/resource"
-	"github.com/go-playground/validator/v10"
 )
 
 // Handlers provides HTTP handlers for managing user roles.
@@ -27,27 +26,25 @@ type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error)
 
 // HandlerClient implements Handlers for access management.
 type HandlerClient struct {
-	manager  UserManager
-	validate *validator.Validate
-	handler  LogHandler
+	manager UserManager
+	handler LogHandler
 }
 
 var _ Handlers = &HandlerClient{}
 
-func newHandler(client *Client, validate *validator.Validate, logHandler LogHandler) *HandlerClient {
+func newHandler(client *Client, logHandler LogHandler) *HandlerClient {
 	return &HandlerClient{
-		manager:  client.UserManager(),
-		validate: validate,
-		handler:  logHandler,
+		manager: client.UserManager(),
+		handler: logHandler,
 	}
 }
 
-// NewDecoder creates a struct decoder with validation for HTTP requests. Panics on error.
-func NewDecoder[T any](a *HandlerClient) *resource.StructDecoder[T] {
+// newDecoder creates a struct decoder with validation for HTTP requests. Panics on error.
+func newDecoder[T any]() *resource.StructDecoder[T] {
 	decoder, err := resource.NewStructDecoder[T]()
 	if err != nil {
 		panic(err)
 	}
 
-	return decoder.WithValidator(a.validate)
+	return decoder
 }
