@@ -4,8 +4,8 @@ go 1.25.4
 
 require (
 	github.com/casbin/casbin/v2 v2.134.0
-	github.com/cccteam/ccc/accesstypes v0.5.2
-	github.com/cccteam/ccc/resource v0.8.1
+	github.com/cccteam/ccc/accesstypes v0.5.3
+	github.com/cccteam/ccc/resource v0.8.3
 	github.com/cccteam/httpio v0.7.8
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.2.3
