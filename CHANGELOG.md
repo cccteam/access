@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0](https://github.com/cccteam/access/compare/v0.8.10...v0.9.0) (2025-12-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* Removed `validate` parameter from `Controller.Handlers()` method ([#117](https://github.com/cccteam/access/issues/117))
+
+### Features
+
+* bump Go version to 1.25.5 due to vuln ([#125](https://github.com/cccteam/access/issues/125)) ([17aedba](https://github.com/cccteam/access/commit/17aedba625dbdd68f388dc132338865ccce59244))
+
+
+### Code Cleanup
+
+* Remove unneeded validator from package to simplify usage ([#117](https://github.com/cccteam/access/issues/117)) ([fe992f7](https://github.com/cccteam/access/commit/fe992f761622ba90515d4b6835ab5a0fde8c3308))
+* Removed `validate` parameter from `Controller.Handlers()` method ([#117](https://github.com/cccteam/access/issues/117)) ([fe992f7](https://github.com/cccteam/access/commit/fe992f761622ba90515d4b6835ab5a0fde8c3308))
+
 ## [0.8.10](https://github.com/cccteam/access/compare/v0.8.9...v0.8.10) (2025-11-24)
 
 
