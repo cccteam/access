@@ -5,12 +5,10 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
-	"go.opentelemetry.io/otel"
 )
-
-const name = "github.com/cccteam/access"
 
 var _ Controller = &Client{}
 
@@ -38,7 +36,7 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 
 // RequireAll checks if user has all permissions in domain. Errors if domain invalid or user lacks permissions.
 func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perms ...accesstypes.Permission) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireAll()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
@@ -65,7 +63,7 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 func (c *Client) RequireResources(
 	ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (bool, []accesstypes.Resource, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "App.RequireResources()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {

@@ -69,7 +69,6 @@ linters:
             - github.com/google/go-cmp/cmp
             - github.com/jackc/pgx/v5
             - github.com/pckhoi/casbin-pgx-adapter/v3
-            - go.opentelemetry.io/otel
             - go.uber.org/mock/gomock
             - $gostd
     dupl:

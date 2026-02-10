@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
-	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -27,7 +27,7 @@ func (a *HandlerClient) Users() http.HandlerFunc {
 	type response []*user
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Users()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		userList, err := a.manager.Users(ctx)
@@ -55,7 +55,7 @@ func (a *HandlerClient) User() http.HandlerFunc {
 	}
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.User()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		username := httpio.Param[accesstypes.User](r, paramUser)
@@ -84,7 +84,7 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRole()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -116,7 +116,7 @@ func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRolePermissions()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -146,7 +146,7 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.AddRoleUsers()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -175,7 +175,7 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRoleUsers()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -204,7 +204,7 @@ func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRolePermissions()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -231,7 +231,7 @@ func (a *HandlerClient) Roles() http.HandlerFunc {
 	}
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Roles()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
@@ -253,7 +253,7 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 	type response []accesstypes.User
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RoleUsers()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
@@ -277,7 +277,7 @@ func (a *HandlerClient) RolePermissions() http.HandlerFunc {
 	type response accesstypes.RolePermissionCollection
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.RolePermissions()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
@@ -299,7 +299,7 @@ func (a *HandlerClient) RolePermissions() http.HandlerFunc {
 // Permissions Required: DeleteRole
 func (a *HandlerClient) DeleteRole() http.HandlerFunc {
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.DeleteRole()")
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		domain := httpio.Param[accesstypes.Domain](r, paramDomain)

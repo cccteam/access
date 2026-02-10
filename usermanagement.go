@@ -9,9 +9,9 @@ import (
 
 	"github.com/casbin/casbin/v2"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
-	"go.opentelemetry.io/otel"
 )
 
 var _ UserManager = &userManager{}
@@ -51,7 +51,7 @@ func newUserManager(domains Domains, adapter Adapter) (*userManager, error) {
 // AddRoleUsers assigns a specified role to multiple users within a domain.
 // Returns an error if the role doesn't exist in the domain.
 func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRoleUsers()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	roleFound := u.RoleExists(ctx, domain, role)
@@ -75,7 +75,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domai
 // AddUserRoles assigns multiple roles to a user within a domain.
 // Returns an error if any of the roles don't exist in the domain.
 func (u *userManager) AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.AddUserRoles()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	for _, role := range roles {
@@ -100,7 +100,7 @@ func (u *userManager) AddUserRoles(ctx context.Context, domain accesstypes.Domai
 // DeleteRoleUsers removes multiple users from a specified role within a domain.
 // Returns an error if the role doesn't exist.
 func (u *userManager) DeleteRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRoleUsers()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if roleFound := u.RoleExists(ctx, domain, role); !roleFound {
@@ -118,7 +118,7 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, domain accesstypes.Do
 
 // DeleteAllRolePermissions removes all permissions (both global and resource-specific) from a role within a domain.
 func (u *userManager) DeleteAllRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteAllRolePermissions()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	perms, err := u.RolePermissions(ctx, domain, role)
@@ -136,7 +136,7 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, domain acces
 // DeleteUserRoles removes multiple role assignments from a user within a domain.
 // The operation succeeds regardless of whether the roles were previously assigned to the user.
 func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error {
-	_, span := otel.Tracer(name).Start(ctx, "client.DeleteUserRoles()")
+	_, span := tracer.Start(ctx)
 	defer span.End()
 
 	for _, role := range roles {
@@ -151,7 +151,7 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Do
 // User retrieves a user's access information including roles and permissions.
 // If no domains are specified, returns information for all domains the user has access to.
 func (u *userManager) User(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.User()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if domains == nil {
@@ -166,7 +166,7 @@ func (u *userManager) User(ctx context.Context, user accesstypes.User, domains .
 }
 
 func (u *userManager) user(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.user()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	roles, err := u.userRoles(ctx, user, domains)
@@ -189,7 +189,7 @@ func (u *userManager) user(ctx context.Context, user accesstypes.User, domains [
 // Users retrieves access information for all users in the system.
 // If no domains are specified, returns information across all domains.
 func (u *userManager) Users(ctx context.Context, domains ...accesstypes.Domain) ([]*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.Users()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if domains == nil {
@@ -209,7 +209,7 @@ func (u *userManager) Users(ctx context.Context, domains ...accesstypes.Domain) 
 }
 
 func (u *userManager) users(ctx context.Context, domains []accesstypes.Domain) ([]*UserAccess, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.users()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var users []*UserAccess
@@ -278,7 +278,7 @@ GP:
 // UserRoles returns the roles assigned to a user across specified domains.
 // If no domains are specified, returns roles across all domains.
 func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.UserRoles()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if domains == nil {
@@ -298,7 +298,7 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, doma
 }
 
 func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (accesstypes.RoleCollection, error) {
-	_, span := otel.Tracer(name).Start(ctx, "client.userRoles()")
+	_, span := tracer.Start(ctx)
 	defer span.End()
 
 	userRoles := make(accesstypes.RoleCollection)
@@ -321,7 +321,7 @@ func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, doma
 // UserPermissions returns the effective permissions for a user across specified domains.
 // If no domains are specified, returns permissions across all domains.
 func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.UserPermissions()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if domains == nil {
@@ -341,7 +341,7 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 }
 
 func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
-	_, span := otel.Tracer(name).Start(ctx, "client.userPermissions()")
+	_, span := tracer.Start(ctx)
 	defer span.End()
 
 	userPermissions := make(accesstypes.UserPermissionCollection)
@@ -365,7 +365,7 @@ func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User
 }
 
 func (u *userManager) AddRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRole()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if exists, err := u.DomainExists(ctx, domain); err != nil {
@@ -390,7 +390,7 @@ func (u *userManager) AddRole(ctx context.Context, domain accesstypes.Domain, ro
 }
 
 func (u *userManager) Roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.Roles()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if exists, err := u.DomainExists(ctx, domain); err != nil {
@@ -425,7 +425,7 @@ func (u *userManager) Roles(ctx context.Context, domain accesstypes.Domain) ([]a
 }
 
 func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRole()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if hasUsers, err := u.hasUsersAssigned(ctx, domain, role); err != nil {
@@ -443,7 +443,7 @@ func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain,
 }
 
 func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRolePermissions()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if !u.RoleExists(ctx, domain, role) {
@@ -464,7 +464,7 @@ func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes
 }
 
 func (u *userManager) AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.AddRolePermissions()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if !u.RoleExists(ctx, domain, role) {
@@ -485,7 +485,7 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, domain acc
 }
 
 func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRolePermissions()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if !u.RoleExists(ctx, domain, role) {
@@ -504,7 +504,7 @@ func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accessty
 func (u *userManager) DeleteRolePermissionResources(
 	ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource,
 ) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.DeleteRolePermissionResourcess()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if !u.RoleExists(ctx, domain, role) {
@@ -521,7 +521,7 @@ func (u *userManager) DeleteRolePermissionResources(
 }
 
 func (u *userManager) RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {
-	_, span := otel.Tracer(name).Start(ctx, "client.RoleUsers()")
+	_, span := tracer.Start(ctx)
 	defer span.End()
 
 	users, err := u.Enforcer().GetUsersForRole(role.Marshal(), domain.Marshal())
@@ -541,7 +541,7 @@ func (u *userManager) RoleUsers(ctx context.Context, domain accesstypes.Domain, 
 }
 
 func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.RolePermissions()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if !u.RoleExists(ctx, domain, role) {
@@ -562,7 +562,7 @@ func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Do
 }
 
 func (u *userManager) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool {
-	_, span := otel.Tracer(name).Start(ctx, "client.RoleExists()")
+	_, span := tracer.Start(ctx)
 	defer span.End()
 
 	roles := u.Enforcer().GetRolesForUserInDomain(accesstypes.NoopUser, domain.Marshal())
@@ -571,7 +571,7 @@ func (u *userManager) RoleExists(ctx context.Context, domain accesstypes.Domain,
 }
 
 func (u *userManager) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.Domains()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	ids, err := u.domains.DomainIDs(ctx)
@@ -589,7 +589,7 @@ func (u *userManager) Domains(ctx context.Context) ([]accesstypes.Domain, error)
 }
 
 func (u *userManager) hasUsersAssigned(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
-	_, span := otel.Tracer(name).Start(ctx, "client.hasUsersAssigned()")
+	_, span := tracer.Start(ctx)
 	defer span.End()
 
 	users, err := u.Enforcer().GetUsersForRole(role.Marshal(), domain.Marshal())
@@ -608,7 +608,7 @@ func (u *userManager) hasUsersAssigned(ctx context.Context, domain accesstypes.D
 
 // DomainExists checks if the domain exists in the application.
 func (u *userManager) DomainExists(ctx context.Context, domain accesstypes.Domain) (bool, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.DomainExists()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if domain == accesstypes.GlobalDomain {
