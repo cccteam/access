@@ -7,8 +7,8 @@ import (
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/resource"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/go-playground/errors/v5"
-	"go.opentelemetry.io/otel"
 )
 
 // RoleConfig contains roles for migration.
@@ -25,7 +25,7 @@ type Role struct {
 // MigrateRoles applies role configuration across all domains. Adds missing roles and permissions,
 // removes extras, and includes Administrator role with all permissions.
 func MigrateRoles(ctx context.Context, client UserManager, store *resource.Collection, roleConfig *RoleConfig) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "MigrateRoles()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	// Default Administrator role has all permissions
@@ -42,7 +42,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store *resource.Colle
 }
 
 func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Collection, roles []*Role) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "bootstrapRoles()")
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	domains, err := client.Domains(ctx)
