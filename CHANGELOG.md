@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.2](https://github.com/cccteam/access/compare/v0.9.1...v0.9.2) (2026-02-10)
+
+
+### Code Refactoring
+
+* Migrate to using our tracer.Start() ([#137](https://github.com/cccteam/access/issues/137)) ([e589979](https://github.com/cccteam/access/commit/e589979cd801d7f75f366d2eb0a4d22ce432f8b4))
+
+
+### Code Upgrade
+
+* Update Go dependencies ([#137](https://github.com/cccteam/access/issues/137)) ([e589979](https://github.com/cccteam/access/commit/e589979cd801d7f75f366d2eb0a4d22ce432f8b4))
+* Upgrade Go to address GO-2026-4337 ([#137](https://github.com/cccteam/access/issues/137)) ([e589979](https://github.com/cccteam/access/commit/e589979cd801d7f75f366d2eb0a4d22ce432f8b4))
+
 ## [0.9.1](https://github.com/cccteam/access/compare/v0.9.0...v0.9.1) (2026-02-02)
 
 
