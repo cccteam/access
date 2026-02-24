@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/cccteam/access/compare/v0.9.2...v0.9.3) (2026-02-24)
+
+
+### Features
+
+* upgrade otel sdk to address CVE-2026-24051 ([#142](https://github.com/cccteam/access/issues/142)) ([f34c443](https://github.com/cccteam/access/commit/f34c443e37f0f34f33039df4ee2ea2290ec86e82))
+
 ## [0.9.2](https://github.com/cccteam/access/compare/v0.9.1...v0.9.2) (2026-02-10)
 
 
