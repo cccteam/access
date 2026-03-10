@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.4](https://github.com/cccteam/access/compare/v0.9.3...v0.9.4) (2026-03-10)
+
+
+### Features
+
+* upgrade to Go 1.26 ([#149](https://github.com/cccteam/access/issues/149)) ([9d966d3](https://github.com/cccteam/access/commit/9d966d3dd38c8107b3e7359a41a3d6c6157d03c0))
+
 ## [0.9.3](https://github.com/cccteam/access/compare/v0.9.2...v0.9.3) (2026-02-24)
 
 
