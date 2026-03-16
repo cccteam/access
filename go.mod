@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	github.com/casbin/casbin/v2 v2.135.0
 	github.com/cccteam/ccc/accesstypes v0.5.6
-	github.com/cccteam/ccc/resource v0.9.9
+	github.com/cccteam/ccc/resource v0.9.10
 	github.com/cccteam/ccc/tracer v0.1.1
 	github.com/cccteam/httpio v0.7.9
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
