@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.5](https://github.com/cccteam/access/compare/v0.9.4...v0.9.5) (2026-03-20)
+
+
+### Bug Fixes
+
+* address active Trivy security incident ([#153](https://github.com/cccteam/access/issues/153)) ([715e009](https://github.com/cccteam/access/commit/715e0093771dfada3ef3b85933b3fe6f72993777))
+
 ## [0.9.4](https://github.com/cccteam/access/compare/v0.9.3...v0.9.4) (2026-03-10)
 
 
