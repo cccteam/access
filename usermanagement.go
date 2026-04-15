@@ -145,6 +145,11 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Do
 		}
 	}
 
+	// Casbin or the casbin spanner adapter has a bug where DeleteRoleForUser doesn't auto-save even when auto-save is enabled.
+	if err := u.enforcer.SavePolicy(); err != nil {
+		return errors.Wrap(err, "casbin.IEnforcer.SavePolicy()")
+	}
+
 	return nil
 }
 
