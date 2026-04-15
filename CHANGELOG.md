@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.6](https://github.com/cccteam/access/compare/v0.9.5...v0.9.6) (2026-04-15)
+
+
+### Features
+
+* upgrade Go patch version to address vulns ([#159](https://github.com/cccteam/access/issues/159)) ([ffd8a03](https://github.com/cccteam/access/commit/ffd8a03522fa911f0fed096e1182039bb42b7c78))
+
 ## [0.9.5](https://github.com/cccteam/access/compare/v0.9.4...v0.9.5) (2026-03-20)
 
 
