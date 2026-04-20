@@ -90,6 +90,38 @@ func (c *Client) RequireResources(
 	return true, nil, nil
 }
 
+// RoleRequireResources checks if role has permission for resources in domain.
+// Returns ok=true if all resources are accessible, ok=false with missing resources otherwise.
+func (c *Client) RoleRequireResources(
+	ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) (ok bool, missing []accesstypes.Resource, err error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
+		return false, nil, err
+	} else if !exists {
+		return false, nil, httpio.NewBadRequestMessage("Invalid Domain")
+	}
+
+	missing = make([]accesstypes.Resource, 0)
+	for _, resource := range resources {
+		authorized, err := c.userManager.Enforcer().Enforce(role.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal())
+		if err != nil {
+			return false, nil, errors.Wrap(err, "casbin.IEnforcer Enforce()")
+		}
+		if !authorized {
+			missing = append(missing, resource)
+		}
+	}
+
+	if len(missing) > 0 {
+		return false, missing, nil
+	}
+
+	return true, nil, nil
+}
+
 // UserManager returns the UserManager for managing users, roles, and permissions.
 func (c *Client) UserManager() UserManager {
 	return c.userManager

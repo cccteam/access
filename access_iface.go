@@ -19,6 +19,12 @@ type Controller interface {
 		ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (ok bool, missing []accesstypes.Resource, err error)
 
+	// RoleRequireResources checks if role has permission for resources in domain.
+	// Returns ok=true if all resources are accessible, ok=false with missing resources otherwise.
+	RoleRequireResources(
+		ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	) (ok bool, missing []accesstypes.Resource, err error)
+
 	// UserManager returns the UserManager for managing users, roles, and permissions.
 	UserManager() UserManager
 
