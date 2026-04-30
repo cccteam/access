@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.7](https://github.com/cccteam/access/compare/v0.9.6...v0.9.7) (2026-04-30)
+
+
+### Features
+
+* Add RoleRequireResources method to check role permissions for resources ([#162](https://github.com/cccteam/access/issues/162)) ([9301462](https://github.com/cccteam/access/commit/930146250b3882541225727f73f1a5b47ed9a213))
+
 ## [0.9.6](https://github.com/cccteam/access/compare/v0.9.5...v0.9.6) (2026-04-15)
 
 
