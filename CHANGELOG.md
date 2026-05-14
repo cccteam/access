@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.7](https://github.com/cccteam/access/compare/v0.9.6...v0.9.7) (2026-05-13)
+
+
+### Features
+
+* Add RoleRequireResources method to check role permissions for resources ([#162](https://github.com/cccteam/access/issues/162)) ([9301462](https://github.com/cccteam/access/commit/930146250b3882541225727f73f1a5b47ed9a213))
+* fix vulns GO-2026-4971 and GO-2026-4918 ([#169](https://github.com/cccteam/access/issues/169)) ([55e1ec6](https://github.com/cccteam/access/commit/55e1ec6d355fcd72cf0be99e241ef1f38455dc88))
+
 ## [0.9.6](https://github.com/cccteam/access/compare/v0.9.5...v0.9.6) (2026-04-15)
 
 
