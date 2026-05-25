@@ -1223,8 +1223,8 @@ github.com/cccteam/ccc/securehash v0.0.10 h1:BQiQAA7EFiLUa3BUI/MJ1UYuqs++NeFZX+C
 github.com/cccteam/ccc/securehash v0.0.10/go.mod h1:3kJ1e19HpFj6vQpT3SSeG5SchogxkU3Gn1ZCSs9KNt8=
 github.com/cccteam/ccc/tracer v0.1.2 h1:+S4f3RM8Y+e2500LZUgsoM/3Byw1WlHOQGCNetBJ2rs=
 github.com/cccteam/ccc/tracer v0.1.2/go.mod h1:P30qAmBETf2wzXU0pcyFQ7krjl1sxBqBw/RqbZH1CuM=
-github.com/cccteam/httpio v0.7.11 h1:0kJ6ay/dL5ZPtJH6in4Q9x+E9N61ojhZ+Df+bZTYy/Q=
-github.com/cccteam/httpio v0.7.11/go.mod h1:EfiAc47lYlx/M5UBaRT7nqYMLUj0Pf/aeGSIsx5E08Q=
+github.com/cccteam/httpio v0.7.13 h1:RG5NVUNfy6QFeUBvuG4DVYbycgdJ3rZVcwJXDqJz9Sg=
+github.com/cccteam/httpio v0.7.13/go.mod h1:GjtfIyNpsxHA1jIwOmF84yHl7umwLRW3eHBCH+JRH7M=
 github.com/cccteam/logger v0.1.20 h1:C79If05Kssm4/2y5i19Q5AChbhUPw56c6sExT1YrXFI=
 github.com/cccteam/logger v0.1.20/go.mod h1:KdxwW0bziAZX6AoXwoJRKyrtvlaJkdxODlNiXuAVnpY=
 github.com/cccteam/session v0.8.0 h1:qEZNioau9o8vbBu2Pffjl6nSFiFmgLJZhtN1RDnBFBM=
@@ -1306,8 +1306,8 @@ github.com/flowerinthenight/casbin-spanner-adapter v0.2.4/go.mod h1:wFbIkTLHJNpb
 github.com/fogleman/gg v1.2.1-0.20190220221249-0403632d5b90/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=
 github.com/fogleman/gg v1.3.0/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
-github.com/go-chi/chi/v5 v5.2.5 h1:Eg4myHZBjyvJmAFjFvWgrqDTXFyOzjj7YIm3L3mu6Ug=
-github.com/go-chi/chi/v5 v5.2.5/go.mod h1:X7Gx4mteadT3eDOMTsXzmI4/rwUpOwBHLpAfupzFJP0=
+github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=
+github.com/go-chi/chi/v5 v5.3.0/go.mod h1:R+tYY2hNuVUUjxoPtqUdgBqevM9s9njzkTLutVsOCto=
 github.com/go-fonts/dejavu v0.1.0/go.mod h1:4Wt4I4OU2Nq9asgDCteaAaWZOV24E+0/Pwo0gppep4g=
 github.com/go-fonts/latin-modern v0.2.0/go.mod h1:rQVLdDMK+mK1xscDwsqM5J8U2jrRa3T0ecnM9pNujks=
 github.com/go-fonts/liberation v0.1.1/go.mod h1:K6qoJYypsmfVjWg8KOVDQhLc8UDgIK2HYqyqAO9z7GY=
