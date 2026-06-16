@@ -7,7 +7,7 @@ require (
 	github.com/cccteam/ccc/accesstypes v0.5.6
 	github.com/cccteam/ccc/resource v0.10.1
 	github.com/cccteam/ccc/tracer v0.1.3
-	github.com/cccteam/httpio v0.7.14
+	github.com/cccteam/httpio v0.7.15
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-playground/errors/v5 v5.4.0
