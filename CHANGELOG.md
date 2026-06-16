@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.8](https://github.com/cccteam/access/compare/v0.9.7...v0.9.8) (2026-06-16)
+
+
+### Features
+
+* bump Go to 1.26.4 to resolve vulns ([#176](https://github.com/cccteam/access/issues/176)) ([3154d21](https://github.com/cccteam/access/commit/3154d21977178575851d9c7a40a03ddf0887137b))
+
 ## [0.9.7](https://github.com/cccteam/access/compare/v0.9.6...v0.9.7) (2026-05-13)
 
 
