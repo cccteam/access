@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.10](https://github.com/cccteam/access/compare/v0.9.9...v0.9.10) (2026-07-20)
+
+
+### Features
+
+* decouple MigrateRoles from resource.Collection ([#188](https://github.com/cccteam/access/issues/188)) ([44d4365](https://github.com/cccteam/access/commit/44d43652e00a6795c7c31daf60f1d62089a020d4))
+
 ## [0.9.9](https://github.com/cccteam/access/compare/v0.9.8...v0.9.9) (2026-07-14)
 
 
