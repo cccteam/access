@@ -6,10 +6,17 @@ import (
 	"slices"
 
 	"github.com/cccteam/ccc/accesstypes"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/go-playground/errors/v5"
 )
+
+// PermissionCollection is the set of permission registry operations required by MigrateRoles.
+// *resource.GeneratedCollection satisfies this interface.
+type PermissionCollection interface {
+	List() map[accesstypes.Permission][]accesstypes.Resource
+	Scope(res accesstypes.Resource) accesstypes.PermissionScope
+	IsResourceImmutable(scope accesstypes.PermissionScope, res accesstypes.Resource) bool
+}
 
 // RoleConfig contains roles for migration.
 type RoleConfig struct {
@@ -24,7 +31,7 @@ type Role struct {
 
 // MigrateRoles applies role configuration across all domains. Adds missing roles and permissions,
 // removes extras, and includes Administrator role with all permissions.
-func MigrateRoles(ctx context.Context, client UserManager, store *resource.Collection, roleConfig *RoleConfig) error {
+func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -41,7 +48,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store *resource.Colle
 	return nil
 }
 
-func bootstrapRoles(ctx context.Context, client UserManager, store *resource.Collection, roles []*Role) error {
+func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, roles []*Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -164,7 +171,7 @@ func exclude(source, exclude map[accesstypes.Permission][]accesstypes.Resource) 
 }
 
 // The Administrator should have all legal permissions, this function will prevent any updates to immutable resources
-func adminPermissions(store *resource.Collection) map[accesstypes.Permission][]accesstypes.Resource {
+func adminPermissions(store PermissionCollection) map[accesstypes.Permission][]accesstypes.Resource {
 	list := store.List()
 	list[accesstypes.Update] = slices.DeleteFunc(list[accesstypes.Update], func(res accesstypes.Resource) bool {
 		return store.IsResourceImmutable(store.Scope(res), res)
