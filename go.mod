@@ -6,7 +6,7 @@ require (
 	github.com/casbin/casbin/v2 v2.135.0
 	github.com/cccteam/ccc/accesstypes v0.5.7
 	github.com/cccteam/ccc/resource v0.10.2
-	github.com/cccteam/ccc/tracer v0.1.4
+	github.com/cccteam/ccc/tracer v0.1.5
 	github.com/cccteam/httpio v0.7.16
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.3.1

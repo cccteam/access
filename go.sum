@@ -1221,8 +1221,8 @@ github.com/cccteam/ccc/resource v0.10.2 h1:11SqwSUT6TbRXwAEL90+Qf3xAYhELFoV0/cEq
 github.com/cccteam/ccc/resource v0.10.2/go.mod h1:tKzoTTcAztbRPCsnKGG5Mqtlx+sX4YPtkv3BDcHxyLo=
 github.com/cccteam/ccc/securehash v0.0.11 h1:Kz2iVuGgDYv5FdTCdp/g6IDWKaOsvrhhEy2lCNiGf8c=
 github.com/cccteam/ccc/securehash v0.0.11/go.mod h1:twuS0l4O+S0gURi7abkGxSQK2LcKHKqzvaq++eggIvA=
-github.com/cccteam/ccc/tracer v0.1.4 h1:rd4fC1lv9NSF6LD8/WQrruSF1OE9G/hjdEDrHoDyf60=
-github.com/cccteam/ccc/tracer v0.1.4/go.mod h1:mnh+hhj8/1ADS/89XBAHjT9YqMxNw0nS1GfGS085vKg=
+github.com/cccteam/ccc/tracer v0.1.5 h1:Fye9Kv2xSz4wqrLKaJnQxF7wnwtGITr0xwRIevSyoyQ=
+github.com/cccteam/ccc/tracer v0.1.5/go.mod h1:LGYwO9xq9ng0Y7i9DAqxhAE38bXN6/zITQUYw3zaw1Y=
 github.com/cccteam/httpio v0.7.16 h1:Kqg5ndovFPbkDBUIobjPxc4F7wBnUpluIymJAiUgb4g=
 github.com/cccteam/httpio v0.7.16/go.mod h1:DHad+wBi0RtAmEKNbj71YDT0kOd5moA569ozkWkT/Ew=
 github.com/cccteam/logger v0.1.21 h1:YFTGLgf4miZbP+W7SJAHFlz/JkwKt8dMf4Sb6JaI7sI=
