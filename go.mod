@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/casbin/casbin/v2 v2.135.0
 	github.com/cccteam/ccc/accesstypes v0.5.7
-	github.com/cccteam/ccc/resource v0.10.2
+	github.com/cccteam/ccc/resource v0.10.3
 	github.com/cccteam/ccc/tracer v0.1.5
 	github.com/cccteam/httpio v0.7.16
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
@@ -48,7 +48,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/pkg/v5 v5.31.0 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
@@ -81,9 +81,9 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.289.0 // indirect
-	google.golang.org/genproto v0.0.0-20260720171339-e059f2f05d78 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260720171339-e059f2f05d78 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260720171339-e059f2f05d78 // indirect
+	google.golang.org/genproto v0.0.0-20260720211330-0afa2a65878a // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260720211330-0afa2a65878a // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260720211330-0afa2a65878a // indirect
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
