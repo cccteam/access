@@ -18,6 +18,9 @@ type PermissionCollection interface {
 	IsResourceImmutable(scope accesstypes.PermissionScope, res accesstypes.Resource) bool
 }
 
+// administratorRole is the default role granted all permissions by MigrateRoles.
+const administratorRole accesstypes.Role = "Administrator"
+
 // RoleConfig contains roles for migration.
 type RoleConfig struct {
 	Roles []*Role `json:"roles"`
@@ -37,7 +40,7 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 
 	// Default Administrator role has all permissions
 	roleConfig.Roles = append(roleConfig.Roles, &Role{
-		Name:        "Administrator",
+		Name:        administratorRole,
 		Permissions: adminPermissions(store),
 	})
 
