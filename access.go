@@ -14,18 +14,20 @@ var _ Controller = &Client{}
 
 // Client is the main access control client for permission checking and user management.
 type Client struct {
+	evaluator   evaluator
 	userManager *userManager
 }
 
-// New creates a new Client with specified domains and adapter. Errors if user manager initialization fails.
+// New creates a new Client with specified domains and adapter. Errors if engine initialization fails.
 func New(domains Domains, adapter Adapter) (*Client, error) {
-	userManager, err := newUserManager(domains, adapter)
+	engine, err := newCasbinEngine(adapter)
 	if err != nil {
-		return nil, errors.Wrap(err, "newUserManager()")
+		return nil, errors.Wrap(err, "newCasbinEngine()")
 	}
 
 	return &Client{
-		userManager: userManager,
+		evaluator:   engine,
+		userManager: newUserManager(domains, engine),
 	}, nil
 }
 
@@ -46,11 +48,11 @@ func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, doma
 	}
 
 	for _, perm := range perms {
-		authorized, err := c.userManager.Enforcer().Enforce(username.Marshal(), domain.Marshal(), accesstypes.GlobalResource.Marshal(), perm.Marshal())
+		missing, err := c.evaluator.checkUser(ctx, username, domain, perm, accesstypes.GlobalResource)
 		if err != nil {
-			return errors.Wrap(err, "casbin.IEnforcer Enforce()")
+			return err
 		}
-		if !authorized {
+		if len(missing) > 0 {
 			return httpio.NewForbiddenMessagef("user %s does not have %s", username, perm)
 		}
 	}
@@ -66,7 +68,22 @@ func (c *Client) RequireResources(
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.requireResources(ctx, username.Marshal(), domain, perm, resources...)
+	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
+		return false, nil, err
+	} else if !exists {
+		return false, nil, httpio.NewBadRequestMessage("Invalid Domain")
+	}
+
+	missing, err := c.evaluator.checkUser(ctx, username, domain, perm, resources...)
+	if err != nil {
+		return false, nil, err
+	}
+
+	if len(missing) > 0 {
+		return false, missing, nil
+	}
+
+	return true, nil, nil
 }
 
 // RoleRequireResources checks if role has permission for resources in domain.
@@ -77,35 +94,15 @@ func (c *Client) RoleRequireResources(
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.requireResources(ctx, role.Marshal(), domain, perm, resources...)
-}
-
-// UserManager returns the UserManager for managing users, roles, and permissions.
-func (c *Client) UserManager() UserManager {
-	return c.userManager
-}
-
-func (c *Client) requireResources(
-	ctx context.Context, subject string, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-) (bool, []accesstypes.Resource, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
 	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
 		return false, nil, err
 	} else if !exists {
 		return false, nil, httpio.NewBadRequestMessage("Invalid Domain")
 	}
 
-	missing := make([]accesstypes.Resource, 0)
-	for _, resource := range resources {
-		authorized, err := c.userManager.Enforcer().Enforce(subject, domain.Marshal(), resource.Marshal(), perm.Marshal())
-		if err != nil {
-			return false, nil, errors.Wrap(err, "casbin.IEnforcer Enforce()")
-		}
-		if !authorized {
-			missing = append(missing, resource)
-		}
+	missing, err := c.evaluator.checkRole(ctx, role, domain, perm, resources...)
+	if err != nil {
+		return false, nil, err
 	}
 
 	if len(missing) > 0 {
@@ -113,4 +110,9 @@ func (c *Client) requireResources(
 	}
 
 	return true, nil, nil
+}
+
+// UserManager returns the UserManager for managing users, roles, and permissions.
+func (c *Client) UserManager() UserManager {
+	return c.userManager
 }
