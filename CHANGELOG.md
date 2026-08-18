@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.11](https://github.com/cccteam/access/compare/v0.9.10...v0.9.11) (2026-08-18)
+
+
+### Features
+
+* bump Go version to 1.26.6 ([#195](https://github.com/cccteam/access/issues/195)) ([55fd13e](https://github.com/cccteam/access/commit/55fd13e6ec453b19fe8dceafc3a452f944078972))
+
 ## [0.9.10](https://github.com/cccteam/access/compare/v0.9.9...v0.9.10) (2026-07-20)
 
 
