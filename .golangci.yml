@@ -26,7 +26,6 @@ linters:
     - govet
     - importas
     - ineffassign
-    - lll
     - makezero
     - misspell
     - nakedret
@@ -96,8 +95,6 @@ linters:
       keywords:
         - TODO
         - BUG
-    lll:
-      line-length: 200
     misspell:
       locale: US
     nestif:
@@ -131,7 +128,6 @@ linters:
           - gochecknoinits
           - goconst
           - gocyclo
-          - lll
           - mnd
           - nlreturn
           - scopelint

@@ -125,9 +125,9 @@ func Test_userManager_User_Add_Delete(t *testing.T) {
 			}
 			c := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 			got, err := c.User(tt.args.ctx, tt.args.username)
 			if err != nil {
@@ -258,9 +258,9 @@ func Test_userManager_Users(t *testing.T) {
 
 			c := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			got, err := c.Users(tt.args.ctx)
@@ -324,9 +324,9 @@ func Test_userManager_RolePermissions(t *testing.T) {
 			ctx := context.Background()
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			got, err := c.RolePermissions(ctx, tt.args.domain, tt.args.role)
@@ -387,9 +387,9 @@ func Test_userManager_RoleUsers(t *testing.T) {
 			}
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			got, err := c.RoleUsers(ctx, tt.args.domain, tt.args.role)
@@ -448,9 +448,9 @@ func Test_userManager_DeleteRoleUsers(t *testing.T) {
 			}
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := c.DeleteRoleUsers(ctx, tt.args.domain, tt.args.role, tt.args.users...); (err != nil) != tt.wantErr {
@@ -552,9 +552,9 @@ func Test_userManager_AddRole(t *testing.T) {
 
 			c := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := c.AddRole(tt.args.ctx, tt.args.domain, tt.args.role); (err != nil) != tt.wantErr {
@@ -648,9 +648,9 @@ func Test_userManager_AddUserRoles(t *testing.T) {
 
 			u := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := u.AddUserRoles(ctx, tt.args.domain, tt.args.user, tt.args.roles...); (err != nil) != tt.wantErr {
@@ -756,9 +756,9 @@ func Test_userManager_Roles(t *testing.T) {
 
 			c := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			got, err := c.Roles(tt.args.ctx, tt.args.domain)
@@ -900,9 +900,9 @@ func Test_userManager_DeleteRole(t *testing.T) {
 			}
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			got, err := c.DeleteRole(ctx, tt.args.domain, tt.args.role)
@@ -980,9 +980,9 @@ func Test_userManager_DeleteRolePermissions(t *testing.T) {
 			}
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := c.DeleteRolePermissions(ctx, tt.args.domain, tt.args.role, tt.args.permissions...); err != nil {
@@ -1057,9 +1057,9 @@ func Test_userManager_DeleteAllRolePermissions(t *testing.T) {
 			}
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := c.DeleteAllRolePermissions(ctx, tt.args.domain, tt.args.role); err != nil {
@@ -1148,9 +1148,9 @@ func Test_userManager_AddRolePermissions(t *testing.T) {
 			}
 
 			c := &userManager{
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := c.AddRolePermissions(ctx, tt.args.domain, tt.args.role, tt.args.permissions...); err != nil {
@@ -1314,9 +1314,9 @@ func Test_userManager_AddRoleUsers(t *testing.T) {
 
 			u := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := u.AddRoleUsers(tt.args.ctx, tt.args.domain, tt.args.role, tt.args.users...); (err != nil) != tt.wantErr {
@@ -1393,9 +1393,9 @@ func Test_userManager_AddRolePermissionResources(t *testing.T) {
 
 			u := &userManager{
 				domains: domains,
-				Enforcer: func() casbin.IEnforcer {
+				store: &casbinEngine{Enforcer: func() casbin.IEnforcer {
 					return enforcer
-				},
+				}},
 			}
 
 			if err := u.AddRolePermissionResources(tt.args.ctx, tt.args.domain, tt.args.role, tt.args.permission, tt.args.resources...); (err != nil) != tt.wantErr {
