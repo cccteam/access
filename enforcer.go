@@ -41,6 +41,11 @@ var (
 type casbinEngine struct {
 	Enforcer func() casbin.IEnforcer // Exposed for testing
 
+	// onPolicyChange, when set, is called after every successful policy write
+	// so the snapshot evaluator can refresh without waiting out its TTL. The
+	// signaling release grows this into the PolicyVersion bump + push hint.
+	onPolicyChange func()
+
 	adapter Adapter
 
 	policyMu     sync.RWMutex
@@ -133,6 +138,12 @@ func (c *casbinEngine) loadPolicy() casbin.IEnforcer {
 	return c.enforcer
 }
 
+func (c *casbinEngine) notifyPolicyChange() {
+	if c.onPolicyChange != nil {
+		c.onPolicyChange()
+	}
+}
+
 func (c *casbinEngine) checkUser(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
 	return c.check(ctx, user.Marshal(), domain, perm, resources...)
 }
@@ -160,6 +171,7 @@ func (c *casbinEngine) addUserRole(_ context.Context, domain accesstypes.Domain,
 	if _, err := c.Enforcer().AddRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 		return errors.Wrapf(err, "casbin.SyncedEnforcer.AddRoleForUser(): role %q to %q", role.Marshal(), user)
 	}
+	c.notifyPolicyChange()
 
 	return nil
 }
@@ -168,6 +180,7 @@ func (c *casbinEngine) deleteUserRole(_ context.Context, domain accesstypes.Doma
 	if _, err := c.Enforcer().DeleteRoleForUser(user.Marshal(), role.Marshal(), domain.Marshal()); err != nil {
 		return errors.Wrapf(err, "casbin.SyncedEnforcer.DeleteRoleForUser(): role %q to %q", role.Marshal(), user)
 	}
+	c.notifyPolicyChange()
 
 	return nil
 }
@@ -257,6 +270,7 @@ func (c *casbinEngine) addRole(_ context.Context, domain accesstypes.Domain, rol
 	if _, err := c.Enforcer().AddGroupingPolicy(accesstypes.NoopUser, role.Marshal(), domain.Marshal()); err != nil {
 		return errors.Wrap(err, "enforcer.AddGroupingPolicy()")
 	}
+	c.notifyPolicyChange()
 
 	return nil
 }
@@ -292,6 +306,9 @@ func (c *casbinEngine) deleteRole(_ context.Context, role accesstypes.Role) (boo
 	if err != nil {
 		return false, errors.Wrap(err, "enforcer.DeleteRole()")
 	}
+	if deleted {
+		c.notifyPolicyChange()
+	}
 
 	return deleted, nil
 }
@@ -320,9 +337,10 @@ func (c *casbinEngine) roleUsers(_ context.Context, domain accesstypes.Domain, r
 }
 
 func (c *casbinEngine) addGrant(_ context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
-	if _, err := c.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal(), "allow"); err != nil {
+	if _, err := c.Enforcer().AddPolicy(role.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal(), allowEffect); err != nil {
 		return errors.Wrap(err, "enforcer.AddPolicy()")
 	}
+	c.notifyPolicyChange()
 
 	return nil
 }
@@ -331,6 +349,7 @@ func (c *casbinEngine) removeGrant(_ context.Context, domain accesstypes.Domain,
 	if _, err := c.Enforcer().RemoveFilteredPolicy(0, role.Marshal(), domain.Marshal(), resource.Marshal(), perm.Marshal()); err != nil {
 		return errors.Wrapf(err, "enforcer.RemoveFilteredPolicy() role=%q, domain=%q", role, domain)
 	}
+	c.notifyPolicyChange()
 
 	return nil
 }
