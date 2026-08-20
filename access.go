@@ -19,14 +19,22 @@ type Client struct {
 }
 
 // New creates a new Client with specified domains and adapter. Errors if engine initialization fails.
+//
+// Permission checks are answered by the snapshot engine, compiled in-memory
+// from the policy store. All policy writes (user management, MigrateRoles)
+// stay on the casbin path against the same store, so storage semantics are
+// unchanged.
 func New(domains Domains, adapter Adapter) (*Client, error) {
 	engine, err := newCasbinEngine(adapter)
 	if err != nil {
 		return nil, errors.Wrap(err, "newCasbinEngine()")
 	}
 
+	snapEngine := newSnapshotEngine(adapter)
+	engine.onPolicyChange = snapEngine.invalidate
+
 	return &Client{
-		evaluator:   engine,
+		evaluator:   snapEngine,
 		userManager: newUserManager(domains, engine),
 	}, nil
 }

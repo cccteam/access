@@ -1,0 +1,417 @@
+package access
+
+import (
+	"math"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/cccteam/ccc/accesstypes"
+	"github.com/go-playground/errors/v5"
+)
+
+// snapshot is an immutable, fully-compiled view of the policy store. It is
+// built once per load and shared by reference; evaluation is lock-free and
+// allocation-free. Subtraction never happens at evaluation time (additive-only
+// invariant): a snapshot only encodes what is granted.
+type snapshot struct {
+	perms     map[accesstypes.Permission]uint16
+	resources map[string]uint16   // base resource name -> dense ID
+	fields    []map[string]uint16 // by resource ID: field name -> bit position
+	domains   map[accesstypes.Domain]*domainPolicy
+	loadedAt  time.Time
+}
+
+// domainPolicy holds one domain's fully-resolved grants. Tenancy is the
+// partition grants live in: nothing in here is ever consulted for another
+// domain. Role inheritance and per-user role combination are folded at
+// compile time, so a check is a single subject lookup.
+type domainPolicy struct {
+	roleGrants map[accesstypes.Role]grantMap
+	userGrants map[accesstypes.User]grantMap
+}
+
+// grantKey packs (permission ID, resource ID) into one map key.
+type grantKey uint32
+
+func packGrantKey(permID, resID uint16) grantKey {
+	return grantKey(permID)<<16 | grantKey(resID)
+}
+
+// grantMap is a subject's complete effective grants: everything it holds
+// directly, through role membership, and through role inheritance.
+type grantMap map[grantKey]*fieldSet
+
+// fieldSet is what one subject holds on one (permission, resource) pair.
+// endpoint and field grants are distinct: an endpoint grant alone gives no
+// field visibility, and field grants alone do not grant the endpoint.
+// all is an implication flag, never materialized bits: it covers fields that
+// did not exist when the grant was written.
+type fieldSet struct {
+	endpoint bool
+	all      bool
+	bits     []uint64
+}
+
+func (f *fieldSet) setBit(i uint16) {
+	f.bits[i/64] |= 1 << (i % 64)
+}
+
+func (f *fieldSet) bit(i uint16) bool {
+	return f.bits[i/64]&(1<<(i%64)) != 0
+}
+
+// orIn merges src into f. Both bitsets are sized by the resource's field
+// count, so lengths always match.
+func (f *fieldSet) orIn(src *fieldSet) {
+	f.endpoint = f.endpoint || src.endpoint
+	f.all = f.all || src.all
+	for i, w := range src.bits {
+		f.bits[i] |= w
+	}
+}
+
+func (f *fieldSet) clone() *fieldSet {
+	return &fieldSet{
+		endpoint: f.endpoint,
+		all:      f.all,
+		bits:     slices.Clone(f.bits),
+	}
+}
+
+// checkUser returns the resources user does NOT hold perm on within domain,
+// preserving input order. It mirrors casbin's matcher over the same rows:
+// grants reach a user through role membership or rows written directly
+// against the user, both folded into one lookup at compile time.
+func (s *snapshot) checkUser(user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
+	var grants grantMap
+	if dp := s.domains[domain]; dp != nil {
+		grants = dp.userGrants[user]
+	}
+
+	return s.missingResources(grants, perm, resources)
+}
+
+// checkRole returns the resources role does NOT hold perm on within domain,
+// preserving input order.
+func (s *snapshot) checkRole(role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
+	var grants grantMap
+	if dp := s.domains[domain]; dp != nil {
+		grants = dp.roleGrants[role]
+	}
+
+	return s.missingResources(grants, perm, resources)
+}
+
+func (s *snapshot) missingResources(grants grantMap, perm accesstypes.Permission, resources []accesstypes.Resource) []accesstypes.Resource {
+	missing := make([]accesstypes.Resource, 0)
+	permID, permKnown := s.perms[perm]
+	for _, resource := range resources {
+		if !permKnown || !s.allowed(grants, permID, resource) {
+			missing = append(missing, resource)
+		}
+	}
+
+	return missing
+}
+
+func (s *snapshot) allowed(grants grantMap, permID uint16, resource accesstypes.Resource) bool {
+	if grants == nil {
+		return false
+	}
+
+	base, field := splitResourceField(string(resource))
+	resID, ok := s.resources[base]
+	if !ok {
+		return false
+	}
+
+	fs := grants[packGrantKey(permID, resID)]
+	if fs == nil {
+		return false
+	}
+
+	switch field {
+	case "":
+		return fs.endpoint
+	case "*":
+		return fs.all
+	default:
+		if fs.all {
+			// Implication: an all-fields grant covers fields unknown to the
+			// snapshot, including ones generated after the grant was written.
+			return true
+		}
+		i, ok := s.fields[resID][field]
+
+		return ok && fs.bit(i)
+	}
+}
+
+// newSnapshot compiles normalized policy records into an immutable snapshot.
+func newSnapshot(records *policyRecords, loadedAt time.Time) (*snapshot, error) {
+	s := &snapshot{
+		perms:     make(map[accesstypes.Permission]uint16),
+		resources: make(map[string]uint16),
+		domains:   make(map[accesstypes.Domain]*domainPolicy),
+		loadedAt:  loadedAt,
+	}
+
+	if err := s.intern(records.grants); err != nil {
+		return nil, err
+	}
+
+	// Pass 2: group records by domain and compile each domain independently.
+	type domainRecords struct {
+		grants      []grantRecord
+		memberships []membershipRecord
+	}
+	byDomain := make(map[accesstypes.Domain]*domainRecords)
+	domRecords := func(d accesstypes.Domain) *domainRecords {
+		dr := byDomain[d]
+		if dr == nil {
+			dr = &domainRecords{}
+			byDomain[d] = dr
+		}
+
+		return dr
+	}
+	for _, g := range records.grants {
+		dr := domRecords(g.domain)
+		dr.grants = append(dr.grants, g)
+	}
+	for _, m := range records.memberships {
+		dr := domRecords(m.domain)
+		dr.memberships = append(dr.memberships, m)
+	}
+
+	for domain, dr := range byDomain {
+		s.domains[domain] = s.compileDomain(dr.grants, dr.memberships)
+	}
+
+	return s, nil
+}
+
+// intern assigns dense IDs to permissions and resources and bit positions to
+// each resource's named fields. IDs are uint16 by design; overflowing one
+// would silently truncate and grant the wrong permissions, so it fails the
+// load instead.
+func (s *snapshot) intern(grants []grantRecord) error {
+	for _, g := range grants {
+		if _, ok := s.perms[g.perm]; !ok {
+			if len(s.perms) >= math.MaxUint16 {
+				return errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
+			}
+			s.perms[g.perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
+		}
+		resID, ok := s.resources[g.resource]
+		if !ok {
+			if len(s.resources) >= math.MaxUint16 {
+				return errors.Newf("too many resources to compile: limit %d", math.MaxUint16)
+			}
+			resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
+			s.resources[g.resource] = resID
+			s.fields = append(s.fields, make(map[string]uint16))
+		}
+		if g.field != "" && g.field != "*" {
+			if _, ok := s.fields[resID][g.field]; !ok {
+				if len(s.fields[resID]) >= math.MaxUint16 {
+					return errors.Newf("too many fields on resource %q to compile: limit %d", g.resource, math.MaxUint16)
+				}
+				s.fields[resID][g.field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *snapshot) compileDomain(grants []grantRecord, memberships []membershipRecord) *domainPolicy {
+	roleOwn, userDirect := s.compileSubjectGrants(grants)
+	inherits, userRoles := splitMemberships(memberships)
+
+	// Fold inheritance: every role referenced anywhere gets its effective
+	// grants (its own plus its transitive parents').
+	roleSet := make(map[accesstypes.Role]bool)
+	for role := range roleOwn {
+		roleSet[role] = true
+	}
+	for member, parents := range inherits {
+		roleSet[member] = true
+		for _, p := range parents {
+			roleSet[p] = true
+		}
+	}
+	for _, roles := range userRoles {
+		for _, r := range roles {
+			roleSet[r] = true
+		}
+	}
+
+	dp := &domainPolicy{
+		roleGrants: make(map[accesstypes.Role]grantMap, len(roleSet)),
+		userGrants: make(map[accesstypes.User]grantMap, len(userRoles)+len(userDirect)),
+	}
+	for role := range roleSet {
+		dp.roleGrants[role] = mergeGrants(collectRoleGrants(role, roleOwn, inherits))
+	}
+
+	// Per-user effective grants, deduplicated by role set so users sharing a
+	// role combination share one merged map.
+	combos := make(map[string]grantMap)
+	for user, roles := range userRoles {
+		slices.Sort(roles)
+		if direct := userDirect[user]; direct != nil {
+			sources := make([]grantMap, 0, len(roles)+1)
+			for _, r := range roles {
+				sources = append(sources, dp.roleGrants[r])
+			}
+			sources = append(sources, direct)
+			dp.userGrants[user] = mergeGrants(sources)
+
+			continue
+		}
+
+		key := joinRoles(roles)
+		combined, ok := combos[key]
+		if !ok {
+			sources := make([]grantMap, 0, len(roles))
+			for _, r := range roles {
+				sources = append(sources, dp.roleGrants[r])
+			}
+			combined = mergeGrants(sources)
+			combos[key] = combined
+		}
+		dp.userGrants[user] = combined
+	}
+	for user, direct := range userDirect {
+		if _, ok := dp.userGrants[user]; !ok {
+			dp.userGrants[user] = direct
+		}
+	}
+
+	return dp
+}
+
+// compileSubjectGrants builds each subject's raw grant map from one domain's
+// grant records.
+func (s *snapshot) compileSubjectGrants(grants []grantRecord) (roleOwn map[accesstypes.Role]grantMap, userDirect map[accesstypes.User]grantMap) {
+	roleOwn = make(map[accesstypes.Role]grantMap)
+	userDirect = make(map[accesstypes.User]grantMap)
+	for _, g := range grants {
+		var gm grantMap
+		switch g.subject.kind {
+		case subjectRole:
+			role := accesstypes.Role(g.subject.name)
+			if roleOwn[role] == nil {
+				roleOwn[role] = make(grantMap)
+			}
+			gm = roleOwn[role]
+		case subjectUser:
+			user := accesstypes.User(g.subject.name)
+			if userDirect[user] == nil {
+				userDirect[user] = make(grantMap)
+			}
+			gm = userDirect[user]
+		}
+
+		resID := s.resources[g.resource]
+		key := packGrantKey(s.perms[g.perm], resID)
+		fs := gm[key]
+		if fs == nil {
+			fs = &fieldSet{bits: make([]uint64, (len(s.fields[resID])+63)/64)}
+			gm[key] = fs
+		}
+		switch g.field {
+		case "":
+			fs.endpoint = true
+		case "*":
+			fs.all = true
+		default:
+			fs.setBit(s.fields[resID][g.field])
+		}
+	}
+
+	return roleOwn, userDirect
+}
+
+// splitMemberships separates one domain's membership records into user role
+// assignments and role-to-role inheritance edges. Casbin resolves inheritance
+// transitively at evaluation time; the compiler folds it at load time.
+func splitMemberships(memberships []membershipRecord) (inherits map[accesstypes.Role][]accesstypes.Role, userRoles map[accesstypes.User][]accesstypes.Role) {
+	inherits = make(map[accesstypes.Role][]accesstypes.Role)
+	userRoles = make(map[accesstypes.User][]accesstypes.Role)
+	for _, m := range memberships {
+		switch m.member.kind {
+		case subjectRole:
+			member := accesstypes.Role(m.member.name)
+			if !slices.Contains(inherits[member], m.role) {
+				inherits[member] = append(inherits[member], m.role)
+			}
+		case subjectUser:
+			user := accesstypes.User(m.member.name)
+			if !slices.Contains(userRoles[user], m.role) {
+				userRoles[user] = append(userRoles[user], m.role)
+			}
+		}
+	}
+
+	return inherits, userRoles
+}
+
+// collectRoleGrants returns the grant maps contributing to role's effective
+// grants: its own and, transitively, every role it inherits (cycle-safe).
+func collectRoleGrants(role accesstypes.Role, roleOwn map[accesstypes.Role]grantMap, inherits map[accesstypes.Role][]accesstypes.Role) []grantMap {
+	var sources []grantMap
+	visited := make(map[accesstypes.Role]bool)
+	stack := []accesstypes.Role{role}
+	for len(stack) > 0 {
+		r := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[r] {
+			continue
+		}
+		visited[r] = true
+		if own := roleOwn[r]; own != nil {
+			sources = append(sources, own)
+		}
+		stack = append(stack, inherits[r]...)
+	}
+
+	return sources
+}
+
+// mergeGrants ORs the sources into one grantMap. With zero or one source it
+// aliases rather than copies; snapshots are immutable so sharing is safe.
+func mergeGrants(sources []grantMap) grantMap {
+	sources = slices.DeleteFunc(sources, func(g grantMap) bool { return len(g) == 0 })
+	switch len(sources) {
+	case 0:
+		return grantMap{}
+	case 1:
+		return sources[0]
+	}
+
+	merged := make(grantMap)
+	for _, src := range sources {
+		for key, fs := range src {
+			if existing := merged[key]; existing != nil {
+				existing.orIn(fs)
+			} else {
+				merged[key] = fs.clone()
+			}
+		}
+	}
+
+	return merged
+}
+
+func joinRoles(roles []accesstypes.Role) string {
+	var b strings.Builder
+	for _, r := range roles {
+		b.WriteString(string(r))
+		b.WriteByte(0)
+	}
+
+	return b.String()
+}
