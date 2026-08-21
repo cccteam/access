@@ -272,8 +272,13 @@ func (s *snapshotEngine) currentSnapshot() (*snapshot, error) {
 		// a local write.
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if cur := s.snap.Load(); cur.writeGen >= s.writeGen.Load() {
-			// A concurrent reload already picked the write up.
+		// Compare against gen (the counter as of this check's entry), never
+		// the live counter: this check only owes visibility of writes that
+		// happened before it began. Chasing the live counter would send every
+		// check queued behind a reload into its own serial reload whenever
+		// writes land continuously, convoying the check path on mu.
+		if cur := s.snap.Load(); cur.writeGen >= gen {
+			// A concurrent reload already covered this check's writes.
 			return cur, nil
 		}
 		fresh, err := s.reload()

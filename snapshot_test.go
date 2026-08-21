@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	"github.com/cccteam/ccc/accesstypes"
@@ -565,6 +566,134 @@ func Test_Client_domainValidation(t *testing.T) {
 
 			if err := client.RequireAll(ctx, "erin", tt.domain, "Read"); (err != nil) != tt.wantErr {
 				t.Fatalf("RequireAll() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// convoyAdapter instruments LoadPolicy to reproduce the write-storm race:
+// while armed, every store read lands another local policy write (onLoad),
+// so the write counter is always one ahead of the read in flight. The first
+// armed read additionally parks on gate so the test can queue checks behind
+// the reload mutex before letting anything finish.
+type convoyAdapter struct {
+	persist.Adapter
+	onLoad  func() // lands a write during every armed read; set before the engine starts
+	loads   atomic.Int64
+	armed   atomic.Bool
+	started chan struct{} // closed when the first armed read is in flight
+	gate    chan struct{} // first armed read blocks until this closes
+	gateSeq sync.Once
+}
+
+func (c *convoyAdapter) LoadPolicy(m model.Model) error {
+	c.loads.Add(1)
+	if c.armed.Load() {
+		c.onLoad()
+		c.gateSeq.Do(func() {
+			close(c.started)
+			<-c.gate
+		})
+	}
+
+	if err := c.Adapter.LoadPolicy(m); err != nil {
+		return errors.Wrap(err, "persist.Adapter.LoadPolicy()")
+	}
+
+	return nil
+}
+
+type convoyFactory struct {
+	adapter *convoyAdapter
+}
+
+func (f *convoyFactory) NewAdapter() (persist.Adapter, error) {
+	return f.adapter, nil
+}
+
+// Test_snapshotEngine_syncReloadDedup pins the sync-reload dedup semantics:
+// a check queued behind an in-flight reload is satisfied by any snapshot
+// covering the writes that preceded the check's own entry. Regression for the
+// convoy where the wake-up recheck chased the live write counter, sending
+// every queued check into its own serial reload under sustained writes
+// (loads grew with check count, not write count).
+func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
+	t.Parallel()
+
+	const checks = 50
+
+	tests := []struct {
+		name string
+		// writeDuringRead lands another local write during every store read,
+		// keeping the write counter permanently ahead of the read in flight —
+		// the moving-target condition that caused the convoy.
+		writeDuringRead bool
+		// wantMaxLoads bounds store reads after the checks are queued; slack
+		// covers stragglers that enter after a mid-read write. The convoy
+		// regression produced one read per queued check (checks+1).
+		wantMaxLoads int64
+	}{
+		{
+			name:         "one write, queued checks share one reload",
+			wantMaxLoads: 1,
+		},
+		{
+			name:            "write storm, reloads scale with writes not checks",
+			writeDuringRead: true,
+			wantMaxLoads:    3,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			adapter := &convoyAdapter{
+				Adapter: fileadapter.NewAdapter(writeEnginePolicy(t)),
+				started: make(chan struct{}),
+				gate:    make(chan struct{}),
+			}
+			e := testEngine(t, &convoyFactory{adapter: adapter}, nil)
+			adapter.onLoad = func() {}
+			if tt.writeDuringRead {
+				adapter.onLoad = e.invalidate
+			}
+
+			if err := e.waitReady(context.Background()); err != nil {
+				t.Fatalf("waitReady() error = %v", err)
+			}
+			settle(e)
+			baseline := adapter.loads.Load()
+
+			adapter.armed.Store(true)
+			e.invalidate() // send checks into the sync-reload path
+
+			errs := make(chan error, checks)
+			var wg sync.WaitGroup
+			for range checks {
+				wg.Go(func() {
+					_, err := e.checkUser(context.Background(), "erin", "tenant1", "Read", "employees")
+					errs <- err
+				})
+			}
+
+			// Wait for the first sync reload to hold the store read open,
+			// then give the remaining checks time to record their entry
+			// generation and queue on the reload mutex before any reload
+			// completes.
+			<-adapter.started
+			time.Sleep(50 * time.Millisecond)
+			close(adapter.gate)
+
+			wg.Wait()
+			close(errs)
+			for err := range errs {
+				if err != nil {
+					t.Fatalf("checkUser() error = %v", err)
+				}
+			}
+
+			if extra := adapter.loads.Load() - baseline; extra > tt.wantMaxLoads {
+				t.Errorf("store loads with checks queued = %d, want at most %d", extra, tt.wantMaxLoads)
 			}
 		})
 	}
