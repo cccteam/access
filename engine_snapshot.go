@@ -13,42 +13,214 @@ import (
 
 var _ evaluator = &snapshotEngine{}
 
-// snapshotTTL bounds staleness when no policy-change signal arrives, matching
-// the at-most-every-minute reload the casbin evaluator had. The signaling
-// release (PolicyVersion heartbeat + push hint) replaces this as the reload
-// trigger.
-const snapshotTTL = time.Minute
+const (
+	// defaultHeartbeatInterval bounds cross-instance staleness: every tick
+	// re-reads the policy store, recompiling only when the content hash
+	// changed. The push hint shrinks latency below this bound; the heartbeat
+	// is the correctness guarantee.
+	defaultHeartbeatInterval = 15 * time.Second
+
+	// watchRetryDelay is how long the engine waits before re-invoking
+	// ChangeSignal.Watch after it returns.
+	watchRetryDelay = 5 * time.Second
+
+	// announceTimeout bounds the best-effort change broadcast after a write.
+	announceTimeout = 5 * time.Second
+)
 
 // snapshotEngine answers permission checks from a compiled snapshot of the
-// policy store. It is the request-path replacement for casbin evaluation:
-// checks never take a lock or touch the database. The policy store is read
-// through the same persist.Adapter casbin writes through; the write path is
-// untouched.
+// policy store. Checks never take a lock or touch the database; a background
+// heartbeat (plus an optional push hint) keeps the snapshot fresh.
 //
 // Failure semantics: the first load must succeed before checks are served
 // (errors are returned, never panicked); once a snapshot exists, a failed
-// reload serves the last good snapshot rather than failing checks.
+// reload serves the last good snapshot and reports through onError.
 type snapshotEngine struct {
-	adapterFactory Adapter
+	adapterFactory    Adapter
+	heartbeatInterval time.Duration
+	signal            ChangeSignal // may be nil
+	onError           func(error)  // never nil
 
-	// invalidated is set by the policy write path so the next check reloads
-	// immediately instead of waiting out the TTL, preserving the
-	// read-your-writes behavior the shared casbin enforcer had.
-	invalidated atomic.Bool
+	// writeGen counts local policy writes. A snapshot is trusted for
+	// read-your-writes only when its recorded generation has caught up to
+	// writeGen; otherwise the check reloads first. A generation (rather than
+	// a flag) makes the protocol race-free against in-flight reloads: a
+	// snapshot can never appear current while missing a local write.
+	writeGen atomic.Int64
+
+	// syncFailedGen records the generation a synchronous (check-path) reload
+	// last failed at, so a store outage right after a local write degrades to
+	// serving the last good snapshot instead of every check re-attempting the
+	// reload; the heartbeat keeps retrying.
+	syncFailedGen atomic.Int64
 
 	snap atomic.Pointer[snapshot]
 
+	// ready is closed by the first successful load; WaitReady blocks on it.
+	ready     chan struct{}
+	readyOnce sync.Once
+
+	// hintCh coalesces push hints for the background loop.
+	hintCh chan struct{}
+
 	mu      sync.Mutex // guards adapter and reloads
 	adapter persist.Adapter
+
+	started     atomic.Bool
+	lifecycleMu sync.Mutex // guards start/close transitions
+	closed      bool
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
-func newSnapshotEngine(adapterFactory Adapter) *snapshotEngine {
-	return &snapshotEngine{adapterFactory: adapterFactory}
+func newSnapshotEngine(adapterFactory Adapter, opts *clientOptions) *snapshotEngine {
+	return &snapshotEngine{
+		adapterFactory:    adapterFactory,
+		heartbeatInterval: opts.heartbeatInterval,
+		signal:            opts.signal,
+		onError:           opts.onReloadError,
+		ready:             make(chan struct{}),
+		hintCh:            make(chan struct{}, 1),
+	}
 }
 
-// invalidate marks the current snapshot stale. Safe to call concurrently.
+// policyChanged is invoked by the policy write path after every successful
+// write: the local snapshot reloads on the next check (read-your-writes), the
+// background loop is nudged, and other instances are hinted best-effort.
+func (s *snapshotEngine) policyChanged() {
+	s.invalidate()
+	s.hint()
+	s.announceAsync()
+}
+
+// invalidate marks the current snapshot as predating a local policy write.
+// Safe to call concurrently.
 func (s *snapshotEngine) invalidate() {
-	s.invalidated.Store(true)
+	s.writeGen.Add(1)
+}
+
+// hint nudges the background loop to reload; extra hints coalesce.
+func (s *snapshotEngine) hint() {
+	select {
+	case s.hintCh <- struct{}{}:
+	default:
+	}
+}
+
+func (s *snapshotEngine) announceAsync() {
+	if s.signal == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), announceTimeout)
+		defer cancel()
+		if err := s.signal.Announce(ctx); err != nil {
+			s.onError(errors.Wrap(err, "ChangeSignal.Announce()"))
+		}
+	}()
+}
+
+// waitReady blocks until the first successful load or ctx expiry.
+func (s *snapshotEngine) waitReady(ctx context.Context) error {
+	s.ensureStarted()
+	select {
+	case <-s.ready:
+		return nil
+	case <-ctx.Done():
+		return errors.Wrap(ctx.Err(), "waiting for first policy load")
+	}
+}
+
+// close stops the background loops. Checks keep serving the last snapshot.
+func (s *snapshotEngine) close() error {
+	s.lifecycleMu.Lock()
+	if s.closed {
+		s.lifecycleMu.Unlock()
+
+		return nil
+	}
+	s.closed = true
+	cancel := s.cancel
+	s.lifecycleMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	s.wg.Wait()
+
+	return nil
+}
+
+// ensureStarted lazily starts the background heartbeat and signal watch on
+// first use, so constructing a Client never touches the database.
+func (s *snapshotEngine) ensureStarted() {
+	if s.started.Load() {
+		return
+	}
+
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.started.Load() || s.closed {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.wg.Add(1)
+	go s.run(ctx)
+	if s.signal != nil {
+		s.wg.Add(1)
+		go s.watch(ctx)
+	}
+	s.started.Store(true)
+}
+
+// run owns snapshot freshness: an immediate initial load, then a reload on
+// every heartbeat tick and push hint. Reload failures serve the last good
+// snapshot and report through onError.
+func (s *snapshotEngine) run(ctx context.Context) {
+	defer s.wg.Done()
+
+	s.tryReload()
+
+	ticker := time.NewTicker(s.heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.tryReload()
+		case <-s.hintCh:
+			s.tryReload()
+		}
+	}
+}
+
+// watch runs the push-hint subscription, re-invoking it with a delay whenever
+// it returns. Hints only nudge the reload loop; a broken signal never affects
+// correctness.
+func (s *snapshotEngine) watch(ctx context.Context) {
+	defer s.wg.Done()
+
+	for {
+		if err := s.signal.Watch(ctx, s.hint); err != nil && ctx.Err() == nil {
+			s.onError(errors.Wrap(err, "ChangeSignal.Watch()"))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(watchRetryDelay):
+		}
+	}
+}
+
+func (s *snapshotEngine) tryReload() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.reload(); err != nil {
+		s.onError(err)
+	}
 }
 
 func (s *snapshotEngine) checkUser(_ context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
@@ -69,43 +241,56 @@ func (s *snapshotEngine) checkRole(_ context.Context, role accesstypes.Role, dom
 	return snap.checkRole(role, domain, perm, resources...), nil
 }
 
+// peek returns the current snapshot without triggering loads. Nil until the
+// first successful load.
+func (s *snapshotEngine) peek() *snapshot {
+	return s.snap.Load()
+}
+
 func (s *snapshotEngine) currentSnapshot() (*snapshot, error) {
+	s.ensureStarted()
+
 	snap := s.snap.Load()
 	if snap == nil {
-		// No snapshot yet: everyone blocks on the first load, and its failure
-		// is a check failure.
+		// No snapshot yet: block on the load so the first requests get a
+		// real answer (or a real error), whether or not the background
+		// loop's initial load has finished.
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if snap = s.snap.Load(); snap != nil && !s.stale(snap) {
+		if snap := s.snap.Load(); snap != nil {
 			return snap, nil
 		}
 
 		return s.reload()
 	}
 
-	if s.stale(snap) && s.mu.TryLock() {
-		// One goroutine refreshes; concurrent checks keep serving the current
-		// snapshot instead of queueing behind the load.
+	if gen := s.writeGen.Load(); snap.writeGen < gen && s.syncFailedGen.Load() < gen {
+		// This instance wrote policy after the snapshot's store read: reload
+		// before answering so the write is visible to its own subsequent
+		// requests (matching the shared-enforcer behavior casbin had).
+		// Blocking is fine here — it only happens in the brief window after
+		// a local write.
+		s.mu.Lock()
 		defer s.mu.Unlock()
-		if cur := s.snap.Load(); cur != nil && !s.stale(cur) {
+		if cur := s.snap.Load(); cur.writeGen >= s.writeGen.Load() {
+			// A concurrent reload already picked the write up.
 			return cur, nil
 		}
-		if fresh, err := s.reload(); err == nil {
+		fresh, err := s.reload()
+		if err == nil {
 			return fresh, nil
 		}
 		// Reload failed: serve the last good snapshot, never an empty one.
-		// The signaling release adds alerting on persistent reload failure.
+		// Remember the failed generation so checks stop re-attempting until
+		// the next write; the heartbeat keeps retrying regardless.
+		s.syncFailedGen.Store(gen)
 	}
 
 	return s.snap.Load(), nil
 }
 
-func (s *snapshotEngine) stale(snap *snapshot) bool {
-	return s.invalidated.Load() || time.Since(snap.loadedAt) > snapshotTTL
-}
-
-// reload reads the store and swaps in a freshly compiled snapshot.
-// The caller must hold mu.
+// reload reads the policy store and domain list, and swaps in a freshly
+// compiled snapshot when their content changed. The caller must hold mu.
 func (s *snapshotEngine) reload() (*snapshot, error) {
 	if s.adapter == nil {
 		a, err := s.adapterFactory.NewAdapter()
@@ -115,20 +300,40 @@ func (s *snapshotEngine) reload() (*snapshot, error) {
 		s.adapter = a
 	}
 
-	// Clear before reading so a write racing the read re-marks the new
-	// snapshot stale instead of the signal being lost.
-	s.invalidated.Store(false)
+	// Capture the write generation BEFORE reading: every local write at or
+	// below this generation committed before the read, so the snapshot can
+	// honestly claim it. A write racing the read lands above it and keeps
+	// the snapshot untrusted for read-your-writes.
+	gen := s.writeGen.Load()
 
 	records, err := readCasbinPolicy(s.adapter)
 	if err != nil {
 		return nil, errors.Wrap(err, "readCasbinPolicy()")
 	}
 
+	recordsHash := records.hash()
+	if cur := s.snap.Load(); cur != nil && cur.recordsHash == recordsHash {
+		if cur.writeGen >= gen {
+			return cur, nil
+		}
+		// Content is unchanged but this read proves generation gen: publish
+		// it so checks stop treating the snapshot as predating local writes.
+		// A shallow copy suffices — compiled structures are immutable.
+		fresh := *cur
+		fresh.writeGen = gen
+		fresh.loadedAt = time.Now()
+		s.snap.Store(&fresh)
+
+		return &fresh, nil
+	}
+
 	snap, err := newSnapshot(records, time.Now())
 	if err != nil {
 		return nil, errors.Wrap(err, "newSnapshot()")
 	}
+	snap.writeGen = gen
 	s.snap.Store(snap)
+	s.readyOnce.Do(func() { close(s.ready) })
 
 	return snap, nil
 }

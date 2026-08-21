@@ -59,6 +59,7 @@ linters:
           files:
             - $all
           allow:
+            - cloud.google.com/go/firestore
             - github.com/casbin/casbin/v2
             - github.com/cccteam
             - github.com/flowerinthenight/casbin-spanner-adapter
@@ -68,6 +69,7 @@ linters:
             - github.com/google/go-cmp/cmp
             - github.com/jackc/pgx/v5
             - github.com/pckhoi/casbin-pgx-adapter/v3
+            - github.com/testcontainers/testcontainers-go
             - go.uber.org/mock/gomock
             - $gostd
     dupl:
