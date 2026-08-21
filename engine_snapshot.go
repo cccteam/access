@@ -16,9 +16,10 @@ var _ evaluator = &snapshotEngine{}
 const (
 	// defaultHeartbeatInterval bounds cross-instance staleness: every tick
 	// re-reads the policy store, recompiling only when the content hash
-	// changed. The push hint shrinks latency below this bound; the heartbeat
-	// is the correctness guarantee.
-	defaultHeartbeatInterval = 15 * time.Second
+	// changed. A ChangeSignal is the intended propagation path and delivers
+	// changes in near-realtime; the heartbeat is only the correctness
+	// backstop for a broken or absent signal, so it runs infrequently.
+	defaultHeartbeatInterval = time.Minute
 
 	// watchRetryDelay is how long the engine waits before re-invoking
 	// ChangeSignal.Watch after it returns.

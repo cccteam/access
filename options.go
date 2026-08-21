@@ -19,8 +19,9 @@ func defaultClientOptions() *clientOptions {
 }
 
 // WithChangeSignal wires a push hint that propagates policy changes between
-// instances ahead of the heartbeat. Optional: without it, changes propagate
-// within one heartbeat interval.
+// instances in near-realtime. This is the intended configuration (see the
+// postgressignal and firebasesignal subpackages); without it, changes
+// propagate within one heartbeat interval.
 func WithChangeSignal(s ChangeSignal) Option {
 	return func(o *clientOptions) {
 		o.signal = s
@@ -28,8 +29,9 @@ func WithChangeSignal(s ChangeSignal) Option {
 }
 
 // WithHeartbeatInterval overrides how often the policy store is re-read for
-// changes (default 15s). It bounds cross-instance staleness. Non-positive
-// values keep the default.
+// changes (default 1m). It bounds cross-instance staleness when no
+// ChangeSignal is configured, and otherwise backstops a broken signal.
+// Non-positive values keep the default.
 func WithHeartbeatInterval(d time.Duration) Option {
 	return func(o *clientOptions) {
 		if d > 0 {

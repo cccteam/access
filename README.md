@@ -106,21 +106,23 @@ func (d *MyDomainsImpl) DomainExists(ctx context.Context, domainID string) (bool
 ## Policy Snapshot, Freshness, and Lifecycle
 
 Permission checks are served from an immutable in-memory snapshot: lock-free,
-allocation-free, and never touching the database on the request path. A
-background heartbeat re-reads the policy store (default every 15s) and swaps
-in a new snapshot only when the content changed, so cross-instance staleness
-is bounded by the heartbeat interval. Writes made through this client are
-visible to its own checks immediately.
+allocation-free, and never touching the database on the request path. Policy
+changes propagate between instances in near-realtime through a change signal
+(recommended — see below), with a background heartbeat as the correctness
+backstop: it re-reads the policy store (default every 1m) and swaps in a new
+snapshot only when the content changed, so cross-instance staleness is bounded
+by the heartbeat interval even if the signal breaks. Writes made through this
+client are visible to its own checks immediately.
 
 ```go
 import "github.com/cccteam/access/postgressignal"
 
 client, err := access.New(domains, adapter,
-    // Optional: propagate changes between instances ahead of the heartbeat.
+    // Recommended: propagate changes between instances in near-realtime.
     // Rides the app's existing pgx pool.
     access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
-    // Optional: tune the staleness bound (default 15s).
-    access.WithHeartbeatInterval(10*time.Second),
+    // Optional: tune the heartbeat backstop (default 1m).
+    access.WithHeartbeatInterval(30*time.Second),
     // Optional: alerting hook for background reload/signal failures. While
     // reloads fail, checks keep serving the last good snapshot.
     access.WithReloadErrorHandler(func(err error) { log.Printf("access: %v", err) }),
