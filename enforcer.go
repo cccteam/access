@@ -185,56 +185,6 @@ func (c *casbinEngine) deleteUserRole(_ context.Context, domain accesstypes.Doma
 	return nil
 }
 
-func (c *casbinEngine) users(_ context.Context) ([]accesstypes.User, error) {
-	var users []accesstypes.User
-	userMap := make(map[string]bool)
-	roles, err := c.Enforcer().GetAllRoles()
-	if err != nil {
-		return nil, errors.Wrap(err, "enforcer.GetAllRoles()")
-	}
-
-	subjects, err := c.Enforcer().GetAllSubjects()
-	if err != nil {
-		return nil, errors.Wrap(err, "enforcer.GetAllSubjects()")
-	}
-SUB:
-	// loop through the subjects (containing both roles and usernames)
-	// and if it is a a role, skip it, otherwise add user to the map
-	for _, user := range subjects {
-		for _, role := range roles {
-			if role == user || user == accesstypes.NoopUser {
-				continue SUB
-			}
-		}
-
-		users = append(users, accesstypes.UnmarshalUser(user))
-		userMap[user] = true
-	}
-	// now get the grouping policy and look for users in there
-	groupingPolicy, err := c.Enforcer().GetGroupingPolicy()
-	if err != nil {
-		return nil, errors.Wrap(err, "enforcer.GetGroupingPolicy()")
-	}
-GP:
-	for _, gp := range groupingPolicy {
-		user := gp[0]
-		if userMap[user] || user == accesstypes.NoopUser {
-			continue
-		}
-
-		for _, role := range roles {
-			if role == user {
-				continue GP
-			}
-		}
-
-		users = append(users, accesstypes.UnmarshalUser(user))
-		userMap[user] = true
-	}
-
-	return users, nil
-}
-
 func (c *casbinEngine) userRoles(_ context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error) {
 	strRoles, err := c.Enforcer().GetRolesForUser(user.Marshal(), domain.Marshal())
 	if err != nil {

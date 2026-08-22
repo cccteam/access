@@ -32,9 +32,16 @@ type Role struct {
 	Permissions map[accesstypes.Permission][]accesstypes.Resource
 }
 
-// MigrateRoles applies role configuration across all domains. Adds missing roles and permissions,
-// removes extras, and includes Administrator role with all permissions.
-func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig) error {
+// MigrateRoles applies role configuration across the given domains: adds
+// missing roles and permissions, removes extras, and includes the
+// Administrator role with all permissions.
+//
+// The caller states its domain universe explicitly; accesstypes.GlobalDomain
+// is always included (global-scoped grants live there), so global-only
+// applications pass no domains at all. Domains are opaque labels — their
+// validity is the caller's business, and a domain not listed here is never
+// reconciled.
+func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig, domains ...accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -44,21 +51,24 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 		Permissions: adminPermissions(store),
 	})
 
-	if err := bootstrapRoles(ctx, client, store, roleConfig.Roles); err != nil {
+	allDomains := make([]accesstypes.Domain, 0, len(domains)+1)
+	allDomains = append(allDomains, accesstypes.GlobalDomain)
+	for _, d := range domains {
+		if d != accesstypes.GlobalDomain {
+			allDomains = append(allDomains, d)
+		}
+	}
+
+	if err := bootstrapRoles(ctx, client, store, roleConfig.Roles, allDomains); err != nil {
 		return errors.Wrap(err, "bootstrapRoles()")
 	}
 
 	return nil
 }
 
-func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, roles []*Role) error {
+func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, roles []*Role, domains []accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
-
-	domains, err := client.Domains(ctx)
-	if err != nil {
-		return errors.Wrap(err, "UserManager.Domains()")
-	}
 
 	if err := removeUnusedRoles(ctx, domains, client, roles); err != nil {
 		return err
@@ -90,7 +100,11 @@ func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCol
 		}
 
 		for _, domain := range domains {
-			if !client.RoleExists(ctx, domain, r.Name) {
+			roleFound, err := client.RoleExists(ctx, domain, r.Name)
+			if err != nil {
+				return errors.Wrapf(err, "role %q in domain %s", r.Name, domain)
+			}
+			if !roleFound {
 				if err := client.AddRole(ctx, domain, r.Name); err != nil {
 					return errors.Wrapf(err, "role %q to domain %s", r.Name, domain)
 				}

@@ -52,14 +52,6 @@ func (m *storeManager) deleteUserRole(ctx context.Context, domain accesstypes.Do
 	return nil
 }
 
-// users dies with the cross-domain Users API in the cutover stage: the typed
-// stores deliberately have no store-wide user enumeration (it disclosed every
-// username across every tenant). Nothing routes here — userManager stays on
-// the casbin path until the cutover removes both together.
-func (m *storeManager) users(_ context.Context) ([]accesstypes.User, error) {
-	return nil, errors.New("access: store-wide user enumeration is not supported by the typed policy store")
-}
-
 func (m *storeManager) userRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error) {
 	roles, err := m.store.ListUserRoles(ctx, domain, user)
 	if err != nil {

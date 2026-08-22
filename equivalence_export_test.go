@@ -14,11 +14,21 @@ import (
 // casbin-validated baseline while both write paths exist in-tree. This file
 // is deleted together with the casbin path.
 
+// NewCasbinUserManagerForTest returns a UserManager over the casbin write
+// path, which the public constructor no longer wires.
+func NewCasbinUserManagerForTest(adapter Adapter) (UserManager, error) {
+	engine, err := newCasbinEngine(adapter)
+	if err != nil {
+		return nil, err
+	}
+
+	return newUserManager(engine), nil
+}
+
 // NewTypedStoreUserManagerForTest returns a UserManager over the typed-store
-// write path (storeManager), bypassing the Client constructor, which still
-// wires the casbin path.
-func NewTypedStoreUserManagerForTest(domains Domains, store Store) UserManager {
-	return newUserManager(domains, newStoreManager(store))
+// write path (storeManager), without a Client's snapshot machinery.
+func NewTypedStoreUserManagerForTest(store Store) UserManager {
+	return newUserManager(newStoreManager(store))
 }
 
 // ReadCasbinRecordsForTest reads a casbin_rule store into normalized records

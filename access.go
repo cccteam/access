@@ -6,8 +6,6 @@ import (
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
-	"github.com/cccteam/httpio"
-	"github.com/go-playground/errors/v5"
 )
 
 var _ Controller = &Client{}
@@ -16,36 +14,35 @@ var _ Controller = &Client{}
 type Client struct {
 	evaluator   evaluator
 	snapEngine  *snapshotEngine
-	casbin      *casbinEngine
 	userManager *userManager
 }
 
-// New creates a new Client with specified domains and adapter. Errors if engine initialization fails.
+// New creates a new Client over a policy store built by one of the store
+// subpackages (spannerstore, postgresstore).
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
 // from the policy store and kept fresh by a background heartbeat plus an
 // optional push hint (see WithChangeSignal). All policy writes (user
-// management, MigrateRoles) stay on the casbin path against the same store,
-// so storage semantics are unchanged.
-func New(domains Domains, adapter Adapter, opts ...Option) (*Client, error) {
+// management, MigrateRoles) go through the same store and refresh the
+// snapshot immediately on this instance.
+//
+// The store's values — domains, users, resources — are opaque labels to
+// access: referential validity belongs to the callers that write them, and
+// checks fail closed on anything unknown.
+func New(store Store, opts ...Option) (*Client, error) {
 	options := defaultClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
 
-	engine, err := newCasbinEngine(adapter)
-	if err != nil {
-		return nil, errors.Wrap(err, "newCasbinEngine()")
-	}
-
-	snapEngine := newSnapshotEngine(adapter, options)
-	engine.onPolicyChange = snapEngine.policyChanged
+	manager := newStoreManager(store)
+	snapEngine := newSnapshotEngine(store, options)
+	manager.onPolicyChange = snapEngine.policyChanged
 
 	return &Client{
 		evaluator:   snapEngine,
 		snapEngine:  snapEngine,
-		casbin:      engine,
-		userManager: newUserManager(domains, engine),
+		userManager: newUserManager(manager),
 	}, nil
 }
 
@@ -67,80 +64,35 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 	return newHandler(c, logHandler)
 }
 
-// RequireAll checks if user has all permissions in domain. Errors if domain invalid or user lacks permissions.
-func (c *Client) RequireAll(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perms ...accesstypes.Permission) error {
+// CheckUser returns the subset of resources that user does NOT hold perm on
+// within domain, preserving input order; an empty result means everything
+// passed. A resource is either a parent name ("employees") or a single field
+// on a parent ("employees.name"); accesstypes.GlobalResource checks the
+// domain-wide permission itself.
+//
+// There is no domain validation: an unknown domain simply holds no grants, so
+// everything comes back missing (fail closed). Callers wanting to distinguish
+// "invalid tenant" from "no permission" validate the domain in their own
+// guard, against the source that owns tenants.
+func (c *Client) CheckUser(
+	ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) (missing []accesstypes.Resource, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
-		return err
-	} else if !exists {
-		return httpio.NewBadRequestMessage("Invalid Domain")
-	}
-
-	for _, perm := range perms {
-		missing, err := c.evaluator.checkUser(ctx, username, domain, perm, accesstypes.GlobalResource)
-		if err != nil {
-			return err
-		}
-		if len(missing) > 0 {
-			return httpio.NewForbiddenMessagef("user %s does not have %s", username, perm)
-		}
-	}
-
-	return nil
+	return c.evaluator.checkUser(ctx, user, domain, perm, resources...)
 }
 
-// RequireResources checks if user has permission for resources in domain.
-// Returns ok=true if all accessible, ok=false with missing resources otherwise. Errors if domain invalid.
-func (c *Client) RequireResources(
-	ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-) (bool, []accesstypes.Resource, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
-		return false, nil, err
-	} else if !exists {
-		return false, nil, httpio.NewBadRequestMessage("Invalid Domain")
-	}
-
-	missing, err := c.evaluator.checkUser(ctx, username, domain, perm, resources...)
-	if err != nil {
-		return false, nil, err
-	}
-
-	if len(missing) > 0 {
-		return false, missing, nil
-	}
-
-	return true, nil, nil
-}
-
-// RoleRequireResources checks if role has permission for resources in domain.
-// Returns ok=true if all resources are accessible, ok=false with missing resources otherwise.
-func (c *Client) RoleRequireResources(
+// CheckRole returns the subset of resources that role does NOT hold perm on
+// within domain, preserving input order; an empty result means everything
+// passed. See CheckUser for the resource shape and domain semantics.
+func (c *Client) CheckRole(
 	ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-) (bool, []accesstypes.Resource, error) {
+) (missing []accesstypes.Resource, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if exists, err := c.userManager.DomainExists(ctx, domain); err != nil {
-		return false, nil, err
-	} else if !exists {
-		return false, nil, httpio.NewBadRequestMessage("Invalid Domain")
-	}
-
-	missing, err := c.evaluator.checkRole(ctx, role, domain, perm, resources...)
-	if err != nil {
-		return false, nil, err
-	}
-
-	if len(missing) > 0 {
-		return false, missing, nil
-	}
-
-	return true, nil, nil
+	return c.evaluator.checkRole(ctx, role, domain, perm, resources...)
 }
 
 // UserManager returns the UserManager for managing users, roles, and permissions.

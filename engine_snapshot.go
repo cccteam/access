@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/casbin/casbin/v2/persist"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 )
@@ -37,7 +36,7 @@ const (
 // (errors are returned, never panicked); once a snapshot exists, a failed
 // reload serves the last good snapshot and reports through onError.
 type snapshotEngine struct {
-	adapterFactory    Adapter
+	store             Store
 	heartbeatInterval time.Duration
 	signal            ChangeSignal // may be nil
 	onError           func(error)  // never nil
@@ -64,8 +63,7 @@ type snapshotEngine struct {
 	// hintCh coalesces push hints for the background loop.
 	hintCh chan struct{}
 
-	mu      sync.Mutex // guards adapter and reloads
-	adapter persist.Adapter
+	mu sync.Mutex // guards reloads
 
 	started     atomic.Bool
 	lifecycleMu sync.Mutex // guards start/close transitions
@@ -74,9 +72,9 @@ type snapshotEngine struct {
 	wg          sync.WaitGroup
 }
 
-func newSnapshotEngine(adapterFactory Adapter, opts *clientOptions) *snapshotEngine {
+func newSnapshotEngine(store Store, opts *clientOptions) *snapshotEngine {
 	return &snapshotEngine{
-		adapterFactory:    adapterFactory,
+		store:             store,
 		heartbeatInterval: opts.heartbeatInterval,
 		signal:            opts.signal,
 		onError:           opts.onReloadError,
@@ -182,7 +180,7 @@ func (s *snapshotEngine) ensureStarted() {
 func (s *snapshotEngine) run(ctx context.Context) {
 	defer s.wg.Done()
 
-	s.tryReload()
+	s.tryReload(ctx)
 
 	ticker := time.NewTicker(s.heartbeatInterval)
 	defer ticker.Stop()
@@ -191,9 +189,9 @@ func (s *snapshotEngine) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.tryReload()
+			s.tryReload(ctx)
 		case <-s.hintCh:
-			s.tryReload()
+			s.tryReload(ctx)
 		}
 	}
 }
@@ -216,16 +214,16 @@ func (s *snapshotEngine) watch(ctx context.Context) {
 	}
 }
 
-func (s *snapshotEngine) tryReload() {
+func (s *snapshotEngine) tryReload(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.reload(); err != nil {
+	if _, err := s.reload(ctx); err != nil {
 		s.onError(err)
 	}
 }
 
-func (s *snapshotEngine) checkUser(_ context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
-	snap, err := s.currentSnapshot()
+func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +231,8 @@ func (s *snapshotEngine) checkUser(_ context.Context, user accesstypes.User, dom
 	return snap.checkUser(user, domain, perm, resources...), nil
 }
 
-func (s *snapshotEngine) checkRole(_ context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
-	snap, err := s.currentSnapshot()
+func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +246,7 @@ func (s *snapshotEngine) peek() *snapshot {
 	return s.snap.Load()
 }
 
-func (s *snapshotEngine) currentSnapshot() (*snapshot, error) {
+func (s *snapshotEngine) currentSnapshot(ctx context.Context) (*snapshot, error) {
 	s.ensureStarted()
 
 	snap := s.snap.Load()
@@ -262,7 +260,7 @@ func (s *snapshotEngine) currentSnapshot() (*snapshot, error) {
 			return snap, nil
 		}
 
-		return s.reload()
+		return s.reload(ctx)
 	}
 
 	if gen := s.writeGen.Load(); snap.writeGen < gen && s.syncFailedGen.Load() < gen {
@@ -282,7 +280,7 @@ func (s *snapshotEngine) currentSnapshot() (*snapshot, error) {
 			// A concurrent reload already covered this check's writes.
 			return cur, nil
 		}
-		fresh, err := s.reload()
+		fresh, err := s.reload(ctx)
 		if err == nil {
 			return fresh, nil
 		}
@@ -295,26 +293,18 @@ func (s *snapshotEngine) currentSnapshot() (*snapshot, error) {
 	return s.snap.Load(), nil
 }
 
-// reload reads the policy store and domain list, and swaps in a freshly
-// compiled snapshot when their content changed. The caller must hold mu.
-func (s *snapshotEngine) reload() (*snapshot, error) {
-	if s.adapter == nil {
-		a, err := s.adapterFactory.NewAdapter()
-		if err != nil {
-			return nil, errors.Wrap(err, "access.Adapter.NewAdapter()")
-		}
-		s.adapter = a
-	}
-
+// reload reads the policy store and swaps in a freshly compiled snapshot when
+// its content changed. The caller must hold mu.
+func (s *snapshotEngine) reload(ctx context.Context) (*snapshot, error) {
 	// Capture the write generation BEFORE reading: every local write at or
 	// below this generation committed before the read, so the snapshot can
 	// honestly claim it. A write racing the read lands above it and keeps
 	// the snapshot untrusted for read-your-writes.
 	gen := s.writeGen.Load()
 
-	records, err := readCasbinPolicy(s.adapter)
+	records, err := s.store.ReadPolicy(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "readCasbinPolicy()")
+		return nil, errors.Wrap(err, "access.Store.ReadPolicy()")
 	}
 
 	recordsHash := records.Hash()

@@ -42,6 +42,46 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
 }
 
+// CheckRole mocks base method.
+func (m *MockController) CheckRole(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, role, domain, perm}
+	for _, a := range resources {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CheckRole", varargs...)
+	ret0, _ := ret[0].([]accesstypes.Resource)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckRole indicates an expected call of CheckRole.
+func (mr *MockControllerMockRecorder) CheckRole(ctx, role, domain, perm any, resources ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, role, domain, perm}, resources...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRole", reflect.TypeOf((*MockController)(nil).CheckRole), varargs...)
+}
+
+// CheckUser mocks base method.
+func (m *MockController) CheckUser(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, user, domain, perm}
+	for _, a := range resources {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CheckUser", varargs...)
+	ret0, _ := ret[0].([]accesstypes.Resource)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckUser indicates an expected call of CheckUser.
+func (mr *MockControllerMockRecorder) CheckUser(ctx, user, domain, perm any, resources ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, user, domain, perm}, resources...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckUser", reflect.TypeOf((*MockController)(nil).CheckUser), varargs...)
+}
+
 // Handlers mocks base method.
 func (m *MockController) Handlers(handler access.LogHandler) access.Handlers {
 	m.ctrl.T.Helper()
@@ -54,67 +94,6 @@ func (m *MockController) Handlers(handler access.LogHandler) access.Handlers {
 func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
-}
-
-// RequireAll mocks base method.
-func (m *MockController) RequireAll(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, permissions ...accesstypes.Permission) error {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, user, domain}
-	for _, a := range permissions {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "RequireAll", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RequireAll indicates an expected call of RequireAll.
-func (mr *MockControllerMockRecorder) RequireAll(ctx, user, domain any, permissions ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, user, domain}, permissions...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequireAll", reflect.TypeOf((*MockController)(nil).RequireAll), varargs...)
-}
-
-// RequireResources mocks base method.
-func (m *MockController) RequireResources(ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) (bool, []accesstypes.Resource, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, username, domain, perm}
-	for _, a := range resources {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "RequireResources", varargs...)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].([]accesstypes.Resource)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// RequireResources indicates an expected call of RequireResources.
-func (mr *MockControllerMockRecorder) RequireResources(ctx, username, domain, perm any, resources ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, username, domain, perm}, resources...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequireResources", reflect.TypeOf((*MockController)(nil).RequireResources), varargs...)
-}
-
-// RoleRequireResources mocks base method.
-func (m *MockController) RoleRequireResources(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) (bool, []accesstypes.Resource, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, role, domain, perm}
-	for _, a := range resources {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "RoleRequireResources", varargs...)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].([]accesstypes.Resource)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// RoleRequireResources indicates an expected call of RoleRequireResources.
-func (mr *MockControllerMockRecorder) RoleRequireResources(ctx, role, domain, perm any, resources ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, role, domain, perm}, resources...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleRequireResources", reflect.TypeOf((*MockController)(nil).RoleRequireResources), varargs...)
 }
 
 // UserManager mocks base method.
@@ -350,42 +329,13 @@ func (mr *MockUserManagerMockRecorder) DeleteUserRoles(ctx, domain, user any, ro
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteUserRoles), varargs...)
 }
 
-// DomainExists mocks base method.
-func (m *MockUserManager) DomainExists(ctx context.Context, domain accesstypes.Domain) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DomainExists", ctx, domain)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DomainExists indicates an expected call of DomainExists.
-func (mr *MockUserManagerMockRecorder) DomainExists(ctx, domain any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainExists", reflect.TypeOf((*MockUserManager)(nil).DomainExists), ctx, domain)
-}
-
-// Domains mocks base method.
-func (m *MockUserManager) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Domains", ctx)
-	ret0, _ := ret[0].([]accesstypes.Domain)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Domains indicates an expected call of Domains.
-func (mr *MockUserManagerMockRecorder) Domains(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Domains", reflect.TypeOf((*MockUserManager)(nil).Domains), ctx)
-}
-
 // RoleExists mocks base method.
-func (m *MockUserManager) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool {
+func (m *MockUserManager) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, domain, role)
 	ret0, _ := ret[0].(bool)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // RoleExists indicates an expected call of RoleExists.
@@ -439,26 +389,6 @@ func (mr *MockUserManagerMockRecorder) Roles(ctx, domain any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Roles", reflect.TypeOf((*MockUserManager)(nil).Roles), ctx, domain)
 }
 
-// User mocks base method.
-func (m *MockUserManager) User(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (*access.UserAccess, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, user}
-	for _, a := range domain {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "User", varargs...)
-	ret0, _ := ret[0].(*access.UserAccess)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// User indicates an expected call of User.
-func (mr *MockUserManagerMockRecorder) User(ctx, user any, domain ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, user}, domain...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockUserManager)(nil).User), varargs...)
-}
-
 // UserPermissions mocks base method.
 func (m *MockUserManager) UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
 	m.ctrl.T.Helper()
@@ -497,78 +427,4 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, user any, domain ...any) *
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, user}, domain...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
-}
-
-// Users mocks base method.
-func (m *MockUserManager) Users(ctx context.Context, domain ...accesstypes.Domain) ([]*access.UserAccess, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx}
-	for _, a := range domain {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "Users", varargs...)
-	ret0, _ := ret[0].([]*access.UserAccess)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Users indicates an expected call of Users.
-func (mr *MockUserManagerMockRecorder) Users(ctx any, domain ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx}, domain...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Users", reflect.TypeOf((*MockUserManager)(nil).Users), varargs...)
-}
-
-// MockDomains is a mock of Domains interface.
-type MockDomains struct {
-	ctrl     *gomock.Controller
-	recorder *MockDomainsMockRecorder
-	isgomock struct{}
-}
-
-// MockDomainsMockRecorder is the mock recorder for MockDomains.
-type MockDomainsMockRecorder struct {
-	mock *MockDomains
-}
-
-// NewMockDomains creates a new mock instance.
-func NewMockDomains(ctrl *gomock.Controller) *MockDomains {
-	mock := &MockDomains{ctrl: ctrl}
-	mock.recorder = &MockDomainsMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockDomains) EXPECT() *MockDomainsMockRecorder {
-	return m.recorder
-}
-
-// DomainExists mocks base method.
-func (m *MockDomains) DomainExists(ctx context.Context, domain string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DomainExists", ctx, domain)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DomainExists indicates an expected call of DomainExists.
-func (mr *MockDomainsMockRecorder) DomainExists(ctx, domain any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainExists", reflect.TypeOf((*MockDomains)(nil).DomainExists), ctx, domain)
-}
-
-// DomainIDs mocks base method.
-func (m *MockDomains) DomainIDs(ctx context.Context) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DomainIDs", ctx)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DomainIDs indicates an expected call of DomainIDs.
-func (mr *MockDomainsMockRecorder) DomainIDs(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DomainIDs", reflect.TypeOf((*MockDomains)(nil).DomainIDs), ctx)
 }

@@ -2,29 +2,16 @@ package integration
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/cccteam/access"
 	"github.com/cccteam/access/postgressignal"
+	"github.com/cccteam/access/postgresstore"
 	dbinitiator "github.com/cccteam/db-initiator"
 )
 
 const signalChannel = "access_policy_changed"
-
-// staticDomains is a Domains implementation with a fixed tenant list.
-type staticDomains struct {
-	ids []string
-}
-
-func (s *staticDomains) DomainIDs(_ context.Context) ([]string, error) {
-	return s.ids, nil
-}
-
-func (s *staticDomains) DomainExists(_ context.Context, id string) (bool, error) {
-	return slices.Contains(s.ids, id), nil
-}
 
 // waitForListeners polls until n LISTEN backends are connected, so a NOTIFY
 // sent afterwards cannot be lost to subscription racing.
@@ -62,11 +49,40 @@ func waitFor(t *testing.T, timeout time.Duration, msg string, check func() bool)
 	}
 }
 
-// Test_Client_policyPropagation proves the full v0.10 chain on a real store:
-// a policy write on one client instance reaches another instance's snapshot
-// through casbin_rule, via each of the two propagation paths — the change
-// signal (heartbeat pinned out of the picture) and the heartbeat alone
-// (poll-only deployments, no signal configured).
+// newTestClient builds a Client instance over the shared typed-store tables.
+func newTestClient(t *testing.T, db *dbinitiator.PostgresDatabase, name string, withSignal bool, heartbeat time.Duration) *access.Client {
+	t.Helper()
+
+	opts := []access.Option{
+		access.WithHeartbeatInterval(heartbeat),
+		access.WithReloadErrorHandler(func(err error) { t.Logf("%s reload error: %v", name, err) }),
+	}
+	if withSignal {
+		// The signal rides the application's existing pool.
+		opts = append(opts, access.WithChangeSignal(postgressignal.New(db.Pool, signalChannel)))
+	}
+	store, err := postgresstore.New(db.Pool)
+	if err != nil {
+		t.Fatalf("postgresstore.New() error = %v", err)
+	}
+	client, err := access.New(store, opts...)
+	if err != nil {
+		t.Fatalf("access.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	return client
+}
+
+// Test_Client_policyPropagation proves the full chain on a real store: a
+// policy write on one client instance reaches another instance's snapshot
+// through the typed policy tables, via each of the two propagation paths —
+// the change signal (heartbeat pinned out of the picture) and the heartbeat
+// alone (poll-only deployments, no signal configured).
 func Test_Client_policyPropagation(t *testing.T) {
 	t.Parallel()
 
@@ -94,33 +110,21 @@ func Test_Client_policyPropagation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v", err)
 			}
-			connConfig := db.Config().ConnConfig
-			domains := &staticDomains{ids: []string{"tenant1"}}
 
-			newClient := func(name string) *access.Client {
-				opts := []access.Option{
-					access.WithHeartbeatInterval(tt.heartbeatInterval),
-					access.WithReloadErrorHandler(func(err error) { t.Logf("%s reload error: %v", name, err) }),
+			// One store schema, shared by both client instances — the app's
+			// migration applies the store's own DDL.
+			schemaStore, err := postgresstore.New(db.Pool)
+			if err != nil {
+				t.Fatalf("postgresstore.New() error = %v", err)
+			}
+			for _, stmt := range schemaStore.DDL() {
+				if _, err := db.Exec(ctx, stmt); err != nil {
+					t.Fatalf("executing DDL: %v", err)
 				}
-				if tt.withSignal {
-					// The signal rides the application's existing pool.
-					opts = append(opts, access.WithChangeSignal(postgressignal.New(db.Pool, signalChannel)))
-				}
-				client, err := access.New(domains, access.NewPostgresAdapter(connConfig, connConfig.Database, "casbin_rule"), opts...)
-				if err != nil {
-					t.Fatalf("access.New() error = %v", err)
-				}
-				t.Cleanup(func() {
-					if err := client.Close(); err != nil {
-						t.Errorf("Client.Close() error = %v", err)
-					}
-				})
-
-				return client
 			}
 
-			writer := newClient("writer")
-			reader := newClient("reader")
+			writer := newTestClient(t, db, "writer", tt.withSignal, tt.heartbeatInterval)
+			reader := newTestClient(t, db, "reader", tt.withSignal, tt.heartbeatInterval)
 
 			readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
@@ -149,24 +153,19 @@ func Test_Client_policyPropagation(t *testing.T) {
 			}
 
 			// Read-your-writes on the writing instance.
-			if ok, missing, err := writer.RequireResources(ctx, "erin", "tenant1", "Read", "employees"); err != nil || !ok {
-				t.Fatalf("writer RequireResources() = (%v, %v, %v), want granted immediately", ok, missing, err)
+			if missing, err := writer.CheckUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil || len(missing) != 0 {
+				t.Fatalf("writer CheckUser() = (%v, %v), want granted immediately", missing, err)
 			}
 
 			// Cross-instance propagation.
 			waitFor(t, 15*time.Second, "policy change never reached the reader instance", func() bool {
-				ok, _, err := reader.RequireResources(ctx, "erin", "tenant1", "Read", "employees")
+				missing, err := reader.CheckUser(ctx, "erin", "tenant1", "Read", "employees")
 				if err != nil {
-					t.Fatalf("reader RequireResources() error = %v", err)
+					t.Fatalf("reader CheckUser() error = %v", err)
 				}
 
-				return ok
+				return len(missing) == 0
 			})
-
-			// The deploy gate passes over the live store.
-			if err := writer.ValidateEngineEquivalence(ctx); err != nil {
-				t.Errorf("ValidateEngineEquivalence() error = %v, want nil", err)
-			}
 		})
 	}
 }

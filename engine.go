@@ -30,7 +30,6 @@ type policyStore interface {
 	// Membership
 	addUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error
 	deleteUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error
-	users(ctx context.Context) ([]accesstypes.User, error)
 	userRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error)
 	userPermissions(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) (map[accesstypes.Resource][]accesstypes.Permission, error)
 

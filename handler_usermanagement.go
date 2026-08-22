@@ -14,61 +14,6 @@ const (
 	paramRole   httpio.ParamType = "role"
 )
 
-// Users is the handler to get the list of users in the system
-//
-// Permissions Required: ViewUsers
-func (a *HandlerClient) Users() http.HandlerFunc {
-	type user struct {
-		Name        string                               `json:"name"`
-		Roles       accesstypes.RoleCollection           `json:"roles"`
-		Permissions accesstypes.UserPermissionCollection `json:"permissions"`
-	}
-
-	type response []*user
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		userList, err := a.manager.Users(ctx)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		res := make(response, 0, len(userList))
-		for _, u := range userList {
-			res = append(res, (*user)(u))
-		}
-
-		return httpio.NewEncoder(w).Ok(res)
-	})
-}
-
-// User is the handler to get a user
-//
-// Permissions Required: ViewUsers
-func (a *HandlerClient) User() http.HandlerFunc {
-	type response struct {
-		Name        string                               `json:"name"`
-		Roles       accesstypes.RoleCollection           `json:"roles"`
-		Permissions accesstypes.UserPermissionCollection `json:"permissions"`
-	}
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		username := httpio.Param[accesstypes.User](r, paramUser)
-
-		user, err := a.manager.User(ctx, username)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		return httpio.NewEncoder(w).Ok((*response)(user))
-	})
-}
-
 // AddRole is the handler to add a new role to the system
 //
 // Permissions Required: AddRole
