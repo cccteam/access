@@ -347,7 +347,7 @@ func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain,
 		return false, httpio.NewBadRequestMessagef("Users assigned to the role. You cannot delete a role that has users assigned")
 	}
 
-	deleted, err := u.store.deleteRole(ctx, role)
+	deleted, err := u.store.deleteRole(ctx, domain, role)
 	if err != nil {
 		return false, err
 	}
@@ -465,7 +465,15 @@ func (u *userManager) RoleExists(ctx context.Context, domain accesstypes.Domain,
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return u.store.roleExists(ctx, domain, role)
+	// The public bool signature is re-signed to (bool, error) in the cutover
+	// stage; until then a store error reads as "role missing" (fail closed).
+	// The casbin path never returns an error here.
+	exists, err := u.store.roleExists(ctx, domain, role)
+	if err != nil {
+		return false
+	}
+
+	return exists
 }
 
 func (u *userManager) Domains(ctx context.Context) ([]accesstypes.Domain, error) {

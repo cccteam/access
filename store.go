@@ -1,0 +1,62 @@
+package access
+
+import (
+	"context"
+
+	"github.com/cccteam/access/internal/policy"
+	"github.com/cccteam/ccc/accesstypes"
+)
+
+// Store is the persistence seam for policy data: three typed tables (roles,
+// user-role memberships, role grants) partitioned by domain, plus one
+// normalized read feeding the snapshot compiler. Implementations are thin —
+// each method is one SQL statement against one store's tables; everything
+// smarter (validation, resource/field splitting, change signaling, snapshot
+// compilation) lives in the access package, one shared code path for every
+// store.
+//
+// The interface is sealed by construction: ReadPolicy's signature references
+// this module's internal/policy package, so only packages inside this module
+// can implement it. Use the provided implementations:
+//
+//	spannerstore.New(client, opts...)   // Cloud Spanner
+//	postgresstore.New(pool, opts...)    // PostgreSQL, rides the app's pgx pool
+//
+// Store values hold bare names only — no marshal prefixes, no sentinel rows.
+// All values are opaque labels to the store: referential validity of domains,
+// users, and resources belongs to the callers that write them.
+//
+// Contracts every implementation provides:
+//   - Inserts are idempotent: re-inserting an existing row is a no-op, not an
+//     error. Deletes of absent rows are no-ops.
+//   - DeleteRole is scoped to (domain, role): it cascades the role's grants,
+//     refuses with an error while memberships still reference the role
+//     (DB-enforced), and reports whether a row was actually deleted.
+//   - InsertUserRole and InsertGrant require the (domain, role) row to exist
+//     (DB-enforced foreign key / parent interleave).
+//   - List results are sorted for deterministic output.
+//   - ReadPolicy reads grants and memberships with snapshot consistency: both
+//     row sets observe the same store state.
+type Store interface {
+	// ReadPolicy returns the store's complete policy content as normalized
+	// records for the snapshot compiler.
+	ReadPolicy(ctx context.Context) (*policy.Records, error)
+
+	// Membership
+	InsertUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error
+	DeleteUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error
+	ListUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error)
+	ListRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
+
+	// Roles
+	InsertRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
+	ListRoles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error)
+	DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
+	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
+
+	// Grants. resource and field are stored as separate columns: field "" is
+	// an endpoint grant, "*" an all-fields wildcard, anything else one field.
+	InsertGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	DeleteGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	ListRoleGrants(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]policy.RoleGrant, error)
+}

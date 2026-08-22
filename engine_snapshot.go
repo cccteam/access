@@ -317,7 +317,7 @@ func (s *snapshotEngine) reload() (*snapshot, error) {
 		return nil, errors.Wrap(err, "readCasbinPolicy()")
 	}
 
-	recordsHash := records.hash()
+	recordsHash := records.Hash()
 	if cur := s.snap.Load(); cur != nil && cur.recordsHash == recordsHash {
 		if cur.writeGen >= gen {
 			return cur, nil

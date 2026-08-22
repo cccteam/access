@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 )
@@ -159,23 +160,23 @@ func (s *snapshot) allowed(grants grantMap, permID uint16, resource accesstypes.
 }
 
 // newSnapshot compiles normalized policy records into an immutable snapshot.
-func newSnapshot(records *policyRecords, loadedAt time.Time) (*snapshot, error) {
+func newSnapshot(records *policy.Records, loadedAt time.Time) (*snapshot, error) {
 	s := &snapshot{
 		perms:       make(map[accesstypes.Permission]uint16),
 		resources:   make(map[string]uint16),
 		domains:     make(map[accesstypes.Domain]*domainPolicy),
 		loadedAt:    loadedAt,
-		recordsHash: records.hash(),
+		recordsHash: records.Hash(),
 	}
 
-	if err := s.intern(records.grants); err != nil {
+	if err := s.intern(records.Grants); err != nil {
 		return nil, err
 	}
 
 	// Pass 2: group records by domain and compile each domain independently.
 	type domainRecords struct {
-		grants      []grantRecord
-		memberships []membershipRecord
+		grants      []policy.Grant
+		memberships []policy.Membership
 	}
 	byDomain := make(map[accesstypes.Domain]*domainRecords)
 	domRecords := func(d accesstypes.Domain) *domainRecords {
@@ -187,12 +188,12 @@ func newSnapshot(records *policyRecords, loadedAt time.Time) (*snapshot, error) 
 
 		return dr
 	}
-	for _, g := range records.grants {
-		dr := domRecords(g.domain)
+	for _, g := range records.Grants {
+		dr := domRecords(g.Domain)
 		dr.grants = append(dr.grants, g)
 	}
-	for _, m := range records.memberships {
-		dr := domRecords(m.domain)
+	for _, m := range records.Memberships {
+		dr := domRecords(m.Domain)
 		dr.memberships = append(dr.memberships, m)
 	}
 
@@ -207,29 +208,29 @@ func newSnapshot(records *policyRecords, loadedAt time.Time) (*snapshot, error) 
 // each resource's named fields. IDs are uint16 by design; overflowing one
 // would silently truncate and grant the wrong permissions, so it fails the
 // load instead.
-func (s *snapshot) intern(grants []grantRecord) error {
+func (s *snapshot) intern(grants []policy.Grant) error {
 	for _, g := range grants {
-		if _, ok := s.perms[g.perm]; !ok {
+		if _, ok := s.perms[g.Perm]; !ok {
 			if len(s.perms) >= math.MaxUint16 {
 				return errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
 			}
-			s.perms[g.perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
+			s.perms[g.Perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
 		}
-		resID, ok := s.resources[g.resource]
+		resID, ok := s.resources[g.Resource]
 		if !ok {
 			if len(s.resources) >= math.MaxUint16 {
 				return errors.Newf("too many resources to compile: limit %d", math.MaxUint16)
 			}
 			resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
-			s.resources[g.resource] = resID
+			s.resources[g.Resource] = resID
 			s.fields = append(s.fields, make(map[string]uint16))
 		}
-		if g.field != "" && g.field != "*" {
-			if _, ok := s.fields[resID][g.field]; !ok {
+		if g.Field != "" && g.Field != "*" {
+			if _, ok := s.fields[resID][g.Field]; !ok {
 				if len(s.fields[resID]) >= math.MaxUint16 {
-					return errors.Newf("too many fields on resource %q to compile: limit %d", g.resource, math.MaxUint16)
+					return errors.Newf("too many fields on resource %q to compile: limit %d", g.Resource, math.MaxUint16)
 				}
-				s.fields[resID][g.field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
+				s.fields[resID][g.Field] = uint16(len(s.fields[resID])) //nolint:gosec // bounded by the guard above
 			}
 		}
 	}
@@ -237,7 +238,7 @@ func (s *snapshot) intern(grants []grantRecord) error {
 	return nil
 }
 
-func (s *snapshot) compileDomain(grants []grantRecord, memberships []membershipRecord) *domainPolicy {
+func (s *snapshot) compileDomain(grants []policy.Grant, memberships []policy.Membership) *domainPolicy {
 	roleOwn, userDirect := s.compileSubjectGrants(grants)
 	inherits, userRoles := splitMemberships(memberships)
 
@@ -306,40 +307,40 @@ func (s *snapshot) compileDomain(grants []grantRecord, memberships []membershipR
 
 // compileSubjectGrants builds each subject's raw grant map from one domain's
 // grant records.
-func (s *snapshot) compileSubjectGrants(grants []grantRecord) (roleOwn map[accesstypes.Role]grantMap, userDirect map[accesstypes.User]grantMap) {
+func (s *snapshot) compileSubjectGrants(grants []policy.Grant) (roleOwn map[accesstypes.Role]grantMap, userDirect map[accesstypes.User]grantMap) {
 	roleOwn = make(map[accesstypes.Role]grantMap)
 	userDirect = make(map[accesstypes.User]grantMap)
 	for _, g := range grants {
 		var gm grantMap
-		switch g.subject.kind {
-		case subjectRole:
-			role := accesstypes.Role(g.subject.name)
+		switch g.Subject.Kind {
+		case policy.SubjectRole:
+			role := accesstypes.Role(g.Subject.Name)
 			if roleOwn[role] == nil {
 				roleOwn[role] = make(grantMap)
 			}
 			gm = roleOwn[role]
-		case subjectUser:
-			user := accesstypes.User(g.subject.name)
+		case policy.SubjectUser:
+			user := accesstypes.User(g.Subject.Name)
 			if userDirect[user] == nil {
 				userDirect[user] = make(grantMap)
 			}
 			gm = userDirect[user]
 		}
 
-		resID := s.resources[g.resource]
-		key := packGrantKey(s.perms[g.perm], resID)
+		resID := s.resources[g.Resource]
+		key := packGrantKey(s.perms[g.Perm], resID)
 		fs := gm[key]
 		if fs == nil {
 			fs = &fieldSet{bits: make([]uint64, (len(s.fields[resID])+63)/64)}
 			gm[key] = fs
 		}
-		switch g.field {
+		switch g.Field {
 		case "":
 			fs.endpoint = true
 		case "*":
 			fs.all = true
 		default:
-			fs.setBit(s.fields[resID][g.field])
+			fs.setBit(s.fields[resID][g.Field])
 		}
 	}
 
@@ -349,20 +350,20 @@ func (s *snapshot) compileSubjectGrants(grants []grantRecord) (roleOwn map[acces
 // splitMemberships separates one domain's membership records into user role
 // assignments and role-to-role inheritance edges. Casbin resolves inheritance
 // transitively at evaluation time; the compiler folds it at load time.
-func splitMemberships(memberships []membershipRecord) (inherits map[accesstypes.Role][]accesstypes.Role, userRoles map[accesstypes.User][]accesstypes.Role) {
+func splitMemberships(memberships []policy.Membership) (inherits map[accesstypes.Role][]accesstypes.Role, userRoles map[accesstypes.User][]accesstypes.Role) {
 	inherits = make(map[accesstypes.Role][]accesstypes.Role)
 	userRoles = make(map[accesstypes.User][]accesstypes.Role)
 	for _, m := range memberships {
-		switch m.member.kind {
-		case subjectRole:
-			member := accesstypes.Role(m.member.name)
-			if !slices.Contains(inherits[member], m.role) {
-				inherits[member] = append(inherits[member], m.role)
+		switch m.Member.Kind {
+		case policy.SubjectRole:
+			member := accesstypes.Role(m.Member.Name)
+			if !slices.Contains(inherits[member], m.Role) {
+				inherits[member] = append(inherits[member], m.Role)
 			}
-		case subjectUser:
-			user := accesstypes.User(m.member.name)
-			if !slices.Contains(userRoles[user], m.role) {
-				userRoles[user] = append(userRoles[user], m.role)
+		case policy.SubjectUser:
+			user := accesstypes.User(m.Member.Name)
+			if !slices.Contains(userRoles[user], m.Role) {
+				userRoles[user] = append(userRoles[user], m.Role)
 			}
 		}
 	}

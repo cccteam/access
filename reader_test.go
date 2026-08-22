@@ -1,10 +1,10 @@
 package access
 
 import (
-	"slices"
 	"testing"
 
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
+	"github.com/cccteam/access/internal/policy"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -14,32 +14,32 @@ func Test_normalizeGrant(t *testing.T) {
 	tests := []struct {
 		name    string
 		row     []string
-		want    grantRecord
+		want    policy.Grant
 		wantOK  bool
 		wantErr bool
 	}{
 		{
 			name:   "endpoint grant on role",
 			row:    []string{"role:Editor", "domain:tenant1", "resource:employees", "perm:Read", "allow"},
-			want:   grantRecord{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees"},
+			want:   policy.Grant{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees"},
 			wantOK: true,
 		},
 		{
 			name:   "field grant",
 			row:    []string{"role:Editor", "domain:tenant1", "resource:employees.name", "perm:Read", "allow"},
-			want:   grantRecord{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees", field: "name"},
+			want:   policy.Grant{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees", Field: "name"},
 			wantOK: true,
 		},
 		{
 			name:   "wildcard field grant",
 			row:    []string{"role:Editor", "domain:tenant1", "resource:employees.*", "perm:Update", "allow"},
-			want:   grantRecord{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Update", resource: "employees", field: "*"},
+			want:   policy.Grant{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Update", Resource: "employees", Field: "*"},
 			wantOK: true,
 		},
 		{
 			name:   "direct user grant",
 			row:    []string{"user:alice", "domain:tenant2", "resource:global", "perm:ViewUsers", "allow"},
-			want:   grantRecord{domain: "tenant2", subject: subject{kind: subjectUser, name: "alice"}, perm: "ViewUsers", resource: "global"},
+			want:   policy.Grant{Domain: "tenant2", Subject: policy.Subject{Kind: policy.SubjectUser, Name: "alice"}, Perm: "ViewUsers", Resource: "global"},
 			wantOK: true,
 		},
 		{
@@ -50,7 +50,7 @@ func Test_normalizeGrant(t *testing.T) {
 		{
 			name:   "missing effect defaults to allow",
 			row:    []string{"role:Editor", "domain:tenant1", "resource:employees", "perm:Read"},
-			want:   grantRecord{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees"},
+			want:   policy.Grant{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees"},
 			wantOK: true,
 		},
 		{
@@ -85,7 +85,7 @@ func Test_normalizeGrant(t *testing.T) {
 			if !ok {
 				return
 			}
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(grantRecord{}, subject{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("normalizeGrant() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -98,20 +98,20 @@ func Test_normalizeMembership(t *testing.T) {
 	tests := []struct {
 		name    string
 		row     []string
-		want    membershipRecord
+		want    policy.Membership
 		wantOK  bool
 		wantErr bool
 	}{
 		{
 			name:   "user membership",
 			row:    []string{"user:charlie", "role:Administrator", "domain:tenant1"},
-			want:   membershipRecord{domain: "tenant1", member: subject{kind: subjectUser, name: "charlie"}, role: "Administrator"},
+			want:   policy.Membership{Domain: "tenant1", Member: policy.Subject{Kind: policy.SubjectUser, Name: "charlie"}, Role: "Administrator"},
 			wantOK: true,
 		},
 		{
 			name:   "role inheritance",
 			row:    []string{"role:Administrator", "role:Editor", "domain:tenant1"},
-			want:   membershipRecord{domain: "tenant1", member: subject{kind: subjectRole, name: "Administrator"}, role: "Editor"},
+			want:   policy.Membership{Domain: "tenant1", Member: policy.Subject{Kind: policy.SubjectRole, Name: "Administrator"}, Role: "Editor"},
 			wantOK: true,
 		},
 		{
@@ -141,7 +141,7 @@ func Test_normalizeMembership(t *testing.T) {
 			if !ok {
 				return
 			}
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(membershipRecord{}, subject{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("normalizeMembership() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -182,93 +182,22 @@ func Test_readCasbinPolicy(t *testing.T) {
 		t.Fatalf("readCasbinPolicy() error = %v", err)
 	}
 
-	wantGrants := []grantRecord{
-		{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees"},
-		{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees", field: "name"},
-		{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Update", resource: "employees", field: "*"},
-		{domain: "tenant2", subject: subject{kind: subjectUser, name: "alice"}, perm: "ViewUsers", resource: "global"},
+	wantGrants := []policy.Grant{
+		{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees"},
+		{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees", Field: "name"},
+		{Domain: "tenant1", Subject: policy.Subject{Kind: policy.SubjectRole, Name: "Editor"}, Perm: "Update", Resource: "employees", Field: "*"},
+		{Domain: "tenant2", Subject: policy.Subject{Kind: policy.SubjectUser, Name: "alice"}, Perm: "ViewUsers", Resource: "global"},
 	}
-	wantMemberships := []membershipRecord{
-		{domain: "tenant1", member: subject{kind: subjectUser, name: "charlie"}, role: "Administrator"},
-		{domain: "tenant1", member: subject{kind: subjectRole, name: "Administrator"}, role: "Editor"},
+	wantMemberships := []policy.Membership{
+		{Domain: "tenant1", Member: policy.Subject{Kind: policy.SubjectUser, Name: "charlie"}, Role: "Administrator"},
+		{Domain: "tenant1", Member: policy.Subject{Kind: policy.SubjectRole, Name: "Administrator"}, Role: "Editor"},
 	}
 
-	if diff := cmp.Diff(wantGrants, records.grants, cmp.AllowUnexported(grantRecord{}, subject{})); diff != "" {
+	if diff := cmp.Diff(wantGrants, records.Grants); diff != "" {
 		t.Errorf("readCasbinPolicy() grants mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(wantMemberships, records.memberships, cmp.AllowUnexported(membershipRecord{}, subject{})); diff != "" {
+	if diff := cmp.Diff(wantMemberships, records.Memberships); diff != "" {
 		t.Errorf("readCasbinPolicy() memberships mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func Test_policyRecords_hash(t *testing.T) {
-	t.Parallel()
-
-	base := &policyRecords{
-		grants: []grantRecord{
-			{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees"},
-			{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees", field: "name"},
-			{domain: "tenant2", subject: subject{kind: subjectUser, name: "alice"}, perm: "List", resource: "widgets"},
-		},
-		memberships: []membershipRecord{
-			{domain: "tenant1", member: subject{kind: subjectUser, name: "erin"}, role: "Editor"},
-			{domain: "tenant2", member: subject{kind: subjectUser, name: "bob"}, role: "Viewer"},
-		},
-	}
-
-	tests := []struct {
-		name string
-		// variant builds the records to compare against base.
-		variant func() *policyRecords
-		// wantSameHash: row order must not matter; any content change must.
-		wantSameHash bool
-	}{
-		{
-			name: "row order does not change the hash",
-			variant: func() *policyRecords {
-				return &policyRecords{
-					grants:      []grantRecord{base.grants[2], base.grants[0], base.grants[1]},
-					memberships: []membershipRecord{base.memberships[1], base.memberships[0]},
-				}
-			},
-			wantSameHash: true,
-		},
-		{
-			name: "changed grant field changes the hash",
-			variant: func() *policyRecords {
-				grants := slices.Clone(base.grants)
-				grants[2].field = "name"
-
-				return &policyRecords{grants: grants, memberships: base.memberships}
-			},
-			wantSameHash: false,
-		},
-		{
-			name: "removed membership changes the hash",
-			variant: func() *policyRecords {
-				return &policyRecords{grants: base.grants, memberships: base.memberships[:1]}
-			},
-			wantSameHash: false,
-		},
-		{
-			name: "changed subject kind changes the hash",
-			variant: func() *policyRecords {
-				grants := slices.Clone(base.grants)
-				grants[2].subject.kind = subjectRole
-
-				return &policyRecords{grants: grants, memberships: base.memberships}
-			},
-			wantSameHash: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			gotSame := tt.variant().hash() == base.hash()
-			if gotSame != tt.wantSameHash {
-				t.Errorf("hash() same as base = %v, want %v", gotSame, tt.wantSameHash)
-			}
-		})
 	}
 }
 
