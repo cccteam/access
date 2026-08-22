@@ -15,28 +15,51 @@ var _ Controller = &Client{}
 // Client is the main access control client for permission checking and user management.
 type Client struct {
 	evaluator   evaluator
+	snapEngine  *snapshotEngine
+	casbin      *casbinEngine
 	userManager *userManager
 }
 
 // New creates a new Client with specified domains and adapter. Errors if engine initialization fails.
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
-// from the policy store. All policy writes (user management, MigrateRoles)
-// stay on the casbin path against the same store, so storage semantics are
-// unchanged.
-func New(domains Domains, adapter Adapter) (*Client, error) {
+// from the policy store and kept fresh by a background heartbeat plus an
+// optional push hint (see WithChangeSignal). All policy writes (user
+// management, MigrateRoles) stay on the casbin path against the same store,
+// so storage semantics are unchanged.
+func New(domains Domains, adapter Adapter, opts ...Option) (*Client, error) {
+	options := defaultClientOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	engine, err := newCasbinEngine(adapter)
 	if err != nil {
 		return nil, errors.Wrap(err, "newCasbinEngine()")
 	}
 
-	snapEngine := newSnapshotEngine(adapter)
-	engine.onPolicyChange = snapEngine.invalidate
+	snapEngine := newSnapshotEngine(adapter, options)
+	engine.onPolicyChange = snapEngine.policyChanged
 
 	return &Client{
 		evaluator:   snapEngine,
+		snapEngine:  snapEngine,
+		casbin:      engine,
 		userManager: newUserManager(domains, engine),
 	}, nil
+}
+
+// WaitReady blocks until the first policy snapshot has loaded (or ctx
+// expires). Wire it into readiness probes so instances receive traffic only
+// once permission checks can be answered.
+func (c *Client) WaitReady(ctx context.Context) error {
+	return c.snapEngine.waitReady(ctx)
+}
+
+// Close stops the Client's background policy reloading and change-signal
+// watch. Permission checks keep answering from the last loaded snapshot.
+func (c *Client) Close() error {
+	return c.snapEngine.close()
 }
 
 // Handlers returns the Handlers for enforcing access control

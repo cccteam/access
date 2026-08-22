@@ -1,6 +1,7 @@
 package access
 
 import (
+	"crypto/sha256"
 	"math"
 	"slices"
 	"strings"
@@ -20,6 +21,15 @@ type snapshot struct {
 	fields    []map[string]uint16 // by resource ID: field name -> bit position
 	domains   map[accesstypes.Domain]*domainPolicy
 	loadedAt  time.Time
+
+	// recordsHash identifies the snapshot's source content; the heartbeat
+	// skips recompiling when a fresh read matches it.
+	recordsHash [sha256.Size]byte
+
+	// writeGen is the engine's local write generation observed BEFORE the
+	// store read this snapshot was compiled from: any local write up to and
+	// including that generation is guaranteed to be reflected here.
+	writeGen int64
 }
 
 // domainPolicy holds one domain's fully-resolved grants. Tenancy is the
@@ -151,10 +161,11 @@ func (s *snapshot) allowed(grants grantMap, permID uint16, resource accesstypes.
 // newSnapshot compiles normalized policy records into an immutable snapshot.
 func newSnapshot(records *policyRecords, loadedAt time.Time) (*snapshot, error) {
 	s := &snapshot{
-		perms:     make(map[accesstypes.Permission]uint16),
-		resources: make(map[string]uint16),
-		domains:   make(map[accesstypes.Domain]*domainPolicy),
-		loadedAt:  loadedAt,
+		perms:       make(map[accesstypes.Permission]uint16),
+		resources:   make(map[string]uint16),
+		domains:     make(map[accesstypes.Domain]*domainPolicy),
+		loadedAt:    loadedAt,
+		recordsHash: records.hash(),
 	}
 
 	if err := s.intern(records.grants); err != nil {

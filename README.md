@@ -1,6 +1,6 @@
 # access
 
-Go library for role-based access control (RBAC) with domain-specific permission management. Built on [Casbin](https://casbin.org/).
+Go library for role-based access control (RBAC) with domain-specific permission management. Policy is stored in a [Casbin](https://casbin.org/)-compatible table (`casbin_rule`); permission checks are answered by an in-memory snapshot engine compiled from that table, while policy writes go through casbin.
 
 ## Overview
 
@@ -100,6 +100,62 @@ func (d *MyDomainsImpl) DomainIDs(ctx context.Context) ([]string, error) {
 func (d *MyDomainsImpl) DomainExists(ctx context.Context, domainID string) (bool, error) {
     // Check domain existence in your system
     return true, nil
+}
+```
+
+## Policy Snapshot, Freshness, and Lifecycle
+
+Permission checks are served from an immutable in-memory snapshot: lock-free,
+allocation-free, and never touching the database on the request path. Policy
+changes propagate between instances in near-realtime through a change signal
+(recommended — see below), with a background heartbeat as the correctness
+backstop: it re-reads the policy store (default every 1m) and swaps in a new
+snapshot only when the content changed, so cross-instance staleness is bounded
+by the heartbeat interval even if the signal breaks. Writes made through this
+client are visible to its own checks immediately.
+
+```go
+import "github.com/cccteam/access/postgressignal"
+
+client, err := access.New(domains, adapter,
+    // Recommended: propagate changes between instances in near-realtime.
+    // Rides the app's existing pgx pool.
+    access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
+    // Optional: tune the heartbeat backstop (default 1m).
+    access.WithHeartbeatInterval(30*time.Second),
+    // Optional: alerting hook for background reload/signal failures. While
+    // reloads fail, checks keep serving the last good snapshot.
+    access.WithReloadErrorHandler(func(err error) { log.Printf("access: %v", err) }),
+)
+
+// Readiness: block until the first policy snapshot has loaded.
+if err := client.WaitReady(ctx); err != nil { ... }
+
+// Shutdown: stop background reloading (checks keep serving the last snapshot).
+defer client.Close()
+```
+
+The push signal is a latency optimization only — correctness never depends on
+it. For Spanner environments (no LISTEN/NOTIFY), the `firebasesignal`
+subpackage provides the equivalent over a Firestore document watch:
+
+```go
+import "github.com/cccteam/access/firebasesignal"
+
+fsClient, _ := firestore.NewClient(ctx, projectID)
+signal, err := firebasesignal.New(fsClient, "access/policy")
+client, err := access.New(domains, adapter, access.WithChangeSignal(signal))
+```
+
+### Deploy gate
+
+`ValidateEngineEquivalence` compares the casbin evaluator and the snapshot
+evaluator over the live policy store. Run it in the migrate job before
+`MigrateRoles` and abort the deploy on error:
+
+```go
+if err := client.ValidateEngineEquivalence(ctx); err != nil {
+    log.Fatalf("engines diverge, aborting deploy: %v", err)
 }
 ```
 

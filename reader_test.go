@@ -1,6 +1,7 @@
 package access
 
 import (
+	"slices"
 	"testing"
 
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
@@ -197,6 +198,77 @@ func Test_readCasbinPolicy(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantMemberships, records.memberships, cmp.AllowUnexported(membershipRecord{}, subject{})); diff != "" {
 		t.Errorf("readCasbinPolicy() memberships mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func Test_policyRecords_hash(t *testing.T) {
+	t.Parallel()
+
+	base := &policyRecords{
+		grants: []grantRecord{
+			{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees"},
+			{domain: "tenant1", subject: subject{kind: subjectRole, name: "Editor"}, perm: "Read", resource: "employees", field: "name"},
+			{domain: "tenant2", subject: subject{kind: subjectUser, name: "alice"}, perm: "List", resource: "widgets"},
+		},
+		memberships: []membershipRecord{
+			{domain: "tenant1", member: subject{kind: subjectUser, name: "erin"}, role: "Editor"},
+			{domain: "tenant2", member: subject{kind: subjectUser, name: "bob"}, role: "Viewer"},
+		},
+	}
+
+	tests := []struct {
+		name string
+		// variant builds the records to compare against base.
+		variant func() *policyRecords
+		// wantSameHash: row order must not matter; any content change must.
+		wantSameHash bool
+	}{
+		{
+			name: "row order does not change the hash",
+			variant: func() *policyRecords {
+				return &policyRecords{
+					grants:      []grantRecord{base.grants[2], base.grants[0], base.grants[1]},
+					memberships: []membershipRecord{base.memberships[1], base.memberships[0]},
+				}
+			},
+			wantSameHash: true,
+		},
+		{
+			name: "changed grant field changes the hash",
+			variant: func() *policyRecords {
+				grants := slices.Clone(base.grants)
+				grants[2].field = "name"
+
+				return &policyRecords{grants: grants, memberships: base.memberships}
+			},
+			wantSameHash: false,
+		},
+		{
+			name: "removed membership changes the hash",
+			variant: func() *policyRecords {
+				return &policyRecords{grants: base.grants, memberships: base.memberships[:1]}
+			},
+			wantSameHash: false,
+		},
+		{
+			name: "changed subject kind changes the hash",
+			variant: func() *policyRecords {
+				grants := slices.Clone(base.grants)
+				grants[2].subject.kind = subjectRole
+
+				return &policyRecords{grants: grants, memberships: base.memberships}
+			},
+			wantSameHash: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotSame := tt.variant().hash() == base.hash()
+			if gotSame != tt.wantSameHash {
+				t.Errorf("hash() same as base = %v, want %v", gotSame, tt.wantSameHash)
+			}
+		})
 	}
 }
 

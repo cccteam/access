@@ -1,6 +1,10 @@
 package access
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"hash"
+	"slices"
 	"strings"
 
 	"github.com/casbin/casbin/v2/model"
@@ -60,6 +64,82 @@ type membershipRecord struct {
 type policyRecords struct {
 	grants      []grantRecord
 	memberships []membershipRecord
+}
+
+// hash returns a canonical content hash of the records: independent of row
+// order (stores return rows in arbitrary order) but sensitive to any change
+// in effective policy. The heartbeat compares it to decide whether a fresh
+// read needs a recompile and snapshot swap.
+func (r *policyRecords) hash() [sha256.Size]byte {
+	grants := slices.Clone(r.grants)
+	slices.SortFunc(grants, compareGrantRecords)
+	memberships := slices.Clone(r.memberships)
+	slices.SortFunc(memberships, compareMembershipRecords)
+
+	h := sha256.New()
+	for _, g := range grants {
+		hashString(h, "g")
+		hashString(h, string(g.domain))
+		hashByte(h, byte(g.subject.kind))
+		hashString(h, g.subject.name)
+		hashString(h, string(g.perm))
+		hashString(h, g.resource)
+		hashString(h, g.field)
+	}
+	for _, m := range memberships {
+		hashString(h, "m")
+		hashString(h, string(m.domain))
+		hashByte(h, byte(m.member.kind))
+		hashString(h, m.member.name)
+		hashString(h, string(m.role))
+	}
+
+	return [sha256.Size]byte(h.Sum(nil))
+}
+
+//nolint:gocritic // slices.SortFunc requires value-typed comparators
+func compareGrantRecords(a, b grantRecord) int {
+	return cmpChain(
+		strings.Compare(string(a.domain), string(b.domain)),
+		int(a.subject.kind)-int(b.subject.kind),
+		strings.Compare(a.subject.name, b.subject.name),
+		strings.Compare(string(a.perm), string(b.perm)),
+		strings.Compare(a.resource, b.resource),
+		strings.Compare(a.field, b.field),
+	)
+}
+
+func compareMembershipRecords(a, b membershipRecord) int {
+	return cmpChain(
+		strings.Compare(string(a.domain), string(b.domain)),
+		int(a.member.kind)-int(b.member.kind),
+		strings.Compare(a.member.name, b.member.name),
+		strings.Compare(string(a.role), string(b.role)),
+	)
+}
+
+// cmpChain returns the first non-zero comparison result.
+func cmpChain(results ...int) int {
+	for _, r := range results {
+		if r != 0 {
+			return r
+		}
+	}
+
+	return 0
+}
+
+// hashString writes a length-prefixed string so no delimiter collision can
+// make two different record sequences hash identically.
+func hashString(h hash.Hash, s string) {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(s)))
+	h.Write(length[:])
+	h.Write([]byte(s))
+}
+
+func hashByte(h hash.Hash, b byte) {
+	h.Write([]byte{b})
 }
 
 // readCasbinPolicy loads every rule from a casbin_rule store and normalizes it.

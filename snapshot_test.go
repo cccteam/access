@@ -3,9 +3,13 @@ package access
 import (
 	"context"
 	"os"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	"github.com/cccteam/ccc/accesstypes"
@@ -231,7 +235,243 @@ func (f *fakeAdapterFactory) NewAdapter() (persist.Adapter, error) {
 	return fileadapter.NewAdapter(f.path), nil
 }
 
-func Test_snapshotEngine(t *testing.T) {
+// fakeDomains is a Domains implementation with a fixed ID list.
+type fakeDomains struct {
+	ids []string
+}
+
+func (f *fakeDomains) DomainIDs(_ context.Context) ([]string, error) {
+	return f.ids, nil
+}
+
+func (f *fakeDomains) DomainExists(_ context.Context, id string) (bool, error) {
+	return slices.Contains(f.ids, id), nil
+}
+
+// testEngine builds a snapshotEngine whose background loop is effectively
+// inert (1h heartbeat) so tests drive reloads deterministically, and whose
+// goroutines stop at test end.
+func testEngine(t *testing.T, factory Adapter, opts *clientOptions) *snapshotEngine {
+	t.Helper()
+	if opts == nil {
+		opts = defaultClientOptions()
+	}
+	opts.heartbeatInterval = time.Hour
+	e := newSnapshotEngine(factory, opts)
+	t.Cleanup(func() {
+		if err := e.close(); err != nil {
+			t.Errorf("snapshotEngine.close() error = %v", err)
+		}
+	})
+
+	return e
+}
+
+// settle waits until the background loop's in-flight reload (if any) has
+// finished, so subsequent fixture mutations cannot race it.
+func settle(e *snapshotEngine) {
+	e.tryReload()
+}
+
+// testPolicy is the fixture used by the engine lifecycle tests.
+const testPolicy = "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n"
+
+func writeEnginePolicy(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/policy.csv"
+	writeTestPolicy(t, path, testPolicy)
+
+	return path
+}
+
+func Test_snapshotEngine_checkUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		storeDown   bool
+		wantErr     bool
+		wantMissing []accesstypes.Resource
+	}{
+		{
+			name:        "served from snapshot",
+			wantMissing: []accesstypes.Resource{},
+		},
+		{
+			name:      "first load failure returns an error",
+			storeDown: true,
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := testEngine(t, &fakeAdapterFactory{path: writeEnginePolicy(t), failNew: tt.storeDown}, nil)
+
+			gotMissing, err := e.checkUser(context.Background(), "erin", "tenant1", "Read", "employees")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("checkUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
+				t.Errorf("checkUser() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func Test_snapshotEngine_waitReady(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		storeDown bool
+		timeout   time.Duration
+		wantErr   bool
+	}{
+		{
+			name:    "ready after first load",
+			timeout: 5 * time.Second,
+		},
+		{
+			name:      "times out while the store is down",
+			storeDown: true,
+			timeout:   50 * time.Millisecond,
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := testEngine(t, &fakeAdapterFactory{path: writeEnginePolicy(t), failNew: tt.storeDown}, nil)
+
+			readyCtx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			defer cancel()
+			if err := e.waitReady(readyCtx); (err != nil) != tt.wantErr {
+				t.Fatalf("waitReady() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && e.peek() == nil {
+				t.Fatal("peek() = nil after waitReady")
+			}
+		})
+	}
+}
+
+func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := writeEnginePolicy(t)
+	e := testEngine(t, &fakeAdapterFactory{path: path}, nil)
+
+	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
+		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the write", missing, err)
+	}
+	settle(e)
+
+	writeTestPolicy(t, path, testPolicy+"p, role:Editor, domain:tenant1, resource:widgets, perm:List, allow\n")
+
+	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
+		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", missing, err)
+	}
+
+	e.invalidate()
+
+	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 0 {
+		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", missing, err)
+	}
+}
+
+func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := writeEnginePolicy(t)
+	var reloadErrs atomic.Int64
+	opts := defaultClientOptions()
+	opts.onReloadError = func(error) { reloadErrs.Add(1) }
+	e := testEngine(t, &fakeAdapterFactory{path: path}, opts)
+
+	if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
+		t.Fatalf("checkUser() error = %v", err)
+	}
+	settle(e)
+
+	// Break the store, then force a reload attempt.
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("os.Remove() error = %v", err)
+	}
+	e.invalidate()
+
+	missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees")
+	if err != nil {
+		t.Fatalf("checkUser() error = %v, want stale snapshot served", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("checkUser() missing = %v, want none from stale snapshot", missing)
+	}
+}
+
+func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	e := testEngine(t, &fakeAdapterFactory{path: writeEnginePolicy(t)}, nil)
+
+	if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
+		t.Fatalf("checkUser() error = %v", err)
+	}
+	if err := e.close(); err != nil {
+		t.Fatalf("close() error = %v", err)
+	}
+	if err := e.close(); err != nil {
+		t.Fatalf("second close() error = %v", err)
+	}
+	if missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil || len(missing) != 0 {
+		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", missing, err)
+	}
+}
+
+// fakeSignal is an in-process ChangeSignal for tests.
+type fakeSignal struct {
+	mu           sync.Mutex
+	announces    atomic.Int64
+	onChange     func()
+	watchStarted chan struct{}
+	startedOnce  sync.Once
+}
+
+func newFakeSignal() *fakeSignal {
+	return &fakeSignal{watchStarted: make(chan struct{})}
+}
+
+func (f *fakeSignal) Announce(_ context.Context) error {
+	f.announces.Add(1)
+
+	return nil
+}
+
+func (f *fakeSignal) Watch(ctx context.Context, onChange func()) error {
+	f.mu.Lock()
+	f.onChange = onChange
+	f.mu.Unlock()
+	f.startedOnce.Do(func() { close(f.watchStarted) })
+	<-ctx.Done()
+
+	return nil
+}
+
+func (f *fakeSignal) trigger() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.onChange != nil {
+		f.onChange()
+	}
+}
+
+func Test_snapshotEngine_changeSignal(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -239,71 +479,222 @@ func Test_snapshotEngine(t *testing.T) {
 	path := dir + "/policy.csv"
 	writeTestPolicy(t, path, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n")
 
-	t.Run("first load failure returns an error", func(t *testing.T) {
-		t.Parallel()
-		e := newSnapshotEngine(&fakeAdapterFactory{path: path, failNew: true})
-		if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err == nil {
-			t.Fatal("checkUser() expected error when first load fails, got nil")
-		}
-	})
+	sig := newFakeSignal()
+	opts := defaultClientOptions()
+	opts.signal = sig
+	e := testEngine(t, &fakeAdapterFactory{path: path}, opts)
 
-	t.Run("check served from snapshot", func(t *testing.T) {
-		t.Parallel()
-		e := newSnapshotEngine(&fakeAdapterFactory{path: path})
-		missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees")
+	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
+		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the change", missing, err)
+	}
+	settle(e)
+
+	select {
+	case <-sig.watchStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ChangeSignal.Watch was never started")
+	}
+
+	// A hint (not a local invalidate) must reload through the background loop.
+	writeTestPolicy(t, path, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\np, role:Editor, domain:tenant1, resource:widgets, perm:List, allow\ng, user:erin, role:Editor, domain:tenant1\n")
+	sig.trigger()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets")
 		if err != nil {
 			t.Fatalf("checkUser() error = %v", err)
 		}
-		if len(missing) != 0 {
-			t.Fatalf("checkUser() missing = %v, want none", missing)
+		if len(missing) == 0 {
+			break
 		}
-	})
-
-	t.Run("invalidate reloads on next check", func(t *testing.T) {
-		t.Parallel()
-		grownPath := dir + "/policy_grow.csv"
-		writeTestPolicy(t, grownPath, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n")
-		e := newSnapshotEngine(&fakeAdapterFactory{path: grownPath})
-
-		if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
-			t.Fatalf("checkUser() = (%v, %v), want widgets missing before the write", missing, err)
+		if time.Now().After(deadline) {
+			t.Fatal("hint did not propagate a policy change within the deadline")
 		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-		writeTestPolicy(t, grownPath, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\np, role:Editor, domain:tenant1, resource:widgets, perm:List, allow\ng, user:erin, role:Editor, domain:tenant1\n")
-
-		if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
-			t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", missing, err)
+	// A local policy write announces to other instances.
+	e.policyChanged()
+	deadline = time.Now().Add(5 * time.Second)
+	for sig.announces.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("policyChanged did not announce within the deadline")
 		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
-		e.invalidate()
+// Domain validation is a live Domains lookup on every check — deliberately
+// not cached: domain writes do not flow through access, so a snapshot cache
+// could serve a deleted domain until the next reload.
+func Test_Client_domainValidation(t *testing.T) {
+	t.Parallel()
 
-		if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 0 {
-			t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", missing, err)
-		}
-	})
+	tests := []struct {
+		name    string
+		domain  accesstypes.Domain
+		wantErr bool
+	}{
+		{
+			name:    "known domain passes validation",
+			domain:  "tenant1",
+			wantErr: false,
+		},
+		{
+			name:    "unknown domain is rejected",
+			domain:  "no-such-tenant",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			path := t.TempDir() + "/policy.csv"
+			writeTestPolicy(t, path, "p, role:Editor, domain:tenant1, resource:global, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n")
 
-	t.Run("reload failure serves the last good snapshot", func(t *testing.T) {
-		t.Parallel()
-		gonePath := dir + "/policy_gone.csv"
-		writeTestPolicy(t, gonePath, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n")
-		e := newSnapshotEngine(&fakeAdapterFactory{path: gonePath})
+			client, err := New(&fakeDomains{ids: []string{"tenant1"}}, &fakeAdapterFactory{path: path}, WithHeartbeatInterval(time.Hour))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			t.Cleanup(func() {
+				if err := client.Close(); err != nil {
+					t.Errorf("Client.Close() error = %v", err)
+				}
+			})
 
-		if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
-			t.Fatalf("checkUser() error = %v", err)
-		}
+			if err := client.RequireAll(ctx, "erin", tt.domain, "Read"); (err != nil) != tt.wantErr {
+				t.Fatalf("RequireAll() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
 
-		// Break the store, then force a reload attempt.
-		if err := os.Remove(gonePath); err != nil {
-			t.Fatalf("os.Remove() error = %v", err)
-		}
-		e.invalidate()
+// convoyAdapter instruments LoadPolicy to reproduce the write-storm race:
+// while armed, every store read lands another local policy write (onLoad),
+// so the write counter is always one ahead of the read in flight. The first
+// armed read additionally parks on gate so the test can queue checks behind
+// the reload mutex before letting anything finish.
+type convoyAdapter struct {
+	persist.Adapter
+	onLoad  func() // lands a write during every armed read; set before the engine starts
+	loads   atomic.Int64
+	armed   atomic.Bool
+	started chan struct{} // closed when the first armed read is in flight
+	gate    chan struct{} // first armed read blocks until this closes
+	gateSeq sync.Once
+}
 
-		missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees")
-		if err != nil {
-			t.Fatalf("checkUser() error = %v, want stale snapshot served", err)
-		}
-		if len(missing) != 0 {
-			t.Fatalf("checkUser() missing = %v, want none from stale snapshot", missing)
-		}
-	})
+func (c *convoyAdapter) LoadPolicy(m model.Model) error {
+	c.loads.Add(1)
+	if c.armed.Load() {
+		c.onLoad()
+		c.gateSeq.Do(func() {
+			close(c.started)
+			<-c.gate
+		})
+	}
+
+	if err := c.Adapter.LoadPolicy(m); err != nil {
+		return errors.Wrap(err, "persist.Adapter.LoadPolicy()")
+	}
+
+	return nil
+}
+
+type convoyFactory struct {
+	adapter *convoyAdapter
+}
+
+func (f *convoyFactory) NewAdapter() (persist.Adapter, error) {
+	return f.adapter, nil
+}
+
+// Test_snapshotEngine_syncReloadDedup pins the sync-reload dedup semantics:
+// a check queued behind an in-flight reload is satisfied by any snapshot
+// covering the writes that preceded the check's own entry. Regression for the
+// convoy where the wake-up recheck chased the live write counter, sending
+// every queued check into its own serial reload under sustained writes
+// (loads grew with check count, not write count).
+func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
+	t.Parallel()
+
+	const checks = 50
+
+	tests := []struct {
+		name string
+		// writeDuringRead lands another local write during every store read,
+		// keeping the write counter permanently ahead of the read in flight —
+		// the moving-target condition that caused the convoy.
+		writeDuringRead bool
+		// wantMaxLoads bounds store reads after the checks are queued; slack
+		// covers stragglers that enter after a mid-read write. The convoy
+		// regression produced one read per queued check (checks+1).
+		wantMaxLoads int64
+	}{
+		{
+			name:         "one write, queued checks share one reload",
+			wantMaxLoads: 1,
+		},
+		{
+			name:            "write storm, reloads scale with writes not checks",
+			writeDuringRead: true,
+			wantMaxLoads:    3,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			adapter := &convoyAdapter{
+				Adapter: fileadapter.NewAdapter(writeEnginePolicy(t)),
+				started: make(chan struct{}),
+				gate:    make(chan struct{}),
+			}
+			e := testEngine(t, &convoyFactory{adapter: adapter}, nil)
+			adapter.onLoad = func() {}
+			if tt.writeDuringRead {
+				adapter.onLoad = e.invalidate
+			}
+
+			if err := e.waitReady(context.Background()); err != nil {
+				t.Fatalf("waitReady() error = %v", err)
+			}
+			settle(e)
+			baseline := adapter.loads.Load()
+
+			adapter.armed.Store(true)
+			e.invalidate() // send checks into the sync-reload path
+
+			errs := make(chan error, checks)
+			var wg sync.WaitGroup
+			for range checks {
+				wg.Go(func() {
+					_, err := e.checkUser(context.Background(), "erin", "tenant1", "Read", "employees")
+					errs <- err
+				})
+			}
+
+			// Wait for the first sync reload to hold the store read open,
+			// then give the remaining checks time to record their entry
+			// generation and queue on the reload mutex before any reload
+			// completes.
+			<-adapter.started
+			time.Sleep(50 * time.Millisecond)
+			close(adapter.gate)
+
+			wg.Wait()
+			close(errs)
+			for err := range errs {
+				if err != nil {
+					t.Fatalf("checkUser() error = %v", err)
+				}
+			}
+
+			if extra := adapter.loads.Load() - baseline; extra > tt.wantMaxLoads {
+				t.Errorf("store loads with checks queued = %d, want at most %d", extra, tt.wantMaxLoads)
+			}
+		})
+	}
 }
