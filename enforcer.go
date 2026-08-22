@@ -301,7 +301,9 @@ func (c *casbinEngine) roles(_ context.Context, domain accesstypes.Domain) ([]ac
 	return roles, nil
 }
 
-func (c *casbinEngine) deleteRole(_ context.Context, role accesstypes.Role) (bool, error) {
+// deleteRole ignores domain: casbin's DeleteRole removes the role across ALL
+// domains (legacy behavior, preserved until casbin's deletion).
+func (c *casbinEngine) deleteRole(_ context.Context, _ accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	deleted, err := c.Enforcer().DeleteRole(role.Marshal())
 	if err != nil {
 		return false, errors.Wrap(err, "enforcer.DeleteRole()")
@@ -313,10 +315,10 @@ func (c *casbinEngine) deleteRole(_ context.Context, role accesstypes.Role) (boo
 	return deleted, nil
 }
 
-func (c *casbinEngine) roleExists(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) bool {
+func (c *casbinEngine) roleExists(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	roles := c.Enforcer().GetRolesForUserInDomain(accesstypes.NoopUser, domain.Marshal())
 
-	return slices.Contains(roles, role.Marshal())
+	return slices.Contains(roles, role.Marshal()), nil
 }
 
 func (c *casbinEngine) roleUsers(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {

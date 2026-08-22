@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 )
@@ -92,7 +93,7 @@ type gateUniverse struct {
 	userRoles map[accesstypes.Domain]map[accesstypes.User][]accesstypes.Role // from records (reader view)
 }
 
-func buildGateUniverse(ce *casbinEngine, records *policyRecords, appDomains []accesstypes.Domain) (*gateUniverse, error) {
+func buildGateUniverse(ce *casbinEngine, records *policy.Records, appDomains []accesstypes.Domain) (*gateUniverse, error) {
 	u := &gateUniverse{
 		domainSet: map[accesstypes.Domain]bool{accesstypes.GlobalDomain: true},
 		roles:     make(map[accesstypes.Domain]map[accesstypes.Role]bool),
@@ -176,28 +177,28 @@ func (u *gateUniverse) addEnforcerSubjects(ce *casbinEngine) error {
 }
 
 // addRecordSubjects collects subjects and memberships as the reader saw them.
-func (u *gateUniverse) addRecordSubjects(records *policyRecords) {
-	for _, g := range records.grants {
-		switch g.subject.kind {
-		case subjectRole:
-			u.addRole(g.domain, accesstypes.Role(g.subject.name))
-		case subjectUser:
-			u.addUser(g.domain, accesstypes.User(g.subject.name))
+func (u *gateUniverse) addRecordSubjects(records *policy.Records) {
+	for _, g := range records.Grants {
+		switch g.Subject.Kind {
+		case policy.SubjectRole:
+			u.addRole(g.Domain, accesstypes.Role(g.Subject.Name))
+		case policy.SubjectUser:
+			u.addUser(g.Domain, accesstypes.User(g.Subject.Name))
 		}
 	}
-	for _, m := range records.memberships {
-		switch m.member.kind {
-		case subjectRole:
-			u.addRole(m.domain, accesstypes.Role(m.member.name))
-		case subjectUser:
-			user := accesstypes.User(m.member.name)
-			u.addUser(m.domain, user)
-			u.addRole(m.domain, m.role)
-			if u.userRoles[m.domain] == nil {
-				u.userRoles[m.domain] = make(map[accesstypes.User][]accesstypes.Role)
+	for _, m := range records.Memberships {
+		switch m.Member.Kind {
+		case policy.SubjectRole:
+			u.addRole(m.Domain, accesstypes.Role(m.Member.Name))
+		case policy.SubjectUser:
+			user := accesstypes.User(m.Member.Name)
+			u.addUser(m.Domain, user)
+			u.addRole(m.Domain, m.Role)
+			if u.userRoles[m.Domain] == nil {
+				u.userRoles[m.Domain] = make(map[accesstypes.User][]accesstypes.Role)
 			}
-			if !slices.Contains(u.userRoles[m.domain][user], m.role) {
-				u.userRoles[m.domain][user] = append(u.userRoles[m.domain][user], m.role)
+			if !slices.Contains(u.userRoles[m.Domain][user], m.Role) {
+				u.userRoles[m.Domain][user] = append(u.userRoles[m.Domain][user], m.Role)
 			}
 		}
 	}
@@ -265,22 +266,22 @@ func (g *gate) compareStructure(u *gateUniverse) {
 func (g *gate) compareBehavior(u *gateUniverse) {
 	for _, domain := range u.domains {
 		for _, role := range sortedKeys(u.roles[domain]) {
-			g.sweepSubject(domain, subject{kind: subjectRole, name: string(role)}, g.enum.rolePairs(domain, role))
+			g.sweepSubject(domain, policy.Subject{Kind: policy.SubjectRole, Name: string(role)}, g.enum.rolePairs(domain, role))
 		}
 		for _, user := range sortedKeys(u.users[domain]) {
-			g.sweepSubject(domain, subject{kind: subjectUser, name: string(user)}, g.enum.userPairs(domain, user))
+			g.sweepSubject(domain, policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, g.enum.userPairs(domain, user))
 		}
 
 		// Unknown subjects must be denied identically.
-		g.compareCheck(domain, subject{kind: subjectUser, name: string(gateProbeUser)}, gateProbePerm, []accesstypes.Resource{accesstypes.GlobalResource, gateProbeResource})
-		g.compareCheck(domain, subject{kind: subjectRole, name: string(gateProbeRole)}, gateProbePerm, []accesstypes.Resource{accesstypes.GlobalResource, gateProbeResource})
+		g.compareCheck(domain, policy.Subject{Kind: policy.SubjectUser, Name: string(gateProbeUser)}, gateProbePerm, []accesstypes.Resource{accesstypes.GlobalResource, gateProbeResource})
+		g.compareCheck(domain, policy.Subject{Kind: policy.SubjectRole, Name: string(gateProbeRole)}, gateProbePerm, []accesstypes.Resource{accesstypes.GlobalResource, gateProbeResource})
 	}
 
 	// Unknown domain must be denied identically for a sample of subjects.
 	for _, domain := range u.domains {
 		for _, role := range sortedKeys(u.roles[domain])[:min(len(u.roles[domain]), 3)] {
 			for perm, resources := range pairsByPerm(g.enum.rolePairs(domain, role)) {
-				g.compareCheck(gateProbeDomain, subject{kind: subjectRole, name: string(role)}, perm, resources[:min(len(resources), 3)])
+				g.compareCheck(gateProbeDomain, policy.Subject{Kind: policy.SubjectRole, Name: string(role)}, perm, resources[:min(len(resources), 3)])
 			}
 		}
 	}
@@ -289,7 +290,7 @@ func (g *gate) compareBehavior(u *gateUniverse) {
 // sweepSubject compares check answers over everything the subject holds
 // (expected to pass on both engines) and over targeted unknowns (expected to
 // fail on both engines).
-func (g *gate) sweepSubject(domain accesstypes.Domain, sub subject, pairs map[string]bool) {
+func (g *gate) sweepSubject(domain accesstypes.Domain, sub policy.Subject, pairs map[string]bool) {
 	byPerm := pairsByPerm(pairs)
 	perms := make([]accesstypes.Permission, 0, len(byPerm))
 	for perm := range byPerm {
@@ -325,35 +326,35 @@ func (g *gate) sweepSubject(domain accesstypes.Domain, sub subject, pairs map[st
 
 // compareCheck runs one batched check through both engines and reports any
 // difference in the missing sets.
-func (g *gate) compareCheck(domain accesstypes.Domain, sub subject, perm accesstypes.Permission, resources []accesstypes.Resource) {
+func (g *gate) compareCheck(domain accesstypes.Domain, sub policy.Subject, perm accesstypes.Permission, resources []accesstypes.Resource) {
 	if len(resources) == 0 {
 		return
 	}
 
 	var casbinMissing, snapMissing []accesstypes.Resource
 	var err error
-	switch sub.kind {
-	case subjectRole:
-		casbinMissing, err = g.casbin.checkRole(g.ctx, accesstypes.Role(sub.name), domain, perm, resources...)
-		snapMissing = g.snap.checkRole(accesstypes.Role(sub.name), domain, perm, resources...)
-	case subjectUser:
-		casbinMissing, err = g.casbin.checkUser(g.ctx, accesstypes.User(sub.name), domain, perm, resources...)
-		snapMissing = g.snap.checkUser(accesstypes.User(sub.name), domain, perm, resources...)
+	switch sub.Kind {
+	case policy.SubjectRole:
+		casbinMissing, err = g.casbin.checkRole(g.ctx, accesstypes.Role(sub.Name), domain, perm, resources...)
+		snapMissing = g.snap.checkRole(accesstypes.Role(sub.Name), domain, perm, resources...)
+	case policy.SubjectUser:
+		casbinMissing, err = g.casbin.checkUser(g.ctx, accesstypes.User(sub.Name), domain, perm, resources...)
+		snapMissing = g.snap.checkUser(accesstypes.User(sub.Name), domain, perm, resources...)
 	}
 	if err != nil {
-		g.reportf("casbin check for %s %q in %q perm %q: %v", sub.kindName(), sub.name, domain, perm, err)
+		g.reportf("casbin check for %s %q in %q perm %q: %v", kindName(sub), sub.Name, domain, perm, err)
 
 		return
 	}
 
 	if !slices.Equal(casbinMissing, snapMissing) {
 		g.reportf("check mismatch: %s %q domain %q perm %q resources %v: casbin missing %v, snapshot missing %v",
-			sub.kindName(), sub.name, domain, perm, resources, casbinMissing, snapMissing)
+			kindName(sub), sub.Name, domain, perm, resources, casbinMissing, snapMissing)
 	}
 }
 
-func (s subject) kindName() string {
-	if s.kind == subjectRole {
+func kindName(s policy.Subject) string {
+	if s.Kind == policy.SubjectRole {
 		return "role"
 	}
 
