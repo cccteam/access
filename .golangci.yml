@@ -61,15 +61,12 @@ linters:
           allow:
             - cloud.google.com/go/firestore
             - cloud.google.com/go/spanner
-            - github.com/casbin/casbin/v2
             - github.com/cccteam
-            - github.com/flowerinthenight/casbin-spanner-adapter
             - github.com/go-chi/chi/v5
             - github.com/go-playground/errors/v5
             - github.com/go-playground/validator
             - github.com/google/go-cmp/cmp
             - github.com/jackc/pgx/v5
-            - github.com/pckhoi/casbin-pgx-adapter/v3
             - github.com/testcontainers/testcontainers-go
             - go.uber.org/mock/gomock
             - google.golang.org/api/iterator

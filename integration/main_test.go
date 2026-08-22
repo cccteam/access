@@ -1,6 +1,6 @@
 // Package integration drives access against a real PostgreSQL container:
-// the LISTEN/NOTIFY change signal, cross-client policy propagation, and the
-// engine-equivalence deploy gate over a live casbin_rule table.
+// the LISTEN/NOTIFY change signal and cross-client policy propagation over
+// the typed policy tables.
 package integration
 
 import (
@@ -35,8 +35,8 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-// prepareDatabase creates a new empty database for the test. The casbin
-// adapter creates its own casbin_rule table, so no migrations run here.
+// prepareDatabase creates a new empty database for the test; each test
+// applies its store's DDL itself.
 func prepareDatabase(ctx context.Context, t *testing.T) (*dbinitiator.PostgresDatabase, error) {
 	t.Helper()
 

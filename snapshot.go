@@ -91,9 +91,9 @@ func (f *fieldSet) clone() *fieldSet {
 }
 
 // checkUser returns the resources user does NOT hold perm on within domain,
-// preserving input order. It mirrors casbin's matcher over the same rows:
-// grants reach a user through role membership or rows written directly
-// against the user, both folded into one lookup at compile time.
+// preserving input order. Grants reach a user through role membership or
+// records written directly against the user, both folded into one lookup at
+// compile time.
 func (s *snapshot) checkUser(user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
 	var grants grantMap
 	if dp := s.domains[domain]; dp != nil {
@@ -426,4 +426,16 @@ func joinRoles(roles []accesstypes.Role) string {
 	}
 
 	return b.String()
+}
+
+// splitResourceField splits a resource name on its last '.' into the base
+// resource and field. Checked resources and stored grants split with the same
+// rule, so field matching is exact.
+func splitResourceField(obj string) (resource, field string) {
+	i := strings.LastIndexByte(obj, '.')
+	if i < 0 {
+		return obj, ""
+	}
+
+	return obj[:i], obj[i+1:]
 }

@@ -2,35 +2,29 @@ package access
 
 import (
 	"context"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 )
 
-func writeTestPolicy(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("os.WriteFile() error = %v", err)
-	}
+// roleSubject and userSubject are fixture shorthands.
+func roleSubject(name string) policy.Subject {
+	return policy.Subject{Kind: policy.SubjectRole, Name: name}
 }
 
-// snapshotFromCSV compiles a snapshot from a casbin CSV fixture through the
-// real reader path.
-func snapshotFromCSV(t *testing.T, path string) *snapshot {
-	t.Helper()
-	records, err := readCasbinPolicy(fileadapter.NewAdapter(path))
-	if err != nil {
-		t.Fatalf("readCasbinPolicy() error = %v", err)
-	}
+func userSubject(name string) policy.Subject {
+	return policy.Subject{Kind: policy.SubjectUser, Name: name}
+}
 
+// compileSnapshot compiles fixture records through the shared compiler.
+func compileSnapshot(t *testing.T, records *policy.Records) *snapshot {
+	t.Helper()
 	snap, err := newSnapshot(records, time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
@@ -39,24 +33,52 @@ func snapshotFromCSV(t *testing.T, path string) *snapshot {
 	return snap
 }
 
+// Test_splitResourceField pins the shared splitting rule: checked resources
+// and stored grants split identically, on the LAST dot.
+func Test_splitResourceField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		obj          string
+		wantResource string
+		wantField    string
+	}{
+		{name: "no field", obj: "employees", wantResource: "employees", wantField: ""},
+		{name: "named field", obj: "employees.name", wantResource: "employees", wantField: "name"},
+		{name: "wildcard field", obj: "employees.*", wantResource: "employees", wantField: "*"},
+		{name: "splits on last dot", obj: "a.b.c", wantResource: "a.b", wantField: "c"},
+		{name: "global resource", obj: "global", wantResource: "global", wantField: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			resource, field := splitResourceField(tt.obj)
+			if resource != tt.wantResource || field != tt.wantField {
+				t.Errorf("splitResourceField(%q) = (%q, %q), want (%q, %q)", tt.obj, resource, field, tt.wantResource, tt.wantField)
+			}
+		})
+	}
+}
+
 func Test_snapshot_checkUser(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := dir + "/policy.csv"
-	writeTestPolicy(t, path, `
-p, role:Editor,  domain:tenant1, resource:employees,        perm:Read,   allow
-p, role:Editor,  domain:tenant1, resource:employees.name,   perm:Read,   allow
-p, role:Editor,  domain:tenant1, resource:documents.*,      perm:Read,   allow
-p, role:Auditor, domain:tenant1, resource:widgets,          perm:List,   allow
-p, role:Chief,   domain:tenant1, resource:budgets,          perm:Read,   allow
-p, user:dana,    domain:tenant1, resource:widgets,          perm:List,   allow
-g, user:erin,    role:Editor,    domain:tenant1
-g, user:erin,    role:Auditor,   domain:tenant1
-g, role:Editor,  role:Chief,     domain:tenant1
-g, noop,         role:Editor,    domain:tenant1
-`)
-	snap := snapshotFromCSV(t, path)
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
+			{Domain: "tenant1", Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
+			{Domain: "tenant1", Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Domain: "tenant1", Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+		},
+		Memberships: []policy.Membership{
+			{Domain: "tenant1", Member: userSubject("erin"), Role: "Editor"},
+			{Domain: "tenant1", Member: userSubject("erin"), Role: "Auditor"},
+			{Domain: "tenant1", Member: roleSubject("Editor"), Role: "Chief"},
+		},
+	})
 
 	type args struct {
 		user      accesstypes.User
@@ -154,16 +176,17 @@ g, noop,         role:Editor,    domain:tenant1
 func Test_snapshot_checkRole(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := dir + "/policy.csv"
-	writeTestPolicy(t, path, `
-p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow
-p, role:Chief,  domain:tenant1, resource:budgets,   perm:Read, allow
-g, role:Editor, role:Chief,     domain:tenant1
-g, role:Loop1,  role:Loop2,     domain:tenant1
-g, role:Loop2,  role:Loop1,     domain:tenant1
-`)
-	snap := snapshotFromCSV(t, path)
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Domain: "tenant1", Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+		},
+		Memberships: []policy.Membership{
+			{Domain: "tenant1", Member: roleSubject("Editor"), Role: "Chief"},
+			{Domain: "tenant1", Member: roleSubject("Loop1"), Role: "Loop2"},
+			{Domain: "tenant1", Member: roleSubject("Loop2"), Role: "Loop1"},
+		},
+	})
 
 	type args struct {
 		role      accesstypes.Role

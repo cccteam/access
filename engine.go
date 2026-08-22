@@ -6,9 +6,8 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 )
 
-// evaluator answers permission checks on the request path. It is the seam the
-// snapshot engine will implement; the casbin path is the first implementation.
-// Implementations must be safe for concurrent use.
+// evaluator answers permission checks on the request path; the snapshot
+// engine implements it. Implementations must be safe for concurrent use.
 type evaluator interface {
 	// checkUser returns the subset of resources that user does NOT hold perm on
 	// within domain. An empty result means all resources passed.
@@ -36,10 +35,7 @@ type policyStore interface {
 	// Roles
 	addRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
 	roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error)
-	// deleteRole removes the role and its grants from domain. The casbin
-	// implementation ignores domain and removes the role across ALL domains
-	// (legacy behavior, preserved until casbin's deletion); the typed stores
-	// scope the delete to (domain, role).
+	// deleteRole removes the role and its grants, scoped to (domain, role).
 	deleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
 	roleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
 	roleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
