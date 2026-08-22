@@ -50,36 +50,6 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 	})
 }
 
-// AddRolePermissions is the handler to assign permissions to a given role
-//
-// Permissions Required: AddRolePermissions
-func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
-	type request struct {
-		Permissions []accesstypes.Permission `json:"permissions"`
-	}
-
-	decoder := newDecoder[request]()
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		req, err := decoder.Decode(r)
-		if err != nil {
-			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
-		}
-
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
-		role := httpio.Param[accesstypes.Role](r, paramRole)
-
-		if err := a.manager.AddRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		return nil
-	})
-}
-
 // AddRoleUsers is the handler to assign a role to a list of users
 //
 // Permissions Required: AddRoleUsers
@@ -131,35 +101,6 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
 		if err := a.manager.DeleteRoleUsers(ctx, domain, role, req.Users...); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		return nil
-	})
-}
-
-// DeleteRolePermissions is the handler to remove permissions from a role
-//
-// Permissions Required: DeleteRolePermissions
-func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
-	type request struct {
-		Permissions []accesstypes.Permission `json:"permissions"`
-	}
-
-	decoder := newDecoder[request]()
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		req, err := decoder.Decode(r)
-		if err != nil {
-			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
-		}
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
-		role := httpio.Param[accesstypes.Role](r, paramRole)
-
-		if err := a.manager.DeleteRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
