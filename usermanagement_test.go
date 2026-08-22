@@ -34,8 +34,8 @@ func seededManager(t *testing.T) (*userManager, *fakeStore) {
 	if err := m.AddRolePermissionResources(ctx, "tenant1", "Editor", "Read", "employees", "employees.name"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
-	if err := m.AddRolePermissions(ctx, accesstypes.GlobalDomain, "Auditor", "ViewUsers"); err != nil {
-		t.Fatalf("AddRolePermissions() error = %v", err)
+	if err := m.AddRolePermissionResources(ctx, accesstypes.GlobalDomain, "Auditor", "ViewUsers", accesstypes.GlobalResource); err != nil {
+		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
 	if err := m.AddRoleUsers(ctx, "tenant1", "Editor", "alice"); err != nil {
 		t.Fatalf("AddRoleUsers() error = %v", err)
@@ -365,29 +365,16 @@ func Test_userManager_permissions(t *testing.T) {
 		wantPerms accesstypes.RolePermissionCollection
 	}{
 		{
-			name: "AddRolePermissions writes global-resource grants",
+			// A domain-wide permission is an ordinary grant on GlobalResource.
+			name: "domain-wide permission is a grant on the global resource",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissions(ctx, "tenant1", "Viewer", "ViewReports")
+				return m.AddRolePermissionResources(ctx, "tenant1", "Viewer", "ViewReports", accesstypes.GlobalResource)
 			},
 			domain: "tenant1",
 			role:   "Viewer",
 			wantPerms: accesstypes.RolePermissionCollection{
 				"ViewReports": {accesstypes.GlobalResource},
 			},
-		},
-		{
-			name: "AddRolePermissions rejects missing role",
-			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissions(ctx, "tenant1", "Ghost", "ViewReports")
-			},
-			wantErr: true,
-		},
-		{
-			name: "AddRolePermissions rejects empty permission",
-			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissions(ctx, "tenant1", "Viewer", "")
-			},
-			wantErr: true,
 		},
 		{
 			name: "AddRolePermissionResources adds resource and field grants",
@@ -433,9 +420,9 @@ func Test_userManager_permissions(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteRolePermissions removes global grants",
+			name: "removing the global-resource grant removes the domain-wide permission",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRolePermissions(ctx, accesstypes.GlobalDomain, "Auditor", "ViewUsers")
+				return m.DeleteRolePermissionResources(ctx, accesstypes.GlobalDomain, "Auditor", "ViewUsers", accesstypes.GlobalResource)
 			},
 			domain:    accesstypes.GlobalDomain,
 			role:      "Auditor",
@@ -463,9 +450,9 @@ func Test_userManager_permissions(t *testing.T) {
 			wantPerms: accesstypes.RolePermissionCollection{},
 		},
 		{
-			name: "DeleteRolePermissions rejects missing role",
+			name: "DeleteRolePermissionResources rejects missing role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRolePermissions(ctx, "tenant1", "Ghost", "Read")
+				return m.DeleteRolePermissionResources(ctx, "tenant1", "Ghost", "Read", "employees")
 			},
 			wantErr: true,
 		},

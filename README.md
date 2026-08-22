@@ -205,13 +205,13 @@ mgr.DeleteRoleUsers(ctx, "tenant1", "admin", "user1")
 ### Permission Management
 
 ```go
-// Domain-wide permissions (granted on the global resource)
-mgr.AddRolePermissions(ctx, "tenant1", "admin", "CreateUsers", "DeleteUsers")
-mgr.DeleteRolePermissions(ctx, "tenant1", "admin", "DeleteUsers")
-
 // Resource- and field-specific permissions
 mgr.AddRolePermissionResources(ctx, "tenant1", "editor", "Read", "documents", "documents.*")
 mgr.DeleteRolePermissionResources(ctx, "tenant1", "editor", "Read", "documents.*")
+
+// A domain-wide permission (not tied to a specific resource) is an ordinary
+// grant on the global resource.
+mgr.AddRolePermissionResources(ctx, "tenant1", "admin", "CreateUsers", accesstypes.GlobalResource)
 
 permissions, err := mgr.RolePermissions(ctx, "tenant1", "admin")
 ```

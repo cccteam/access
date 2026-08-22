@@ -166,25 +166,6 @@ func (mr *MockUserManagerMockRecorder) AddRolePermissionResources(ctx, domain, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRolePermissionResources", reflect.TypeOf((*MockUserManager)(nil).AddRolePermissionResources), varargs...)
 }
 
-// AddRolePermissions mocks base method.
-func (m *MockUserManager) AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, domain, role}
-	for _, a := range permissions {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "AddRolePermissions", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AddRolePermissions indicates an expected call of AddRolePermissions.
-func (mr *MockUserManagerMockRecorder) AddRolePermissions(ctx, domain, role any, permissions ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, domain, role}, permissions...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRolePermissions", reflect.TypeOf((*MockUserManager)(nil).AddRolePermissions), varargs...)
-}
-
 // AddRoleUsers mocks base method.
 func (m *MockUserManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error {
 	m.ctrl.T.Helper()
@@ -269,25 +250,6 @@ func (mr *MockUserManagerMockRecorder) DeleteRolePermissionResources(ctx, domain
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, domain, role, permission}, resources...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRolePermissionResources", reflect.TypeOf((*MockUserManager)(nil).DeleteRolePermissionResources), varargs...)
-}
-
-// DeleteRolePermissions mocks base method.
-func (m *MockUserManager) DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, domain, role}
-	for _, a := range permissions {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "DeleteRolePermissions", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteRolePermissions indicates an expected call of DeleteRolePermissions.
-func (mr *MockUserManagerMockRecorder) DeleteRolePermissions(ctx, domain, role any, permissions ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, domain, role}, permissions...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRolePermissions", reflect.TypeOf((*MockUserManager)(nil).DeleteRolePermissions), varargs...)
 }
 
 // DeleteRoleUsers mocks base method.

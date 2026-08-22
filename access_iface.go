@@ -68,14 +68,10 @@ type UserManager interface {
 	// users assigned. The delete is scoped to the given domain.
 	DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
 
-	// AddRolePermissions grants global permissions to role in domain. Errors if role doesn't exist.
-	AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error
-
-	// AddRolePermissionResources grants resource-specific permissions to role in domain. Errors if role doesn't exist.
+	// AddRolePermissionResources grants permissions on resources to role in
+	// domain. Errors if role doesn't exist. A domain-wide permission (not tied
+	// to a specific resource) is a grant on accesstypes.GlobalResource.
 	AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
-
-	// DeleteRolePermissions removes global permissions from role in domain. Errors if role doesn't exist.
-	DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error
 
 	// DeleteRolePermissionResources removes resource-specific permissions from role in domain. Errors if role doesn't exist.
 	DeleteRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error

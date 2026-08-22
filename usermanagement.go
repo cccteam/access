@@ -247,28 +247,6 @@ func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain,
 	return deleted, nil
 }
 
-// AddRolePermissions grants global permissions to role in domain.
-func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := u.requireRole(ctx, domain, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
-		return err
-	}
-
-	for _, permission := range permissions {
-		if permission == "" {
-			return httpio.NewBadRequestMessage("permission cannot be empty string")
-		}
-
-		if err := u.store.addGrant(ctx, domain, role, permission, accesstypes.GlobalResource); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // AddRolePermissionResources grants resource-specific permissions to role in domain.
 func (u *userManager) AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
 	ctx, span := tracer.Start(ctx)
@@ -284,24 +262,6 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, domain acc
 		}
 
 		if err := u.store.addGrant(ctx, domain, role, permission, resource); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// DeleteRolePermissions removes global permissions from role in domain.
-func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := u.requireRole(ctx, domain, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
-		return err
-	}
-
-	for _, permission := range permissions {
-		if err := u.store.removeGrant(ctx, domain, role, permission, accesstypes.GlobalResource); err != nil {
 			return err
 		}
 	}
