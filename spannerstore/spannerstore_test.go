@@ -69,7 +69,7 @@ func TestStore_isolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spannerstore.New(): %v", err)
 	}
-	if err := applyDDL(ctx, db, partnerStore); err != nil {
+	if err := applyDDL(t, db, partnerStore); err != nil {
 		t.Fatalf("applying DDL: %v", err)
 	}
 
