@@ -442,9 +442,6 @@ func Test_userManager_permissions(t *testing.T) {
 			wantPerms: accesstypes.RolePermissionCollection{},
 		},
 		{
-			// DeleteAllRolePermissions clears each permission's GLOBAL-resource
-			// grant only — preserved casbin-era behavior: it feeds
-			// DeleteRolePermissions, which targets accesstypes.GlobalResource.
 			name: "DeleteAllRolePermissions clears global-resource grants",
 			op: func(ctx context.Context, m *userManager) error {
 				return m.DeleteAllRolePermissions(ctx, accesstypes.GlobalDomain, "Auditor")
@@ -454,15 +451,16 @@ func Test_userManager_permissions(t *testing.T) {
 			wantPerms: accesstypes.RolePermissionCollection{},
 		},
 		{
-			name: "DeleteAllRolePermissions leaves resource-specific grants (preserved casbin-era behavior)",
+			// Regression: the casbin-era implementation only removed each
+			// permission's global-resource grant, contradicting the method's
+			// contract — resource and field grants silently survived.
+			name: "DeleteAllRolePermissions clears resource-specific grants too",
 			op: func(ctx context.Context, m *userManager) error {
 				return m.DeleteAllRolePermissions(ctx, "tenant1", "Editor")
 			},
-			domain: "tenant1",
-			role:   "Editor",
-			wantPerms: accesstypes.RolePermissionCollection{
-				"Read": {"employees", "employees.name"},
-			},
+			domain:    "tenant1",
+			role:      "Editor",
+			wantPerms: accesstypes.RolePermissionCollection{},
 		},
 		{
 			name: "DeleteRolePermissions rejects missing role",

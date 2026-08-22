@@ -2,8 +2,6 @@ package access
 
 import (
 	"context"
-	"maps"
-	"slices"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
@@ -118,8 +116,12 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, domain acces
 		return errors.Wrap(err, "client.RolePermissions()")
 	}
 
-	if err := u.DeleteRolePermissions(ctx, domain, role, slices.Collect(maps.Keys(perms))...); err != nil {
-		return errors.Wrap(err, "client.DeleteRolePermissions()")
+	// Global grants list as accesstypes.GlobalResource, so one pass over the
+	// collection covers global and resource-specific permissions alike.
+	for permission, resources := range perms {
+		if err := u.DeleteRolePermissionResources(ctx, domain, role, permission, resources...); err != nil {
+			return errors.Wrap(err, "client.DeleteRolePermissionResources()")
+		}
 	}
 
 	return nil
