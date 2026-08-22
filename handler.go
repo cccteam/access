@@ -17,8 +17,6 @@ type Handlers interface {
 	RolePermissions() http.HandlerFunc
 	Roles() http.HandlerFunc
 	RoleUsers() http.HandlerFunc
-	User() http.HandlerFunc
-	Users() http.HandlerFunc
 }
 
 // LogHandler wraps handlers with logging. Converts error-returning handler to http.HandlerFunc.

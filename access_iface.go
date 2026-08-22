@@ -10,20 +10,17 @@ var _ Controller = &Client{}
 
 // Controller is the main interface for access control operations.
 type Controller interface {
-	// RequireAll checks if user has all specified permissions in domain.
-	RequireAll(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, permissions ...accesstypes.Permission) error
+	// CheckUser returns the subset of resources that user does NOT hold perm on
+	// within domain, preserving input order; empty means everything passed.
+	CheckUser(
+		ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	) (missing []accesstypes.Resource, err error)
 
-	// RequireResources checks if user has permission for resources in domain.
-	// Returns ok=true if all resources are accessible, ok=false with missing resources otherwise.
-	RequireResources(
-		ctx context.Context, username accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (ok bool, missing []accesstypes.Resource, err error)
-
-	// RoleRequireResources checks if role has permission for resources in domain.
-	// Returns ok=true if all resources are accessible, ok=false with missing resources otherwise.
-	RoleRequireResources(
+	// CheckRole returns the subset of resources that role does NOT hold perm on
+	// within domain, preserving input order; empty means everything passed.
+	CheckRole(
 		ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (ok bool, missing []accesstypes.Resource, err error)
+	) (missing []accesstypes.Resource, err error)
 
 	// UserManager returns the UserManager for managing users, roles, and permissions.
 	UserManager() UserManager
@@ -34,7 +31,9 @@ type Controller interface {
 
 var _ UserManager = &userManager{}
 
-// UserManager manages RBAC users, roles, permissions, and domains.
+// UserManager manages RBAC users, roles, and permissions. Domains are opaque
+// partition labels: no method validates domain existence — the application
+// owns its tenant list and validates domains at its own boundaries.
 type UserManager interface {
 	// AddRoleUsers assigns role to users in domain. Errors if role doesn't exist.
 	AddRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error
@@ -48,30 +47,25 @@ type UserManager interface {
 	// DeleteUserRoles removes role assignments from user in domain.
 	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
 
-	// User returns user's roles and permissions. If domains unspecified, returns all domains.
-	User(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (*UserAccess, error)
-
-	// Users returns all users with roles and permissions. If domains unspecified, returns all domains.
-	Users(ctx context.Context, domain ...accesstypes.Domain) ([]*UserAccess, error)
-
-	// UserRoles returns user's roles. If domains unspecified, returns all domains.
+	// UserRoles returns user's roles for the given domains. At least one domain
+	// is required: access holds no domain list of its own to enumerate.
 	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.RoleCollection, error)
 
-	// UserPermissions returns user's effective permissions. If domains unspecified, returns all domains.
+	// UserPermissions returns user's effective permissions for the given
+	// domains. At least one domain is required.
 	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 
-	// AddRole creates role in domain. Errors if domain doesn't exist or role already exists.
-	//
-	// Note: Adds internal "noop" user to role for casbin enumeration.
+	// AddRole creates role in domain. Errors if role already exists.
 	AddRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
 
-	// RoleExists returns true if role exists in domain.
-	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool
+	// RoleExists reports whether role exists in domain.
+	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
 
-	// Roles returns all roles in domain. Errors if domain doesn't exist.
+	// Roles returns all roles in domain.
 	Roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error)
 
-	// DeleteRole removes role from domain. Returns false with error if role has users assigned.
+	// DeleteRole removes role from domain. Returns false with error if role has
+	// users assigned. The delete is scoped to the given domain.
 	DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
 
 	// AddRolePermissions grants global permissions to role in domain. Errors if role doesn't exist.
@@ -89,24 +83,9 @@ type UserManager interface {
 	// DeleteAllRolePermissions removes all permissions from role in domain.
 	DeleteAllRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
 
-	// RoleUsers returns users assigned to role in domain. Excludes internal "noop" user.
+	// RoleUsers returns users assigned to role in domain.
 	RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// RolePermissions returns permissions for role in domain as map of permissions to resources. Errors if role doesn't exist.
 	RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
-
-	// Domains returns all domains including global domain.
-	Domains(ctx context.Context) ([]accesstypes.Domain, error)
-
-	// DomainExists returns true if domain exists. Always true for global domain.
-	DomainExists(ctx context.Context, domain accesstypes.Domain) (bool, error)
-}
-
-// Domains manages domain queries and validation.
-type Domains interface {
-	// DomainIDs returns all domain IDs.
-	DomainIDs(ctx context.Context) ([]string, error)
-
-	// DomainExists returns true if domain ID exists.
-	DomainExists(ctx context.Context, domain string) (bool, error)
 }

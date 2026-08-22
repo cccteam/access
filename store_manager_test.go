@@ -292,15 +292,6 @@ func Test_storeManager_deleteRole(t *testing.T) {
 	}
 }
 
-func Test_storeManager_users_unsupported(t *testing.T) {
-	t.Parallel()
-
-	manager := newStoreManager(newFakeStore())
-	if _, err := manager.users(context.Background()); err == nil {
-		t.Fatal("users() expected error, got nil")
-	}
-}
-
 func mustAddRole(t *testing.T, m *storeManager, domain accesstypes.Domain, role accesstypes.Role) {
 	t.Helper()
 	if err := m.addRole(context.Background(), domain, role); err != nil {

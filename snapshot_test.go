@@ -3,23 +3,21 @@ package access
 import (
 	"context"
 	"os"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/casbin/casbin/v2/model"
-	"github.com/casbin/casbin/v2/persist"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 )
 
-func writeTestPolicy(t *testing.T, path, policy string) {
+func writeTestPolicy(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(policy), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 }
@@ -220,44 +218,44 @@ g, role:Loop2,  role:Loop1,     domain:tenant1
 	}
 }
 
-// fakeAdapterFactory hands out a persist.Adapter for a policy file, optionally
-// failing to simulate store outages.
-type fakeAdapterFactory struct {
-	path    string
-	failNew bool
-}
-
-func (f *fakeAdapterFactory) NewAdapter() (persist.Adapter, error) {
-	if f.failNew {
-		return nil, errors.New("adapter unavailable")
+// engineFakeStore returns a fakeStore seeded with the engine lifecycle
+// fixture: Editor holds Read on employees in tenant1, erin is an Editor.
+func engineFakeStore(t *testing.T) *fakeStore {
+	t.Helper()
+	ctx := context.Background()
+	store := newFakeStore()
+	for _, err := range []error{
+		store.InsertRole(ctx, "tenant1", "Editor"),
+		store.InsertGrant(ctx, "tenant1", "Editor", "Read", "employees", ""),
+		store.InsertUserRole(ctx, "tenant1", "erin", "Editor"),
+	} {
+		if err != nil {
+			t.Fatalf("seeding fake store: %v", err)
+		}
 	}
 
-	return fileadapter.NewAdapter(f.path), nil
+	return store
 }
 
-// fakeDomains is a Domains implementation with a fixed ID list.
-type fakeDomains struct {
-	ids []string
-}
-
-func (f *fakeDomains) DomainIDs(_ context.Context) ([]string, error) {
-	return f.ids, nil
-}
-
-func (f *fakeDomains) DomainExists(_ context.Context, id string) (bool, error) {
-	return slices.Contains(f.ids, id), nil
+// grantWidgets simulates another instance's policy write: it lands in the
+// store without notifying this instance's engine.
+func grantWidgets(t *testing.T, store *fakeStore) {
+	t.Helper()
+	if err := store.InsertGrant(context.Background(), "tenant1", "Editor", "List", "widgets", ""); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
 }
 
 // testEngine builds a snapshotEngine whose background loop is effectively
 // inert (1h heartbeat) so tests drive reloads deterministically, and whose
 // goroutines stop at test end.
-func testEngine(t *testing.T, factory Adapter, opts *clientOptions) *snapshotEngine {
+func testEngine(t *testing.T, store Store, opts *clientOptions) *snapshotEngine {
 	t.Helper()
 	if opts == nil {
 		opts = defaultClientOptions()
 	}
 	opts.heartbeatInterval = time.Hour
-	e := newSnapshotEngine(factory, opts)
+	e := newSnapshotEngine(store, opts)
 	t.Cleanup(func() {
 		if err := e.close(); err != nil {
 			t.Errorf("snapshotEngine.close() error = %v", err)
@@ -270,18 +268,7 @@ func testEngine(t *testing.T, factory Adapter, opts *clientOptions) *snapshotEng
 // settle waits until the background loop's in-flight reload (if any) has
 // finished, so subsequent fixture mutations cannot race it.
 func settle(e *snapshotEngine) {
-	e.tryReload()
-}
-
-// testPolicy is the fixture used by the engine lifecycle tests.
-const testPolicy = "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n"
-
-func writeEnginePolicy(t *testing.T) string {
-	t.Helper()
-	path := t.TempDir() + "/policy.csv"
-	writeTestPolicy(t, path, testPolicy)
-
-	return path
+	e.tryReload(context.Background())
 }
 
 func Test_snapshotEngine_checkUser(t *testing.T) {
@@ -306,7 +293,11 @@ func Test_snapshotEngine_checkUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			e := testEngine(t, &fakeAdapterFactory{path: writeEnginePolicy(t), failNew: tt.storeDown}, nil)
+			store := engineFakeStore(t)
+			if tt.storeDown {
+				store.setFail(errors.New("store down"))
+			}
+			e := testEngine(t, store, nil)
 
 			gotMissing, err := e.checkUser(context.Background(), "erin", "tenant1", "Read", "employees")
 			if (err != nil) != tt.wantErr {
@@ -345,7 +336,11 @@ func Test_snapshotEngine_waitReady(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			e := testEngine(t, &fakeAdapterFactory{path: writeEnginePolicy(t), failNew: tt.storeDown}, nil)
+			store := engineFakeStore(t)
+			if tt.storeDown {
+				store.setFail(errors.New("store down"))
+			}
+			e := testEngine(t, store, nil)
 
 			readyCtx, cancel := context.WithTimeout(context.Background(), tt.timeout)
 			defer cancel()
@@ -363,15 +358,15 @@ func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	path := writeEnginePolicy(t)
-	e := testEngine(t, &fakeAdapterFactory{path: path}, nil)
+	store := engineFakeStore(t)
+	e := testEngine(t, store, nil)
 
 	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
 		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the write", missing, err)
 	}
 	settle(e)
 
-	writeTestPolicy(t, path, testPolicy+"p, role:Editor, domain:tenant1, resource:widgets, perm:List, allow\n")
+	grantWidgets(t, store)
 
 	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
 		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", missing, err)
@@ -388,11 +383,11 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	path := writeEnginePolicy(t)
+	store := engineFakeStore(t)
 	var reloadErrs atomic.Int64
 	opts := defaultClientOptions()
 	opts.onReloadError = func(error) { reloadErrs.Add(1) }
-	e := testEngine(t, &fakeAdapterFactory{path: path}, opts)
+	e := testEngine(t, store, opts)
 
 	if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
 		t.Fatalf("checkUser() error = %v", err)
@@ -400,9 +395,7 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	settle(e)
 
 	// Break the store, then force a reload attempt.
-	if err := os.Remove(path); err != nil {
-		t.Fatalf("os.Remove() error = %v", err)
-	}
+	store.setFail(errors.New("store down"))
 	e.invalidate()
 
 	missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees")
@@ -418,7 +411,7 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	e := testEngine(t, &fakeAdapterFactory{path: writeEnginePolicy(t)}, nil)
+	e := testEngine(t, engineFakeStore(t), nil)
 
 	if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
 		t.Fatalf("checkUser() error = %v", err)
@@ -475,14 +468,12 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dir := t.TempDir()
-	path := dir + "/policy.csv"
-	writeTestPolicy(t, path, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n")
+	store := engineFakeStore(t)
 
 	sig := newFakeSignal()
 	opts := defaultClientOptions()
 	opts.signal = sig
-	e := testEngine(t, &fakeAdapterFactory{path: path}, opts)
+	e := testEngine(t, store, opts)
 
 	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
 		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the change", missing, err)
@@ -496,7 +487,7 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	}
 
 	// A hint (not a local invalidate) must reload through the background loop.
-	writeTestPolicy(t, path, "p, role:Editor, domain:tenant1, resource:employees, perm:Read, allow\np, role:Editor, domain:tenant1, resource:widgets, perm:List, allow\ng, user:erin, role:Editor, domain:tenant1\n")
+	grantWidgets(t, store)
 	sig.trigger()
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -525,59 +516,13 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	}
 }
 
-// Domain validation is a live Domains lookup on every check — deliberately
-// not cached: domain writes do not flow through access, so a snapshot cache
-// could serve a deleted domain until the next reload.
-func Test_Client_domainValidation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		domain  accesstypes.Domain
-		wantErr bool
-	}{
-		{
-			name:    "known domain passes validation",
-			domain:  "tenant1",
-			wantErr: false,
-		},
-		{
-			name:    "unknown domain is rejected",
-			domain:  "no-such-tenant",
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := context.Background()
-			path := t.TempDir() + "/policy.csv"
-			writeTestPolicy(t, path, "p, role:Editor, domain:tenant1, resource:global, perm:Read, allow\ng, user:erin, role:Editor, domain:tenant1\n")
-
-			client, err := New(&fakeDomains{ids: []string{"tenant1"}}, &fakeAdapterFactory{path: path}, WithHeartbeatInterval(time.Hour))
-			if err != nil {
-				t.Fatalf("New() error = %v", err)
-			}
-			t.Cleanup(func() {
-				if err := client.Close(); err != nil {
-					t.Errorf("Client.Close() error = %v", err)
-				}
-			})
-
-			if err := client.RequireAll(ctx, "erin", tt.domain, "Read"); (err != nil) != tt.wantErr {
-				t.Fatalf("RequireAll() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-// convoyAdapter instruments LoadPolicy to reproduce the write-storm race:
-// while armed, every store read lands another local policy write (onLoad),
-// so the write counter is always one ahead of the read in flight. The first
-// armed read additionally parks on gate so the test can queue checks behind
-// the reload mutex before letting anything finish.
-type convoyAdapter struct {
-	persist.Adapter
+// convoyStore instruments ReadPolicy to reproduce the write-storm race: while
+// armed, every store read lands another local policy write (onLoad), so the
+// write counter is always one ahead of the read in flight. The first armed
+// read additionally parks on gate so the test can queue checks behind the
+// reload mutex before letting anything finish.
+type convoyStore struct {
+	*fakeStore
 	onLoad  func() // lands a write during every armed read; set before the engine starts
 	loads   atomic.Int64
 	armed   atomic.Bool
@@ -586,7 +531,7 @@ type convoyAdapter struct {
 	gateSeq sync.Once
 }
 
-func (c *convoyAdapter) LoadPolicy(m model.Model) error {
+func (c *convoyStore) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	c.loads.Add(1)
 	if c.armed.Load() {
 		c.onLoad()
@@ -596,19 +541,7 @@ func (c *convoyAdapter) LoadPolicy(m model.Model) error {
 		})
 	}
 
-	if err := c.Adapter.LoadPolicy(m); err != nil {
-		return errors.Wrap(err, "persist.Adapter.LoadPolicy()")
-	}
-
-	return nil
-}
-
-type convoyFactory struct {
-	adapter *convoyAdapter
-}
-
-func (f *convoyFactory) NewAdapter() (persist.Adapter, error) {
-	return f.adapter, nil
+	return c.fakeStore.ReadPolicy(ctx)
 }
 
 // Test_snapshotEngine_syncReloadDedup pins the sync-reload dedup semantics:
@@ -647,24 +580,24 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adapter := &convoyAdapter{
-				Adapter: fileadapter.NewAdapter(writeEnginePolicy(t)),
-				started: make(chan struct{}),
-				gate:    make(chan struct{}),
+			store := &convoyStore{
+				fakeStore: engineFakeStore(t),
+				started:   make(chan struct{}),
+				gate:      make(chan struct{}),
 			}
-			e := testEngine(t, &convoyFactory{adapter: adapter}, nil)
-			adapter.onLoad = func() {}
+			e := testEngine(t, store, nil)
+			store.onLoad = func() {}
 			if tt.writeDuringRead {
-				adapter.onLoad = e.invalidate
+				store.onLoad = e.invalidate
 			}
 
 			if err := e.waitReady(context.Background()); err != nil {
 				t.Fatalf("waitReady() error = %v", err)
 			}
 			settle(e)
-			baseline := adapter.loads.Load()
+			baseline := store.loads.Load()
 
-			adapter.armed.Store(true)
+			store.armed.Store(true)
 			e.invalidate() // send checks into the sync-reload path
 
 			errs := make(chan error, checks)
@@ -680,9 +613,9 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 			// then give the remaining checks time to record their entry
 			// generation and queue on the reload mutex before any reload
 			// completes.
-			<-adapter.started
+			<-store.started
 			time.Sleep(50 * time.Millisecond)
-			close(adapter.gate)
+			close(store.gate)
 
 			wg.Wait()
 			close(errs)
@@ -692,7 +625,7 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 				}
 			}
 
-			if extra := adapter.loads.Load() - baseline; extra > tt.wantMaxLoads {
+			if extra := store.loads.Load() - baseline; extra > tt.wantMaxLoads {
 				t.Errorf("store loads with checks queued = %d, want at most %d", extra, tt.wantMaxLoads)
 			}
 		})

@@ -45,6 +45,14 @@ type fakeStore struct {
 	failWith error
 }
 
+// setFail makes every subsequent method call return err (nil restores
+// normal operation). Safe to call concurrently with engine goroutines.
+func (f *fakeStore) setFail(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failWith = err
+}
+
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		roles:       make(map[fakeRoleKey]bool),

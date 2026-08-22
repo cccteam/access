@@ -51,21 +51,14 @@ func TestConfigEquivalence(t *testing.T) {
 	}
 	t.Cleanup(db.Close)
 
-	domains := &staticDomains{ids: []string{"tenant1", "tenant2"}}
-
-	// Casbin path: the public constructor still wires it.
+	// Casbin path: no longer publicly constructible, built through the
+	// test-only export.
 	connConfig := db.Config().ConnConfig
 	adapter := access.NewPostgresAdapter(connConfig, connConfig.Database, "casbin_rule")
-	client, err := access.New(domains, adapter)
+	casbinManager, err := access.NewCasbinUserManagerForTest(adapter)
 	if err != nil {
-		t.Fatalf("access.New(): %v", err)
+		t.Fatalf("access.NewCasbinUserManagerForTest(): %v", err)
 	}
-	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Logf("closing client: %v", err)
-		}
-	})
-	casbinManager := client.UserManager()
 
 	// Typed-store path: same database, its own tables.
 	store, err := postgresstore.New(db.Pool)
@@ -77,13 +70,13 @@ func TestConfigEquivalence(t *testing.T) {
 			t.Fatalf("executing DDL: %v", err)
 		}
 	}
-	storeManager := access.NewTypedStoreUserManagerForTest(domains, store)
+	storeManager := access.NewTypedStoreUserManagerForTest(store)
 
 	collection := newEquivCollection()
 
 	// Pass 1: initial config through both write paths, then membership.
 	for _, manager := range []access.UserManager{casbinManager, storeManager} {
-		if err := access.MigrateRoles(ctx, manager, collection, initialRoleConfig()); err != nil {
+		if err := access.MigrateRoles(ctx, manager, collection, initialRoleConfig(), "tenant1", "tenant2"); err != nil {
 			t.Fatalf("MigrateRoles() pass 1: %v", err)
 		}
 	}
@@ -95,25 +88,12 @@ func TestConfigEquivalence(t *testing.T) {
 	// Pass 2: reconcile-with-delete — Temp dropped (unassigned everywhere),
 	// Editor loses Read on widgets, gains Delete on employees.
 	for _, manager := range []access.UserManager{casbinManager, storeManager} {
-		if err := access.MigrateRoles(ctx, manager, collection, reconciledRoleConfig()); err != nil {
+		if err := access.MigrateRoles(ctx, manager, collection, reconciledRoleConfig(), "tenant1", "tenant2"); err != nil {
 			t.Fatalf("MigrateRoles() pass 2: %v", err)
 		}
 	}
 
 	assertStoresEquivalent(ctx, t, "after reconcile pass", adapter, store, casbinManager, storeManager)
-}
-
-// staticDomains is a Domains implementation with a fixed tenant list.
-type staticDomains struct {
-	ids []string
-}
-
-func (s *staticDomains) DomainIDs(_ context.Context) ([]string, error) {
-	return s.ids, nil
-}
-
-func (s *staticDomains) DomainExists(_ context.Context, id string) (bool, error) {
-	return slices.Contains(s.ids, id), nil
 }
 
 // equivCollection is a PermissionCollection fixture: the permission registry
@@ -322,10 +302,7 @@ func assertStoresEquivalent(
 func assertManagersEquivalent(ctx context.Context, t *testing.T, stage string, casbinManager, storeManager access.UserManager) {
 	t.Helper()
 
-	allDomains, err := casbinManager.Domains(ctx)
-	if err != nil {
-		t.Fatalf("[%s] Domains(): %v", stage, err)
-	}
+	allDomains := []accesstypes.Domain{accesstypes.GlobalDomain, "tenant1", "tenant2"}
 
 	for _, domain := range allDomains {
 		casbinRoles, err := casbinManager.Roles(ctx, domain)

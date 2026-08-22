@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"slices"
-	"sort"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
@@ -15,18 +14,18 @@ import (
 var _ UserManager = &userManager{}
 
 // userManager implements UserManager on top of the policyStore seam.
-// Validation (domain/role existence, empty-input checks) lives here; the store
-// only persists and queries policy.
+// Validation (role existence, empty-input checks) lives here; the store only
+// persists and queries policy. Domains are opaque partition labels — nothing
+// here validates domain existence, and no operation enumerates domains: the
+// application owns its tenant list.
 type userManager struct {
-	store   policyStore
-	domains Domains
+	store policyStore
 }
 
 // newUserManager creates userManager backed by the given policy store.
-func newUserManager(domains Domains, store policyStore) *userManager {
+func newUserManager(store policyStore) *userManager {
 	return &userManager{
-		store:   store,
-		domains: domains,
+		store: store,
 	}
 }
 
@@ -36,7 +35,10 @@ func (u *userManager) AddRoleUsers(ctx context.Context, domain accesstypes.Domai
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	roleFound := u.RoleExists(ctx, domain, role)
+	roleFound, err := u.RoleExists(ctx, domain, role)
+	if err != nil {
+		return err
+	}
 	if !roleFound {
 		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
 	}
@@ -61,7 +63,11 @@ func (u *userManager) AddUserRoles(ctx context.Context, domain accesstypes.Domai
 	defer span.End()
 
 	for _, role := range roles {
-		if roleFound := u.RoleExists(ctx, domain, role); !roleFound {
+		roleFound, err := u.RoleExists(ctx, domain, role)
+		if err != nil {
+			return err
+		}
+		if !roleFound {
 			return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", role)
 		}
 	}
@@ -85,7 +91,11 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, domain accesstypes.Do
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if roleFound := u.RoleExists(ctx, domain, role); !roleFound {
+	roleFound, err := u.RoleExists(ctx, domain, role)
+	if err != nil {
+		return err
+	}
+	if !roleFound {
 		return httpio.NewNotFoundMessagef("role %q is not a valid role. Please check that the role exists.", string(role))
 	}
 
@@ -130,117 +140,15 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, domain accesstypes.Do
 	return nil
 }
 
-// User retrieves a user's access information including roles and permissions.
-// If no domains are specified, returns information for all domains the user has access to.
-func (u *userManager) User(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (*UserAccess, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if domains == nil {
-		var err error
-		domains, err = u.Domains(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
-		}
-	}
-
-	return u.user(ctx, user, domains)
-}
-
-func (u *userManager) user(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (*UserAccess, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	roles, err := u.userRoles(ctx, user, domains)
-	if err != nil {
-		return nil, err
-	}
-
-	permissions, err := u.userPermissions(ctx, user, domains)
-	if err != nil {
-		return nil, err
-	}
-
-	return &UserAccess{
-		Name:        string(user),
-		Roles:       roles,
-		Permissions: permissions,
-	}, nil
-}
-
-// Users retrieves access information for all users in the system.
-// If no domains are specified, returns information across all domains.
-func (u *userManager) Users(ctx context.Context, domains ...accesstypes.Domain) ([]*UserAccess, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if domains == nil {
-		var err error
-		domains, err = u.Domains(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
-		}
-	}
-
-	users, err := u.users(ctx, domains)
-	if err != nil {
-		return nil, err
-	}
-
-	return users, nil
-}
-
-func (u *userManager) users(ctx context.Context, domains []accesstypes.Domain) ([]*UserAccess, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	userIDs, err := u.store.users(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var users []*UserAccess
-	for _, user := range userIDs {
-		accessUser, err := u.user(ctx, user, domains)
-		if err != nil {
-			return nil, err
-		}
-
-		users = append(users, accessUser)
-	}
-
-	sort.Slice(users, func(i, j int) bool {
-		return users[i].Name < users[j].Name
-	})
-
-	return users, nil
-}
-
-// UserRoles returns the roles assigned to a user across specified domains.
-// If no domains are specified, returns roles across all domains.
+// UserRoles returns the roles assigned to a user across the given domains.
+// At least one domain is required: access holds no domain list of its own.
 func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if domains == nil {
-		var err error
-		domains, err = u.Domains(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
-		}
+	if len(domains) == 0 {
+		return nil, httpio.NewBadRequestMessage("at least one domain is required")
 	}
-
-	userRoles, err := u.userRoles(ctx, user, domains)
-	if err != nil {
-		return nil, err
-	}
-
-	return userRoles, nil
-}
-
-func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (accesstypes.RoleCollection, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
 
 	userRoles := make(accesstypes.RoleCollection)
 	for _, domain := range domains {
@@ -255,31 +163,16 @@ func (u *userManager) userRoles(ctx context.Context, user accesstypes.User, doma
 	return userRoles, nil
 }
 
-// UserPermissions returns the effective permissions for a user across specified domains.
-// If no domains are specified, returns permissions across all domains.
+// UserPermissions returns the effective permissions for a user across the
+// given domains. At least one domain is required: access holds no domain list
+// of its own.
 func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if domains == nil {
-		var err error
-		domains, err = u.Domains(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get Guarantor IDs")
-		}
+	if len(domains) == 0 {
+		return nil, httpio.NewBadRequestMessage("at least one domain is required")
 	}
-
-	userPermissions, err := u.userPermissions(ctx, user, domains)
-	if err != nil {
-		return nil, err
-	}
-
-	return userPermissions, nil
-}
-
-func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User, domains []accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
 
 	userPermissions := make(accesstypes.UserPermissionCollection)
 	for _, domain := range domains {
@@ -294,17 +187,17 @@ func (u *userManager) userPermissions(ctx context.Context, user accesstypes.User
 	return userPermissions, nil
 }
 
+// AddRole creates role in domain. The domain is an opaque partition label:
+// its validity is the caller's business.
 func (u *userManager) AddRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if exists, err := u.DomainExists(ctx, domain); err != nil {
-		return errors.Wrap(err, "domainExists()")
-	} else if !exists {
-		return httpio.NewNotFoundMessagef("domain %q does not exist", string(domain))
+	roleDoesExist, err := u.RoleExists(ctx, domain, role)
+	if err != nil {
+		return err
 	}
-
-	if roleDoesExist := u.RoleExists(ctx, domain, role); roleDoesExist {
+	if roleDoesExist {
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
 	}
 
@@ -319,15 +212,10 @@ func (u *userManager) AddRole(ctx context.Context, domain accesstypes.Domain, ro
 	return nil
 }
 
+// Roles returns all roles in domain.
 func (u *userManager) Roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
-
-	if exists, err := u.DomainExists(ctx, domain); err != nil {
-		return nil, errors.Wrap(err, "domainExists()")
-	} else if !exists {
-		return nil, httpio.NewNotFoundMessagef("domain %q does not exist", string(domain))
-	}
 
 	roles, err := u.store.roles(ctx, domain)
 	if err != nil {
@@ -337,6 +225,8 @@ func (u *userManager) Roles(ctx context.Context, domain accesstypes.Domain) ([]a
 	return roles, nil
 }
 
+// DeleteRole removes role from domain, scoped to that domain. It refuses when
+// users are still assigned to the role in the domain.
 func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -355,12 +245,13 @@ func (u *userManager) DeleteRole(ctx context.Context, domain accesstypes.Domain,
 	return deleted, nil
 }
 
+// AddRolePermissions grants global permissions to role in domain.
 func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if !u.RoleExists(ctx, domain, role) {
-		return httpio.NewNotFoundMessagef("Permissions cannot be added to a role that doesn't exist")
+	if err := u.requireRole(ctx, domain, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+		return err
 	}
 
 	for _, permission := range permissions {
@@ -376,12 +267,13 @@ func (u *userManager) AddRolePermissions(ctx context.Context, domain accesstypes
 	return nil
 }
 
+// AddRolePermissionResources grants resource-specific permissions to role in domain.
 func (u *userManager) AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if !u.RoleExists(ctx, domain, role) {
-		return httpio.NewNotFoundMessagef("Permissions cannot be added to a role that doesn't exist")
+	if err := u.requireRole(ctx, domain, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+		return err
 	}
 
 	for _, resource := range resources {
@@ -397,12 +289,13 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, domain acc
 	return nil
 }
 
+// DeleteRolePermissions removes global permissions from role in domain.
 func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permissions ...accesstypes.Permission) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if !u.RoleExists(ctx, domain, role) {
-		return httpio.NewNotFoundMessagef("Permissions cannot be removed from a role that doesn't exist")
+	if err := u.requireRole(ctx, domain, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+		return err
 	}
 
 	for _, permission := range permissions {
@@ -414,14 +307,15 @@ func (u *userManager) DeleteRolePermissions(ctx context.Context, domain accessty
 	return nil
 }
 
+// DeleteRolePermissionResources removes resource-specific permissions from role in domain.
 func (u *userManager) DeleteRolePermissionResources(
 	ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource,
 ) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if !u.RoleExists(ctx, domain, role) {
-		return httpio.NewNotFoundMessagef("Permissions cannot be removed from a role that doesn't exist")
+	if err := u.requireRole(ctx, domain, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+		return err
 	}
 
 	for _, resource := range resources {
@@ -433,6 +327,7 @@ func (u *userManager) DeleteRolePermissionResources(
 	return nil
 }
 
+// RoleUsers returns the users assigned to role in domain.
 func (u *userManager) RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -445,11 +340,16 @@ func (u *userManager) RoleUsers(ctx context.Context, domain accesstypes.Domain, 
 	return users, nil
 }
 
+// RolePermissions returns the permissions held by role in domain.
 func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if !u.RoleExists(ctx, domain, role) {
+	roleFound, err := u.RoleExists(ctx, domain, role)
+	if err != nil {
+		return nil, err
+	}
+	if !roleFound {
 		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
 	}
 
@@ -461,64 +361,40 @@ func (u *userManager) RolePermissions(ctx context.Context, domain accesstypes.Do
 	return permissions, nil
 }
 
-func (u *userManager) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool {
+// RoleExists reports whether role exists in domain.
+func (u *userManager) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	// The public bool signature is re-signed to (bool, error) in the cutover
-	// stage; until then a store error reads as "role missing" (fail closed).
-	// The casbin path never returns an error here.
 	exists, err := u.store.roleExists(ctx, domain, role)
 	if err != nil {
-		return false
+		return false, err
 	}
 
-	return exists
+	return exists, nil
 }
 
-func (u *userManager) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	ids, err := u.domains.DomainIDs(ctx)
+// requireRole errors with notFoundMsg when role does not exist in domain.
+func (u *userManager) requireRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, notFoundMsg string) error {
+	exists, err := u.RoleExists(ctx, domain, role)
 	if err != nil {
-		return nil, errors.Wrap(err, "dbx.DB.GuarantorIDs()")
+		return err
+	}
+	if !exists {
+		return httpio.NewNotFoundMessage(notFoundMsg)
 	}
 
-	domains := make([]accesstypes.Domain, 1, len(ids)+1)
-	domains[0] = accesstypes.GlobalDomain
-	for _, v := range ids {
-		domains = append(domains, accesstypes.Domain(v))
-	}
-
-	return domains, nil
+	return nil
 }
 
 func (u *userManager) hasUsersAssigned(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	// roleUsers excludes the internal noop sentinel, so any user counts.
 	users, err := u.store.roleUsers(ctx, domain, role)
 	if err != nil {
 		return false, errors.Wrap(err, "roleUsers()")
 	}
 
 	return len(users) > 0, nil
-}
-
-// DomainExists checks if the domain exists in the application.
-func (u *userManager) DomainExists(ctx context.Context, domain accesstypes.Domain) (bool, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if domain == accesstypes.GlobalDomain {
-		return true, nil
-	}
-	exists, err := u.domains.DomainExists(ctx, string(domain))
-	if err != nil {
-		return false, errors.Wrap(err, "dbx.DB.GuarantorExists()")
-	}
-
-	return exists, nil
 }
