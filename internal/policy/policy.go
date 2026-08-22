@@ -25,9 +25,10 @@ const (
 	SubjectUser
 )
 
-// Subject is a grant target: normally a role, but the casbin store also
-// honors policy rows written directly against a user, so the evaluator must
-// too. The new-tables store only ever produces role subjects.
+// Subject is a grant target or membership holder. The typed stores only ever
+// produce role grant subjects and user members; the compiler additionally
+// supports user-direct grants and role-to-role membership (inheritance), so
+// the record model does too.
 type Subject struct {
 	Kind SubjectKind
 	Name string // bare (unprefixed) role or user name
@@ -48,7 +49,7 @@ type Grant struct {
 
 // Membership is one normalized role membership. Member is usually a user; a
 // role member expresses role inheritance, which the compiler folds at load
-// time. The new-tables store only ever produces user members.
+// time. The typed stores only ever produce user members.
 type Membership struct {
 	Domain accesstypes.Domain
 	Member Subject

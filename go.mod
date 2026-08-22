@@ -5,18 +5,15 @@ go 1.26.6
 require (
 	cloud.google.com/go/firestore v1.25.0
 	cloud.google.com/go/spanner v1.94.0
-	github.com/casbin/casbin/v2 v2.135.0
 	github.com/cccteam/ccc/accesstypes v0.5.9
 	github.com/cccteam/ccc/resource v0.10.6
 	github.com/cccteam/ccc/tracer v0.1.7
 	github.com/cccteam/db-initiator v0.3.13
 	github.com/cccteam/httpio v0.7.17
-	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/pckhoi/casbin-pgx-adapter/v3 v3.2.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	go.uber.org/mock v0.6.0
 	google.golang.org/api v0.290.0
@@ -43,8 +40,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.58.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.58.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
-	github.com/casbin/govaluate v1.10.0 // indirect
 	github.com/cccteam/ccc v0.3.2 // indirect
 	github.com/cccteam/logger v0.1.25 // indirect
 	github.com/cccteam/session v0.9.1 // indirect
@@ -86,7 +81,6 @@ require (
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260627054121-477a66015f15 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
-	github.com/mmcloughlin/meow v0.0.0-20200201185800-3501c7c05d21 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.3.3 // indirect
 	github.com/moby/moby/api v1.55.0 // indirect
