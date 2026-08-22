@@ -138,6 +138,10 @@ linters:
           - gocognit
         path: migrate\.go
         text: bootstrapRoles
+      - linters:
+          - gomoddirectives
+        path: go\.mod
+        text: replacement are not allowed
     paths:
       - third_party$
       - builtin$

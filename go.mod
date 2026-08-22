@@ -2,6 +2,8 @@ module github.com/cccteam/access
 
 go 1.26.6
 
+replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migrate/v4 v4.19.2-beta.0
+
 require (
 	cloud.google.com/go/firestore v1.25.0
 	cloud.google.com/go/spanner v1.94.0
