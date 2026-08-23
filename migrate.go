@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
@@ -54,9 +55,18 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 	allDomains := make([]accesstypes.Domain, 0, len(domains)+1)
 	allDomains = append(allDomains, accesstypes.GlobalDomain)
 	for _, d := range domains {
-		if d != accesstypes.GlobalDomain {
-			allDomains = append(allDomains, d)
+		// This variadic is a tenant-only position: MigrateRoles adds the global
+		// domain itself, so no ':'-bearing value is legitimate here — including
+		// the global marker. Rejecting it closes the one hole value inspection
+		// cannot close at global-capable APIs: a tenant list entry equal to the
+		// marker would otherwise be treated as the global domain.
+		if strings.ContainsRune(string(d), ':') {
+			return errors.Newf("invalid tenant domain %q: ':' is reserved for access-defined markers, and the global domain is included automatically — pass tenant domains only", d)
 		}
+		if d == accesstypes.GlobalDomain {
+			continue
+		}
+		allDomains = append(allDomains, d)
 	}
 
 	if err := bootstrapRoles(ctx, client, store, roleConfig.Roles, allDomains); err != nil {
