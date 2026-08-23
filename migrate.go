@@ -63,9 +63,6 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 		if strings.ContainsRune(string(d), ':') {
 			return errors.Newf("invalid tenant domain %q: ':' is reserved for access-defined markers, and the global domain is included automatically — pass tenant domains only", d)
 		}
-		if d == accesstypes.GlobalDomain {
-			continue
-		}
 		allDomains = append(allDomains, d)
 	}
 
