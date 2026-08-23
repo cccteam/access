@@ -26,6 +26,9 @@ func Test_splitGrantResource(t *testing.T) {
 		{name: "empty parent segment rejected", resource: ".name", wantErr: true},
 		{name: "empty field segment rejected", resource: "employees.", wantErr: true},
 		{name: "empty resource rejected", resource: "", wantErr: true},
+		{name: "reserved marker character rejected in parent", resource: "acme:employees", wantErr: true},
+		{name: "reserved marker character rejected in field", resource: "employees.na:me", wantErr: true},
+		{name: "marker-shaped resource rejected", resource: "access:whatever", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -303,5 +306,82 @@ func mustAddGrant(t *testing.T, m *storeManager, role accesstypes.Role, perm acc
 	t.Helper()
 	if err := m.addGrant(context.Background(), "tenant1", role, perm, resource); err != nil {
 		t.Fatalf("addGrant(%q, %q, %q) error = %v", role, perm, resource, err)
+	}
+}
+
+// Test_validateDomain pins the reserved marker character on the domain axis:
+// only accesstypes.GlobalDomain may carry ':'. Tenant domains stay raw — a
+// tenant literally named "global" is ordinary data — and marker-shaped values
+// are rejected at every row-creating write, fail-closed.
+func Test_validateDomain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		domain  accesstypes.Domain
+		wantErr bool
+	}{
+		{name: "tenant domain", domain: "tenant1"},
+		{name: "global marker constant", domain: accesstypes.GlobalDomain},
+		{name: "tenant literally named global is ordinary data", domain: "global"},
+		{name: "marker-shaped domain rejected", domain: "access:whatever", wantErr: true},
+		{name: "any colon-bearing domain rejected", domain: "acme:tenant", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateDomain(tt.domain)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateDomain(%q) error = %v, wantErr %v", tt.domain, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_storeManager_reservedDomainWrites verifies the write boundary rejects
+// marker-shaped domains on every row-creating path.
+func Test_storeManager_reservedDomainWrites(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		op   func(m *storeManager) error
+	}{
+		{
+			name: "addRole",
+			op:   func(m *storeManager) error { return m.addRole(ctx, "acme:tenant", "Editor") },
+		},
+		{
+			name: "addUserRole",
+			op:   func(m *storeManager) error { return m.addUserRole(ctx, "acme:tenant", "alice", "Editor") },
+		},
+		{
+			name: "addGrant",
+			op:   func(m *storeManager) error { return m.addGrant(ctx, "acme:tenant", "Editor", "Read", "employees") },
+		},
+		{
+			name: "removeGrant",
+			op:   func(m *storeManager) error { return m.removeGrant(ctx, "acme:tenant", "Editor", "Read", "employees") },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := newFakeStore()
+			manager := newStoreManager(store)
+			notified := 0
+			manager.onPolicyChange = func() { notified++ }
+
+			if err := tt.op(manager); err == nil {
+				t.Fatal("expected reserved-domain error, got nil")
+			}
+			if notified != 0 {
+				t.Errorf("onPolicyChange fired %d times on a rejected write, want 0", notified)
+			}
+			if len(store.roles)+len(store.memberships)+len(store.grants) != 0 {
+				t.Errorf("rejected write reached the store: %+v %+v %+v", store.roles, store.memberships, store.grants)
+			}
+		})
 	}
 }
