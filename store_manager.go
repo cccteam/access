@@ -35,6 +35,9 @@ func (m *storeManager) notifyPolicyChange() {
 }
 
 func (m *storeManager) addUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
 	if err := m.store.InsertUserRole(ctx, domain, user, role); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
@@ -88,6 +91,9 @@ func (m *storeManager) userPermissions(ctx context.Context, domain accesstypes.D
 }
 
 func (m *storeManager) addRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
 	if err := m.store.InsertRole(ctx, domain, role); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertRole(): role %q in domain %q", role, domain)
 	}
@@ -139,6 +145,9 @@ func (m *storeManager) roleUsers(ctx context.Context, domain accesstypes.Domain,
 }
 
 func (m *storeManager) addGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
@@ -152,6 +161,9 @@ func (m *storeManager) addGrant(ctx context.Context, domain accesstypes.Domain, 
 }
 
 func (m *storeManager) removeGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
+	if err := validateDomain(domain); err != nil {
+		return err
+	}
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
@@ -179,13 +191,21 @@ func (m *storeManager) roleGrants(ctx context.Context, domain accesstypes.Domain
 }
 
 // splitGrantResource splits a declared resource into its stored (base, field)
-// columns and enforces the dot invariant, fail-closed at declaration time: a
-// Resource has at most one dot — 0 dots is a parent resource, 1 dot is a
-// field on a parent — and both segments are non-empty and dot-free. '.' is
-// reserved as the structural separator; a resource whose real name contains
-// dots must translate at declaration, never be stored ambiguous.
+// columns and enforces the naming invariants, fail-closed at declaration time:
+//   - dot invariant: a Resource has at most one dot — 0 dots is a parent
+//     resource, 1 dot is a field on a parent — and both segments are
+//     non-empty and dot-free. '.' is reserved as the structural separator.
+//   - reserved marker character: ':' is reserved for access-defined markers;
+//     only accesstypes.GlobalResource itself may carry it. A caller-authored
+//     resource can therefore never collide with a marker value.
+//
+// A resource whose real name violates either rule must translate at
+// declaration, never be stored ambiguous.
 func splitGrantResource(resource accesstypes.Resource) (base, field string, err error) {
 	s := string(resource)
+	if resource != accesstypes.GlobalResource && strings.ContainsRune(s, ':') {
+		return "", "", errors.Newf("invalid resource %q: ':' is reserved for access-defined markers", s)
+	}
 	base, field = splitResourceField(s)
 	switch {
 	case base == "":
@@ -197,6 +217,20 @@ func splitGrantResource(resource accesstypes.Resource) (base, field string, err 
 	}
 
 	return base, field, nil
+}
+
+// validateDomain enforces the reserved marker character on the domain axis:
+// ':' is reserved for access-defined markers, and only accesstypes.GlobalDomain
+// itself may carry it. Tenant domains stay raw, opaque values — a tenant
+// literally named "global" is ordinary data, distinct from the global marker —
+// and a tenant-authored value can never collide with a marker, because any
+// other ':'-bearing domain is rejected at the write boundary, fail-closed.
+func validateDomain(domain accesstypes.Domain) error {
+	if domain != accesstypes.GlobalDomain && strings.ContainsRune(string(domain), ':') {
+		return errors.Newf("invalid domain %q: ':' is reserved for access-defined markers", domain)
+	}
+
+	return nil
 }
 
 // joinResourceField reassembles a stored (base, field) pair into the dotted

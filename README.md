@@ -24,7 +24,7 @@ go get github.com/cccteam/access
 
 ## Core Concepts
 
-- **Domain**: Tenant or organizational unit partitioning grants. Domains are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown domains.
+- **Domain**: Tenant or organizational unit partitioning grants. Domains are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown domains. The `:` character is reserved for access-defined markers (`accesstypes.GlobalDomain`, `accesstypes.GlobalResource`); writes reject any other domain or resource containing it, so a caller-authored name can never collide with a marker.
 - **User**: Individual with assigned roles
 - **Role**: Named collection of permissions, scoped to a domain — role identity is `(domain, role)`
 - **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
