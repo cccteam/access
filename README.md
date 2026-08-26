@@ -9,7 +9,7 @@ Manages user permissions and roles across multiple domains or tenants. Supports 
 ## Features
 
 - Role-based access control (RBAC)
-- Multi-domain/tenant support with a global domain
+- Multi-tenant support with a structural global scope
 - Resource- and field-level permissions (`employees`, `employees.name`, `employees.*`)
 - Compiled in-memory snapshot evaluation with near-realtime change propagation
 - User, role, and permission management APIs
@@ -24,9 +24,9 @@ go get github.com/cccteam/access
 
 ## Core Concepts
 
-- **Domain**: Tenant or organizational unit partitioning grants. Domains are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown domains. The `:` character is reserved for access-defined markers (`accesstypes.GlobalDomain`, `accesstypes.GlobalResource`); writes reject any other domain or resource containing it, so a caller-authored name can never collide with a marker.
+- **Scope**: The partition an operation applies to — the global partition (`accesstypes.GlobalScope()`) or one tenant domain (`accesstypes.DomainScope(domain)`). Global-ness is structural: no domain string means "global", so any tenant name is legal data (a tenant literally named "global" is an ordinary tenant). Scopes are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown tenants.
 - **User**: Individual with assigned roles
-- **Role**: Named collection of permissions, scoped to a domain — role identity is `(domain, role)`
+- **Role**: Named collection of permissions, scoped to a scope — role identity is `(scope, role)`
 - **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
 - **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet). An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
 
@@ -94,15 +94,17 @@ func main() {
 
     mgr := client.UserManager()
 
+    tenant1 := accesstypes.DomainScope("tenant1")
+
     // Create role and grant permissions
-    mgr.AddRole(ctx, "tenant1", "admin")
-    mgr.AddRolePermissionResources(ctx, "tenant1", "admin", "Read", "documents", "documents.*")
+    mgr.AddRole(ctx, tenant1, "admin")
+    mgr.AddRolePermissionResources(ctx, tenant1, "admin", "Read", "documents", "documents.*")
 
     // Assign role to user
-    mgr.AddUserRoles(ctx, "tenant1", "john.doe", "admin")
+    mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin")
 
     // Check permissions: missing is the subset NOT granted; empty means all passed.
-    missing, err := client.CheckUser(ctx, "john.doe", "tenant1", "Read", "documents", "documents.title")
+    missing, err := client.CheckUserResources(ctx, "john.doe", tenant1, "Read", "documents", "documents.title")
     if err != nil {
         log.Fatal(err)
     }
@@ -160,60 +162,74 @@ client, err := access.New(store, access.WithChangeSignal(signal))
 
 ### Permission Checking
 
-`CheckUser` and `CheckRole` return the subset of resources the subject does
-NOT hold the permission on, preserving input order; empty means everything
-passed. One permission per call; batch as many resources as you like — a
-check is a bit test per resource against the pinned snapshot.
+The base name / `Resources` suffix pairing is the API's naming standard: the
+base method checks a permission held scope-wide (attached to no resource);
+the `Resources` variant checks specific resources.
+
+`CheckUserResources` and `CheckRoleResources` return the subset of resources
+the subject does NOT hold the permission on, preserving input order; empty
+means everything passed. One permission per call; batch as many resources as
+you like — a check is a bit test per resource against the pinned snapshot.
+`CheckUser` and `CheckRole` report whether the subject holds the permission
+scope-wide.
 
 ```go
-missing, err := client.CheckUser(ctx, user, domain, "Read", "documents", "documents.title", "images")
-missing, err := client.CheckRole(ctx, role, domain, "Update", "documents")
+missing, err := client.CheckUserResources(ctx, user, scope, "Read", "documents", "documents.title", "images")
+missing, err := client.CheckRoleResources(ctx, role, scope, "Update", "documents")
+
+held, err := client.CheckUser(ctx, user, scope, "ExportReports") // scope-wide
 ```
 
-There is no domain validation on the check path: an unknown domain holds no
-grants, so everything comes back missing (fail closed). If your API wants to
-answer 400 for an invalid tenant rather than 403, validate the domain in your
-own guard — your application owns the tenant table.
+There is no tenant validation on the check path: an unknown tenant scope
+holds no grants, so everything comes back missing (fail closed). If your API
+wants to answer 400 for an invalid tenant rather than 403, validate the
+tenant in your own guard — your application owns the tenant table.
 
 ### User Management
 
 ```go
 mgr := client.UserManager()
+tenant1 := accesstypes.DomainScope("tenant1")
+tenant2 := accesstypes.DomainScope("tenant2")
 
-// Enumeration is domain-explicit: access holds no domain list of its own.
-roles, err := mgr.UserRoles(ctx, "john.doe", "tenant1", "tenant2")
-permissions, err := mgr.UserPermissions(ctx, "john.doe", "tenant1")
+// Enumeration is scope-explicit: access holds no tenant list of its own.
+roles, err := mgr.UserRoles(ctx, "john.doe", tenant1, tenant2)
+permissions, err := mgr.UserPermissions(ctx, "john.doe", tenant1)
 
-mgr.AddUserRoles(ctx, "tenant1", "john.doe", "admin", "editor")
-mgr.DeleteUserRoles(ctx, "tenant1", "john.doe", "editor")
+mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin", "editor")
+mgr.DeleteUserRoles(ctx, tenant1, "john.doe", "editor")
 ```
 
 ### Role Management
 
 ```go
-mgr.AddRole(ctx, "tenant1", "moderator")
-deleted, err := mgr.DeleteRole(ctx, "tenant1", "moderator") // scoped to tenant1
+mgr.AddRole(ctx, tenant1, "moderator")
+deleted, err := mgr.DeleteRole(ctx, tenant1, "moderator") // scoped to tenant1
 
-roles, err := mgr.Roles(ctx, "tenant1")
-exists, err := mgr.RoleExists(ctx, "tenant1", "admin")
+roles, err := mgr.Roles(ctx, tenant1)
+exists, err := mgr.RoleExists(ctx, tenant1, "admin")
 
-users, err := mgr.RoleUsers(ctx, "tenant1", "admin")
-mgr.AddRoleUsers(ctx, "tenant1", "admin", "user1", "user2")
-mgr.DeleteRoleUsers(ctx, "tenant1", "admin", "user1")
+users, err := mgr.RoleUsers(ctx, tenant1, "admin")
+mgr.AddRoleUsers(ctx, tenant1, "admin", "user1", "user2")
+mgr.DeleteRoleUsers(ctx, tenant1, "admin", "user1")
+
+// Global-scope roles live in their own partition.
+mgr.AddRole(ctx, accesstypes.GlobalScope(), "SystemAdmin")
 ```
 
 ### Permission Management
 
 ```go
 // Resource- and field-specific permissions
-mgr.AddRolePermissionResources(ctx, "tenant1", "editor", "Read", "documents", "documents.*")
-mgr.DeleteRolePermissionResources(ctx, "tenant1", "editor", "Read", "documents.*")
+mgr.AddRolePermissionResources(ctx, tenant1, "editor", "Read", "documents", "documents.*")
+mgr.DeleteRolePermissionResources(ctx, tenant1, "editor", "Read", "documents.*")
 
-// A domain-wide permission (not tied to a specific resource) is an ordinary
-// grant on the global resource.
-mgr.AddRolePermissionResources(ctx, "tenant1", "admin", "CreateUsers", accesstypes.GlobalResource)
+// A scope-wide permission (not tied to any resource) is granted through the
+// base-name method — there is no resource value that means it.
+mgr.AddRolePermission(ctx, tenant1, "admin", "CreateUsers")
+mgr.DeleteRolePermission(ctx, tenant1, "admin", "CreateUsers")
 
-permissions, err := mgr.RolePermissions(ctx, "tenant1", "admin")
+permissions, err := mgr.RolePermissions(ctx, tenant1, "admin")
 ```
 
 Grant writes enforce the resource shape fail-closed: at most one dot, both
@@ -244,8 +260,9 @@ domains: it creates missing roles and grants, removes extras, and adds an
 "Administrator" role with all permissions. Run it from your migrate job on
 every deploy.
 
-The caller states its domain universe explicitly; the global domain is always
-included, so global-only applications pass no domains at all. Construct the
+The caller states its tenant universe explicitly as plain domain names — any
+string is a legal tenant name; the global scope is always included
+structurally, so global-only applications pass no domains at all. Construct the
 migrate job's client with a change signal so running instances pick up the new
 configuration immediately.
 
@@ -287,7 +304,7 @@ func migrateRoles(ctx context.Context, client *access.Client, store *resource.Ge
 ### Behavior
 
 - Automatically adds "Administrator" role with all permissions
-- Applies roles across the global domain plus every domain passed in
+- Applies roles across the global scope plus a tenant scope for every domain passed in
 - Creates missing roles and adds missing permissions
 - Removes permissions not in configuration
 - Removes roles not in configuration

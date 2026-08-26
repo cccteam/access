@@ -61,28 +61,28 @@ func Test_splitResourceField(t *testing.T) {
 	}
 }
 
-func Test_snapshot_checkUser(t *testing.T) {
+func Test_snapshot_checkUserResources(t *testing.T) {
 	t.Parallel()
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
-			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
-			{Domain: "tenant1", Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
-			{Domain: "tenant1", Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
-			{Domain: "tenant1", Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
 		},
 		Memberships: []policy.Membership{
-			{Domain: "tenant1", Member: userSubject("erin"), Role: "Editor"},
-			{Domain: "tenant1", Member: userSubject("erin"), Role: "Auditor"},
-			{Domain: "tenant1", Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Editor"), Role: "Chief"},
 		},
 	})
 
 	type args struct {
 		user      accesstypes.User
-		domain    accesstypes.Domain
+		scope     accesstypes.Scope
 		perm      accesstypes.Permission
 		resources []accesstypes.Resource
 	}
@@ -93,104 +93,160 @@ func Test_snapshot_checkUser(t *testing.T) {
 	}{
 		{
 			name:        "endpoint grant through role",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "named field grant",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees.name"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees.name"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "endpoint grant gives no field visibility",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees.salary"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees.salary"}},
 			wantMissing: []accesstypes.Resource{"employees.salary"},
 		},
 		{
 			name:        "wildcard grant covers unknown fields by implication",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"documents.title", "documents.body"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"documents.title", "documents.body"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "wildcard grant does not grant the endpoint",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"documents"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"documents"}},
 			wantMissing: []accesstypes.Resource{"documents"},
 		},
 		{
 			name:        "grants combine across roles",
-			args:        args{user: "erin", domain: "tenant1", perm: "List", resources: []accesstypes.Resource{"widgets"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "List", resources: []accesstypes.Resource{"widgets"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "role inheritance is folded transitively",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"budgets"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"budgets"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "direct user grant without membership",
-			args:        args{user: "dana", domain: "tenant1", perm: "List", resources: []accesstypes.Resource{"widgets"}},
+			args:        args{user: "dana", scope: accesstypes.DomainScope("tenant1"), perm: "List", resources: []accesstypes.Resource{"widgets"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "grants stay inside their domain",
-			args:        args{user: "erin", domain: "tenant2", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant2"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 		{
 			name:        "unknown user",
-			args:        args{user: "stranger", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{user: "stranger", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 		{
 			name:        "unknown permission",
-			args:        args{user: "erin", domain: "tenant1", perm: "Fly", resources: []accesstypes.Resource{"employees"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Fly", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 		{
 			name:        "unknown resource",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"spaceships"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"spaceships"}},
 			wantMissing: []accesstypes.Resource{"spaceships"},
 		},
 		{
 			name:        "missing preserves input order",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"spaceships", "employees", "employees.salary"}},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"spaceships", "employees", "employees.salary"}},
 			wantMissing: []accesstypes.Resource{"spaceships", "employees.salary"},
 		},
 		{
 			name:        "no resources yields empty missing",
-			args:        args{user: "erin", domain: "tenant1", perm: "Read"},
+			args:        args{user: "erin", scope: accesstypes.DomainScope("tenant1"), perm: "Read"},
 			wantMissing: []accesstypes.Resource{},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotMissing := snap.checkUser(tt.args.user, tt.args.domain, tt.args.perm, tt.args.resources...)
+			gotMissing := snap.checkUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
 			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("snapshot.checkUser() mismatch (-want +got):\n%s", diff)
+				t.Errorf("snapshot.checkUserResources() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func Test_snapshot_checkRole(t *testing.T) {
+// Test_snapshot_scopeWideChecks pins the resource-less check path: a
+// scope-wide grant compiles under the empty resource name — unreachable from
+// data, since every write boundary validates resource names non-empty — and
+// is answered by the base-name check methods. Resource grants never satisfy a
+// scope-wide check and vice versa.
+func Test_snapshot_scopeWideChecks(t *testing.T) {
+	t.Parallel()
+
+	globalScope := accesstypes.GlobalScope()
+	records := &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: globalScope, Subject: roleSubject("Admin"), Perm: "Export", Resource: ""},
+			{Scope: globalScope, Subject: roleSubject("Admin"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: ""},
+		},
+		Memberships: []policy.Membership{
+			{Scope: globalScope, Member: userSubject("alice"), Role: "Admin"},
+			{Scope: tenant1Scope, Member: userSubject("carol"), Role: "Chief"},
+		},
+	}
+	snap, err := newSnapshot(records, time.Now())
+	if err != nil {
+		t.Fatalf("newSnapshot() error = %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		check func() bool
+		want  bool
+	}{
+		{name: "user holds scope-wide perm through role", check: func() bool { return snap.checkUser("alice", globalScope, "Export") }, want: true},
+		{name: "role holds its scope-wide perm", check: func() bool { return snap.checkRole("Admin", globalScope, "Export") }, want: true},
+		{name: "resource grant does not satisfy a scope-wide check", check: func() bool { return snap.checkUser("alice", globalScope, "Read") }},
+		{name: "scope-wide grant is partitioned by scope", check: func() bool { return snap.checkUser("alice", tenant1Scope, "Export") }},
+		{name: "tenant scope-wide grant works in its scope", check: func() bool { return snap.checkUser("carol", tenant1Scope, "Approve") }, want: true},
+		{name: "a tenant named global is not the global scope", check: func() bool { return snap.checkUser("alice", accesstypes.DomainScope("global"), "Export") }},
+		{name: "unknown perm fails closed", check: func() bool { return snap.checkUser("alice", globalScope, "Fly") }},
+		{name: "unknown user fails closed", check: func() bool { return snap.checkUser("stranger", globalScope, "Export") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.check(); got != tt.want {
+				t.Errorf("scope-wide check = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// The scope-wide grant does not leak into the resource batch path either:
+	// checking the empty-string resource through checkUserResources is not a
+	// public spelling, and real resources stay ungranted.
+	if missing := snap.checkUserResources("alice", globalScope, "Export", "employees"); len(missing) != 1 {
+		t.Errorf("checkUserResources() = %v, want employees missing: scope-wide grants must not satisfy resource checks", missing)
+	}
+}
+
+func Test_snapshot_checkRoleResources(t *testing.T) {
 	t.Parallel()
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Domain: "tenant1", Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Domain: "tenant1", Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
 		},
 		Memberships: []policy.Membership{
-			{Domain: "tenant1", Member: roleSubject("Editor"), Role: "Chief"},
-			{Domain: "tenant1", Member: roleSubject("Loop1"), Role: "Loop2"},
-			{Domain: "tenant1", Member: roleSubject("Loop2"), Role: "Loop1"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Loop1"), Role: "Loop2"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Loop2"), Role: "Loop1"},
 		},
 	})
 
 	type args struct {
 		role      accesstypes.Role
-		domain    accesstypes.Domain
+		scope     accesstypes.Scope
 		perm      accesstypes.Permission
 		resources []accesstypes.Resource
 	}
@@ -201,45 +257,51 @@ func Test_snapshot_checkRole(t *testing.T) {
 	}{
 		{
 			name:        "own grant",
-			args:        args{role: "Editor", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{role: "Editor", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "inherited grant",
-			args:        args{role: "Editor", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"budgets"}},
+			args:        args{role: "Editor", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"budgets"}},
 			wantMissing: []accesstypes.Resource{},
 		},
 		{
 			name:        "inheritance is one-way",
-			args:        args{role: "Chief", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{role: "Chief", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 		{
 			name:        "inheritance cycle compiles and denies safely",
-			args:        args{role: "Loop1", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{role: "Loop1", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 		{
 			name:        "unknown role",
-			args:        args{role: "Ghost", domain: "tenant1", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{role: "Ghost", scope: accesstypes.DomainScope("tenant1"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 		{
 			name:        "wrong domain",
-			args:        args{role: "Editor", domain: "tenant2", perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			args:        args{role: "Editor", scope: accesstypes.DomainScope("tenant2"), perm: "Read", resources: []accesstypes.Resource{"employees"}},
 			wantMissing: []accesstypes.Resource{"employees"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotMissing := snap.checkRole(tt.args.role, tt.args.domain, tt.args.perm, tt.args.resources...)
+			gotMissing := snap.checkRoleResources(tt.args.role, tt.args.scope, tt.args.perm, tt.args.resources...)
 			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("snapshot.checkRole() mismatch (-want +got):\n%s", diff)
+				t.Errorf("snapshot.checkRoleResources() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
+
+// Shared tenant scopes for the package's test fixtures.
+var (
+	tenant1Scope = accesstypes.DomainScope("tenant1")
+	tenant2Scope = accesstypes.DomainScope("tenant2")
+)
 
 // engineFakeStore returns a fakeStore seeded with the engine lifecycle
 // fixture: Editor holds Read on employees in tenant1, erin is an Editor.
@@ -248,9 +310,9 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	ctx := context.Background()
 	store := newFakeStore()
 	for _, err := range []error{
-		store.InsertRole(ctx, "tenant1", "Editor"),
-		store.InsertGrant(ctx, "tenant1", "Editor", "Read", "employees", ""),
-		store.InsertUserRole(ctx, "tenant1", "erin", "Editor"),
+		store.InsertRole(ctx, tenant1Scope, "Editor"),
+		store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "employees", ""),
+		store.InsertUserRole(ctx, tenant1Scope, "erin", "Editor"),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)
@@ -264,7 +326,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 // store without notifying this instance's engine.
 func grantWidgets(t *testing.T, store *fakeStore) {
 	t.Helper()
-	if err := store.InsertGrant(context.Background(), "tenant1", "Editor", "List", "widgets", ""); err != nil {
+	if err := store.InsertGrant(context.Background(), tenant1Scope, "Editor", "List", "widgets", ""); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 }
@@ -294,7 +356,7 @@ func settle(e *snapshotEngine) {
 	e.tryReload(context.Background())
 }
 
-func Test_snapshotEngine_checkUser(t *testing.T) {
+func Test_snapshotEngine_checkUserResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -322,7 +384,7 @@ func Test_snapshotEngine_checkUser(t *testing.T) {
 			}
 			e := testEngine(t, store, nil)
 
-			gotMissing, err := e.checkUser(context.Background(), "erin", "tenant1", "Read", "employees")
+			gotMissing, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("checkUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -384,20 +446,20 @@ func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	store := engineFakeStore(t)
 	e := testEngine(t, store, nil)
 
-	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
+	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
 		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the write", missing, err)
 	}
 	settle(e)
 
 	grantWidgets(t, store)
 
-	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
+	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
 		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", missing, err)
 	}
 
 	e.invalidate()
 
-	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 0 {
+	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 0 {
 		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", missing, err)
 	}
 }
@@ -412,7 +474,7 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	opts.onReloadError = func(error) { reloadErrs.Add(1) }
 	e := testEngine(t, store, opts)
 
-	if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
+	if _, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil {
 		t.Fatalf("checkUser() error = %v", err)
 	}
 	settle(e)
@@ -421,7 +483,7 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	store.setFail(errors.New("store down"))
 	e.invalidate()
 
-	missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees")
+	missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees")
 	if err != nil {
 		t.Fatalf("checkUser() error = %v, want stale snapshot served", err)
 	}
@@ -436,7 +498,7 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	e := testEngine(t, engineFakeStore(t), nil)
 
-	if _, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil {
+	if _, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil {
 		t.Fatalf("checkUser() error = %v", err)
 	}
 	if err := e.close(); err != nil {
@@ -445,7 +507,7 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	if err := e.close(); err != nil {
 		t.Fatalf("second close() error = %v", err)
 	}
-	if missing, err := e.checkUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil || len(missing) != 0 {
+	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil || len(missing) != 0 {
 		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", missing, err)
 	}
 }
@@ -498,7 +560,7 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	opts.signal = sig
 	e := testEngine(t, store, opts)
 
-	if missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets"); err != nil || len(missing) != 1 {
+	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
 		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the change", missing, err)
 	}
 	settle(e)
@@ -515,7 +577,7 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		missing, err := e.checkUser(ctx, "erin", "tenant1", "List", "widgets")
+		missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
 		if err != nil {
 			t.Fatalf("checkUser() error = %v", err)
 		}
@@ -627,7 +689,7 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 			var wg sync.WaitGroup
 			for range checks {
 				wg.Go(func() {
-					_, err := e.checkUser(context.Background(), "erin", "tenant1", "Read", "employees")
+					_, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
 					errs <- err
 				})
 			}

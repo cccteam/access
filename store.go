@@ -8,8 +8,10 @@ import (
 )
 
 // Store is the persistence seam for policy data: three typed tables (roles,
-// user-role memberships, role grants) partitioned by domain, plus one
-// normalized read feeding the snapshot compiler. Implementations are thin —
+// user-role memberships, role grants) partitioned by scope — the global
+// partition or one tenant domain, persisted as the structural column pair
+// (IsGlobal, Domain) — plus one normalized read feeding the snapshot
+// compiler. Implementations are thin —
 // each method is one SQL statement against one store's tables; everything
 // smarter (validation, resource/field splitting, change signaling, snapshot
 // compilation) lives in the access package, one shared code path for every
@@ -22,9 +24,11 @@ import (
 //	spannerstore.New(client, opts...)   // Cloud Spanner
 //	postgresstore.New(pool, opts...)    // PostgreSQL, rides the app's pgx pool
 //
-// Store values hold bare names only — no marshal prefixes, no sentinel rows.
-// All values are opaque labels to the store: referential validity of domains,
-// users, and resources belongs to the callers that write them.
+// Store values hold bare names only — no marshal prefixes, no sentinel
+// values. All values are opaque labels to the store: referential validity of
+// domains, users, and resources belongs to the callers that write them.
+// Scope is stored structurally: the global partition is a column flag, never
+// a distinguished domain value, so any domain string is ordinary tenant data.
 //
 // Contracts every implementation provides:
 //   - Inserts are idempotent: re-inserting an existing row is a no-op, not an
@@ -43,20 +47,23 @@ type Store interface {
 	ReadPolicy(ctx context.Context) (*policy.Records, error)
 
 	// Membership
-	InsertUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error
-	DeleteUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error
-	ListUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error)
-	ListRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
+	InsertUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error
+	DeleteUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error
+	ListUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error)
+	ListRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// Roles
-	InsertRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
-	ListRoles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error)
-	DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
-	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
+	InsertRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error
+	ListRoles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error)
+	DeleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
+	RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
 
 	// Grants. resource and field are stored as separate columns: field "" is
 	// an endpoint grant, "*" an all-fields wildcard, anything else one field.
-	InsertGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
-	DeleteGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
-	ListRoleGrants(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]policy.RoleGrant, error)
+	// resource "" (with field "") is a scope-wide grant — the permission held
+	// with no resource attachment; real resource names are validated non-empty
+	// above this seam, so "" is structurally unreachable from data.
+	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error)
 }

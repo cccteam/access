@@ -35,15 +35,20 @@ type Subject struct {
 }
 
 // Grant is one normalized permission grant.
+//   - Resource == "" (with Field == "") is a scope-wide grant: the permission
+//     is held with no resource attachment. Real resource names are validated
+//     non-empty at every write boundary, so "" is structurally unreachable
+//     from data — it is the store-level encoding of absence, the same idiom
+//     as Field == "".
 //   - Field == "" is an endpoint grant on the resource itself.
 //   - Field == "*" grants all fields by implication (compiles to an all-flag,
 //     never materialized bits, so newly generated fields are covered).
 //   - otherwise it grants the single named field.
 type Grant struct {
-	Domain   accesstypes.Domain
+	Scope    accesstypes.Scope
 	Subject  Subject
 	Perm     accesstypes.Permission
-	Resource string // bare base resource name
+	Resource string // bare base resource name; "" = scope-wide
 	Field    string
 }
 
@@ -51,7 +56,7 @@ type Grant struct {
 // role member expresses role inheritance, which the compiler folds at load
 // time. The typed stores only ever produce user members.
 type Membership struct {
-	Domain accesstypes.Domain
+	Scope  accesstypes.Scope
 	Member Subject
 	Role   accesstypes.Role
 }
@@ -83,7 +88,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 	h := sha256.New()
 	for _, g := range grants {
 		hashString(h, "g")
-		hashString(h, string(g.Domain))
+		hashScope(h, g.Scope)
 		hashByte(h, byte(g.Subject.Kind))
 		hashString(h, g.Subject.Name)
 		hashString(h, string(g.Perm))
@@ -92,7 +97,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 	}
 	for _, m := range memberships {
 		hashString(h, "m")
-		hashString(h, string(m.Domain))
+		hashScope(h, m.Scope)
 		hashByte(h, byte(m.Member.Kind))
 		hashString(h, m.Member.Name)
 		hashString(h, string(m.Role))
@@ -104,7 +109,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 //nolint:gocritic // slices.SortFunc requires value-typed comparators
 func compareGrants(a, b Grant) int {
 	return cmpChain(
-		strings.Compare(string(a.Domain), string(b.Domain)),
+		compareScopes(a.Scope, b.Scope),
 		int(a.Subject.Kind)-int(b.Subject.Kind),
 		strings.Compare(a.Subject.Name, b.Subject.Name),
 		strings.Compare(string(a.Perm), string(b.Perm)),
@@ -115,11 +120,50 @@ func compareGrants(a, b Grant) int {
 
 func compareMemberships(a, b Membership) int {
 	return cmpChain(
-		strings.Compare(string(a.Domain), string(b.Domain)),
+		compareScopes(a.Scope, b.Scope),
 		int(a.Member.Kind)-int(b.Member.Kind),
 		strings.Compare(a.Member.Name, b.Member.Name),
 		strings.Compare(string(a.Role), string(b.Role)),
 	)
+}
+
+func compareScopes(a, b accesstypes.Scope) int {
+	ag, ad := ScopeColumns(a)
+	bg, bd := ScopeColumns(b)
+
+	return cmpChain(boolCompare(ag, bg), strings.Compare(ad, bd))
+}
+
+func boolCompare(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	default:
+		return -1
+	}
+}
+
+// ScopeColumns decomposes a Scope into the structural column pair the stores
+// persist: (global, domain), with domain "" when global. ScopeFromColumns is
+// its inverse.
+func ScopeColumns(s accesstypes.Scope) (global bool, domain string) {
+	if s.IsGlobal() {
+		return true, ""
+	}
+	d, _ := s.Domain()
+
+	return false, string(d)
+}
+
+// ScopeFromColumns reassembles a Scope from its stored column pair.
+func ScopeFromColumns(global bool, domain string) accesstypes.Scope {
+	if global {
+		return accesstypes.GlobalScope()
+	}
+
+	return accesstypes.DomainScope(accesstypes.Domain(domain))
 }
 
 // cmpChain returns the first non-zero comparison result.
@@ -144,4 +188,15 @@ func hashString(h hash.Hash, s string) {
 
 func hashByte(h hash.Hash, b byte) {
 	h.Write([]byte{b})
+}
+
+// hashScope writes a scope's structural pair (global flag, domain).
+func hashScope(h hash.Hash, s accesstypes.Scope) {
+	global, domain := ScopeColumns(s)
+	var b byte
+	if global {
+		b = 1
+	}
+	hashByte(h, b)
+	hashString(h, domain)
 }

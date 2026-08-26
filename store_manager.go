@@ -34,11 +34,8 @@ func (m *storeManager) notifyPolicyChange() {
 	}
 }
 
-func (m *storeManager) addUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
-	if err := validateDomain(domain); err != nil {
-		return err
-	}
-	if err := m.store.InsertUserRole(ctx, domain, user, role); err != nil {
+func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+	if err := m.store.InsertUserRole(ctx, scope, user, role); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()
@@ -46,8 +43,8 @@ func (m *storeManager) addUserRole(ctx context.Context, domain accesstypes.Domai
 	return nil
 }
 
-func (m *storeManager) deleteUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
-	if err := m.store.DeleteUserRole(ctx, domain, user, role); err != nil {
+func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+	if err := m.store.DeleteUserRole(ctx, scope, user, role); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteUserRole(): role %q from %q", role, user)
 	}
 	m.notifyPolicyChange()
@@ -55,8 +52,8 @@ func (m *storeManager) deleteUserRole(ctx context.Context, domain accesstypes.Do
 	return nil
 }
 
-func (m *storeManager) userRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error) {
-	roles, err := m.store.ListUserRoles(ctx, domain, user)
+func (m *storeManager) userRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error) {
+	roles, err := m.store.ListUserRoles(ctx, scope, user)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListUserRoles(): user %q", user)
 	}
@@ -67,22 +64,29 @@ func (m *storeManager) userRoles(ctx context.Context, domain accesstypes.Domain,
 // userPermissions composes the user's effective permissions from membership
 // and role grants. The typed stores hold no user-direct grants and no role
 // inheritance, so one membership hop is the whole resolution.
-func (m *storeManager) userPermissions(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) (map[accesstypes.Resource][]accesstypes.Permission, error) {
-	roles, err := m.store.ListUserRoles(ctx, domain, user)
+func (m *storeManager) userPermissions(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) (accesstypes.UserScopePermissions, error) {
+	roles, err := m.store.ListUserRoles(ctx, scope, user)
 	if err != nil {
-		return nil, errors.Wrapf(err, "access.Store.ListUserRoles(): user %q", user)
+		return accesstypes.UserScopePermissions{}, errors.Wrapf(err, "access.Store.ListUserRoles(): user %q", user)
 	}
 
-	permissions := make(map[accesstypes.Resource][]accesstypes.Permission)
+	permissions := accesstypes.UserScopePermissions{Resources: make(map[accesstypes.Resource][]accesstypes.Permission)}
 	for _, role := range roles {
-		grants, err := m.store.ListRoleGrants(ctx, domain, role)
+		grants, err := m.store.ListRoleGrants(ctx, scope, role)
 		if err != nil {
-			return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
+			return accesstypes.UserScopePermissions{}, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
 		}
 		for _, g := range grants {
+			if g.Resource == "" {
+				if !slices.Contains(permissions.ScopeWide, g.Perm) {
+					permissions.ScopeWide = append(permissions.ScopeWide, g.Perm)
+				}
+
+				continue
+			}
 			resource := joinResourceField(g.Resource, g.Field)
-			if !slices.Contains(permissions[resource], g.Perm) {
-				permissions[resource] = append(permissions[resource], g.Perm)
+			if !slices.Contains(permissions.Resources[resource], g.Perm) {
+				permissions.Resources[resource] = append(permissions.Resources[resource], g.Perm)
 			}
 		}
 	}
@@ -90,34 +94,31 @@ func (m *storeManager) userPermissions(ctx context.Context, domain accesstypes.D
 	return permissions, nil
 }
 
-func (m *storeManager) addRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
-	if err := validateDomain(domain); err != nil {
-		return err
-	}
-	if err := m.store.InsertRole(ctx, domain, role); err != nil {
-		return errors.Wrapf(err, "access.Store.InsertRole(): role %q in domain %q", role, domain)
+func (m *storeManager) addRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
+	if err := m.store.InsertRole(ctx, scope, role); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertRole(): role %q in scope %q", role, scope)
 	}
 	m.notifyPolicyChange()
 
 	return nil
 }
 
-func (m *storeManager) roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error) {
-	roles, err := m.store.ListRoles(ctx, domain)
+func (m *storeManager) roles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
+	roles, err := m.store.ListRoles(ctx, scope)
 	if err != nil {
-		return nil, errors.Wrapf(err, "access.Store.ListRoles(): domain %q", domain)
+		return nil, errors.Wrapf(err, "access.Store.ListRoles(): scope %q", scope)
 	}
 
 	return roles, nil
 }
 
-// deleteRole is scoped to (domain, role) — the typed stores fix casbin's
+// deleteRole is scoped to (scope, role) — the typed stores fix casbin's
 // domain-blind delete. Grants cascade in the store; memberships block the
 // delete (DB-enforced), backstopping the caller's has-users guard.
-func (m *storeManager) deleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
-	deleted, err := m.store.DeleteRole(ctx, domain, role)
+func (m *storeManager) deleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+	deleted, err := m.store.DeleteRole(ctx, scope, role)
 	if err != nil {
-		return false, errors.Wrapf(err, "access.Store.DeleteRole(): role %q in domain %q", role, domain)
+		return false, errors.Wrapf(err, "access.Store.DeleteRole(): role %q in scope %q", role, scope)
 	}
 	if deleted {
 		m.notifyPolicyChange()
@@ -126,17 +127,17 @@ func (m *storeManager) deleteRole(ctx context.Context, domain accesstypes.Domain
 	return deleted, nil
 }
 
-func (m *storeManager) roleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
-	exists, err := m.store.RoleExists(ctx, domain, role)
+func (m *storeManager) roleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+	exists, err := m.store.RoleExists(ctx, scope, role)
 	if err != nil {
-		return false, errors.Wrapf(err, "access.Store.RoleExists(): role %q in domain %q", role, domain)
+		return false, errors.Wrapf(err, "access.Store.RoleExists(): role %q in scope %q", role, scope)
 	}
 
 	return exists, nil
 }
 
-func (m *storeManager) roleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {
-	users, err := m.store.ListRoleUsers(ctx, domain, role)
+func (m *storeManager) roleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
+	users, err := m.store.ListRoleUsers(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleUsers(): role %q", role)
 	}
@@ -144,15 +145,12 @@ func (m *storeManager) roleUsers(ctx context.Context, domain accesstypes.Domain,
 	return users, nil
 }
 
-func (m *storeManager) addGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
-	if err := validateDomain(domain); err != nil {
-		return err
-	}
+func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
 	}
-	if err := m.store.InsertGrant(ctx, domain, role, perm, base, field); err != nil {
+	if err := m.store.InsertGrant(ctx, scope, role, perm, base, field); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): %q on %q for role %q", perm, resource, role)
 	}
 	m.notifyPolicyChange()
@@ -160,15 +158,12 @@ func (m *storeManager) addGrant(ctx context.Context, domain accesstypes.Domain, 
 	return nil
 }
 
-func (m *storeManager) removeGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
-	if err := validateDomain(domain); err != nil {
-		return err
-	}
+func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
 	}
-	if err := m.store.DeleteGrant(ctx, domain, role, perm, base, field); err != nil {
+	if err := m.store.DeleteGrant(ctx, scope, role, perm, base, field); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteGrant(): %q on %q for role %q", perm, resource, role)
 	}
 	m.notifyPolicyChange()
@@ -176,36 +171,58 @@ func (m *storeManager) removeGrant(ctx context.Context, domain accesstypes.Domai
 	return nil
 }
 
-func (m *storeManager) roleGrants(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
-	grants, err := m.store.ListRoleGrants(ctx, domain, role)
+// addScopeWideGrant persists a permission attached to no resource: the store
+// row carries empty resource and field columns, a spot real resources can
+// never occupy (their names are validated non-empty in splitGrantResource).
+func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
+	if err := m.store.InsertGrant(ctx, scope, role, perm, "", ""); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertGrant(): scope-wide %q for role %q", perm, role)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
+	if err := m.store.DeleteGrant(ctx, scope, role, perm, "", ""); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteGrant(): scope-wide %q for role %q", perm, role)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
+	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
 	}
 
 	permissions := make(accesstypes.RolePermissionCollection, len(grants))
 	for _, g := range grants {
-		permissions[g.Perm] = append(permissions[g.Perm], joinResourceField(g.Resource, g.Field))
+		pg := permissions[g.Perm]
+		if g.Resource == "" {
+			pg.ScopeWide = true
+		} else {
+			pg.Resources = append(pg.Resources, joinResourceField(g.Resource, g.Field))
+		}
+		permissions[g.Perm] = pg
 	}
 
 	return permissions, nil
 }
 
 // splitGrantResource splits a declared resource into its stored (base, field)
-// columns and enforces the naming invariants, fail-closed at declaration time:
-//   - dot invariant: a Resource has at most one dot — 0 dots is a parent
-//     resource, 1 dot is a field on a parent — and both segments are
-//     non-empty and dot-free. '.' is reserved as the structural separator.
-//   - reserved marker character: ':' is reserved for access-defined markers;
-//     only accesstypes.GlobalResource itself may carry it. A caller-authored
-//     resource can therefore never collide with a marker value.
+// columns and enforces the dot invariant, fail-closed at declaration time: a
+// Resource has at most one dot — 0 dots is a parent resource, 1 dot is a
+// field on a parent — and both segments are non-empty and dot-free. '.' is
+// reserved as the structural separator. The non-empty rule also keeps the
+// stores' empty-resource encoding of scope-wide grants unreachable from data.
 //
-// A resource whose real name violates either rule must translate at
-// declaration, never be stored ambiguous.
+// A resource whose real name violates the rule must translate at declaration,
+// never be stored ambiguous.
 func splitGrantResource(resource accesstypes.Resource) (base, field string, err error) {
 	s := string(resource)
-	if resource != accesstypes.GlobalResource && strings.ContainsRune(s, ':') {
-		return "", "", errors.Newf("invalid resource %q: ':' is reserved for access-defined markers", s)
-	}
 	base, field = splitResourceField(s)
 	switch {
 	case base == "":
@@ -217,20 +234,6 @@ func splitGrantResource(resource accesstypes.Resource) (base, field string, err 
 	}
 
 	return base, field, nil
-}
-
-// validateDomain enforces the reserved marker character on the domain axis:
-// ':' is reserved for access-defined markers, and only accesstypes.GlobalDomain
-// itself may carry it. Tenant domains stay raw, opaque values — a tenant
-// literally named "global" is ordinary data, distinct from the global marker —
-// and a tenant-authored value can never collide with a marker, because any
-// other ':'-bearing domain is rejected at the write boundary, fail-closed.
-func validateDomain(domain accesstypes.Domain) error {
-	if domain != accesstypes.GlobalDomain && strings.ContainsRune(string(domain), ':') {
-		return errors.Newf("invalid domain %q: ':' is reserved for access-defined markers", domain)
-	}
-
-	return nil
 }
 
 // joinResourceField reassembles a stored (base, field) pair into the dotted

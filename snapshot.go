@@ -18,9 +18,9 @@ import (
 // invariant): a snapshot only encodes what is granted.
 type snapshot struct {
 	perms     map[accesstypes.Permission]uint16
-	resources map[string]uint16   // base resource name -> dense ID
+	resources map[string]uint16   // base resource name -> dense ID ("" = scope-wide)
 	fields    []map[string]uint16 // by resource ID: field name -> bit position
-	domains   map[accesstypes.Domain]*domainPolicy
+	scopes    map[accesstypes.Scope]*scopePolicy
 	loadedAt  time.Time
 
 	// recordsHash identifies the snapshot's source content; the heartbeat
@@ -33,11 +33,11 @@ type snapshot struct {
 	writeGen int64
 }
 
-// domainPolicy holds one domain's fully-resolved grants. Tenancy is the
+// scopePolicy holds one scope's fully-resolved grants. The scope is the
 // partition grants live in: nothing in here is ever consulted for another
-// domain. Role inheritance and per-user role combination are folded at
+// scope. Role inheritance and per-user role combination are folded at
 // compile time, so a check is a single subject lookup.
-type domainPolicy struct {
+type scopePolicy struct {
 	roleGrants map[accesstypes.Role]grantMap
 	userGrants map[accesstypes.User]grantMap
 }
@@ -90,28 +90,64 @@ func (f *fieldSet) clone() *fieldSet {
 	}
 }
 
-// checkUser returns the resources user does NOT hold perm on within domain,
-// preserving input order. Grants reach a user through role membership or
-// records written directly against the user, both folded into one lookup at
-// compile time.
-func (s *snapshot) checkUser(user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
-	var grants grantMap
-	if dp := s.domains[domain]; dp != nil {
-		grants = dp.userGrants[user]
-	}
-
-	return s.missingResources(grants, perm, resources)
+// checkUser reports whether user holds perm scope-wide within scope. Grants
+// reach a user through role membership or records written directly against
+// the user, both folded into one lookup at compile time.
+func (s *snapshot) checkUser(user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) bool {
+	return s.scopeWide(s.userGrants(scope, user), perm)
 }
 
-// checkRole returns the resources role does NOT hold perm on within domain,
-// preserving input order.
-func (s *snapshot) checkRole(role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
-	var grants grantMap
-	if dp := s.domains[domain]; dp != nil {
-		grants = dp.roleGrants[role]
+// checkUserResources returns the resources user does NOT hold perm on within
+// scope, preserving input order.
+func (s *snapshot) checkUserResources(user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
+	return s.missingResources(s.userGrants(scope, user), perm, resources)
+}
+
+// checkRole reports whether role holds perm scope-wide within scope.
+func (s *snapshot) checkRole(role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) bool {
+	return s.scopeWide(s.roleGrants(scope, role), perm)
+}
+
+// checkRoleResources returns the resources role does NOT hold perm on within
+// scope, preserving input order.
+func (s *snapshot) checkRoleResources(role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
+	return s.missingResources(s.roleGrants(scope, role), perm, resources)
+}
+
+func (s *snapshot) userGrants(scope accesstypes.Scope, user accesstypes.User) grantMap {
+	if sp := s.scopes[scope]; sp != nil {
+		return sp.userGrants[user]
 	}
 
-	return s.missingResources(grants, perm, resources)
+	return nil
+}
+
+func (s *snapshot) roleGrants(scope accesstypes.Scope, role accesstypes.Role) grantMap {
+	if sp := s.scopes[scope]; sp != nil {
+		return sp.roleGrants[role]
+	}
+
+	return nil
+}
+
+// scopeWide reports whether the subject holds perm with no resource
+// attachment: a grant compiled under the empty resource name, which real
+// resources can never occupy (validated non-empty at every write boundary).
+func (s *snapshot) scopeWide(grants grantMap, perm accesstypes.Permission) bool {
+	if grants == nil {
+		return false
+	}
+	permID, ok := s.perms[perm]
+	if !ok {
+		return false
+	}
+	resID, ok := s.resources[""]
+	if !ok {
+		return false
+	}
+	fs := grants[packGrantKey(permID, resID)]
+
+	return fs != nil && fs.endpoint
 }
 
 func (s *snapshot) missingResources(grants grantMap, perm accesstypes.Permission, resources []accesstypes.Resource) []accesstypes.Resource {
@@ -164,7 +200,7 @@ func newSnapshot(records *policy.Records, loadedAt time.Time) (*snapshot, error)
 	s := &snapshot{
 		perms:       make(map[accesstypes.Permission]uint16),
 		resources:   make(map[string]uint16),
-		domains:     make(map[accesstypes.Domain]*domainPolicy),
+		scopes:      make(map[accesstypes.Scope]*scopePolicy),
 		loadedAt:    loadedAt,
 		recordsHash: records.Hash(),
 	}
@@ -173,32 +209,32 @@ func newSnapshot(records *policy.Records, loadedAt time.Time) (*snapshot, error)
 		return nil, err
 	}
 
-	// Pass 2: group records by domain and compile each domain independently.
-	type domainRecords struct {
+	// Pass 2: group records by scope and compile each scope independently.
+	type scopeRecords struct {
 		grants      []policy.Grant
 		memberships []policy.Membership
 	}
-	byDomain := make(map[accesstypes.Domain]*domainRecords)
-	domRecords := func(d accesstypes.Domain) *domainRecords {
-		dr := byDomain[d]
-		if dr == nil {
-			dr = &domainRecords{}
-			byDomain[d] = dr
+	byScope := make(map[accesstypes.Scope]*scopeRecords)
+	recordsFor := func(scope accesstypes.Scope) *scopeRecords {
+		sr := byScope[scope]
+		if sr == nil {
+			sr = &scopeRecords{}
+			byScope[scope] = sr
 		}
 
-		return dr
+		return sr
 	}
 	for _, g := range records.Grants {
-		dr := domRecords(g.Domain)
-		dr.grants = append(dr.grants, g)
+		sr := recordsFor(g.Scope)
+		sr.grants = append(sr.grants, g)
 	}
 	for _, m := range records.Memberships {
-		dr := domRecords(m.Domain)
-		dr.memberships = append(dr.memberships, m)
+		sr := recordsFor(m.Scope)
+		sr.memberships = append(sr.memberships, m)
 	}
 
-	for domain, dr := range byDomain {
-		s.domains[domain] = s.compileDomain(dr.grants, dr.memberships)
+	for scope, sr := range byScope {
+		s.scopes[scope] = s.compileScope(sr.grants, sr.memberships)
 	}
 
 	return s, nil
@@ -238,7 +274,7 @@ func (s *snapshot) intern(grants []policy.Grant) error {
 	return nil
 }
 
-func (s *snapshot) compileDomain(grants []policy.Grant, memberships []policy.Membership) *domainPolicy {
+func (s *snapshot) compileScope(grants []policy.Grant, memberships []policy.Membership) *scopePolicy {
 	roleOwn, userDirect := s.compileSubjectGrants(grants)
 	inherits, userRoles := splitMemberships(memberships)
 
@@ -260,7 +296,7 @@ func (s *snapshot) compileDomain(grants []policy.Grant, memberships []policy.Mem
 		}
 	}
 
-	dp := &domainPolicy{
+	dp := &scopePolicy{
 		roleGrants: make(map[accesstypes.Role]grantMap, len(roleSet)),
 		userGrants: make(map[accesstypes.User]grantMap, len(userRoles)+len(userDirect)),
 	}
@@ -305,7 +341,7 @@ func (s *snapshot) compileDomain(grants []policy.Grant, memberships []policy.Mem
 	return dp
 }
 
-// compileSubjectGrants builds each subject's raw grant map from one domain's
+// compileSubjectGrants builds each subject's raw grant map from one scope's
 // grant records.
 func (s *snapshot) compileSubjectGrants(grants []policy.Grant) (roleOwn map[accesstypes.Role]grantMap, userDirect map[accesstypes.User]grantMap) {
 	roleOwn = make(map[accesstypes.Role]grantMap)
@@ -347,7 +383,7 @@ func (s *snapshot) compileSubjectGrants(grants []policy.Grant) (roleOwn map[acce
 	return roleOwn, userDirect
 }
 
-// splitMemberships separates one domain's membership records into user role
+// splitMemberships separates one scope's membership records into user role
 // assignments and role-to-role inheritance edges. Casbin resolves inheritance
 // transitively at evaluation time; the compiler folds it at load time.
 func splitMemberships(memberships []policy.Membership) (inherits map[accesstypes.Role][]accesstypes.Role, userRoles map[accesstypes.User][]accesstypes.Role) {
