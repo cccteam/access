@@ -14,18 +14,18 @@ import (
 var _ Store = (*fakeStore)(nil)
 
 type fakeRoleKey struct {
-	domain accesstypes.Domain
-	role   accesstypes.Role
+	scope accesstypes.Scope
+	role  accesstypes.Role
 }
 
 type fakeMembership struct {
-	domain accesstypes.Domain
-	user   accesstypes.User
-	role   accesstypes.Role
+	scope accesstypes.Scope
+	user  accesstypes.User
+	role  accesstypes.Role
 }
 
 type fakeGrant struct {
-	domain   accesstypes.Domain
+	scope    accesstypes.Scope
 	role     accesstypes.Role
 	perm     accesstypes.Permission
 	resource string
@@ -71,7 +71,7 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	records := &policy.Records{}
 	for g := range f.grants {
 		records.Grants = append(records.Grants, policy.Grant{
-			Domain:   g.domain,
+			Scope:    g.scope,
 			Subject:  policy.Subject{Kind: policy.SubjectRole, Name: string(g.role)},
 			Perm:     g.perm,
 			Resource: g.resource,
@@ -80,7 +80,7 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	}
 	for m := range f.memberships {
 		records.Memberships = append(records.Memberships, policy.Membership{
-			Domain: m.domain,
+			Scope:  m.scope,
 			Member: policy.Subject{Kind: policy.SubjectUser, Name: string(m.user)},
 			Role:   m.role,
 		})
@@ -89,32 +89,32 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-func (f *fakeStore) InsertUserRole(_ context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
+func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	if !f.roles[fakeRoleKey{domain, role}] {
-		return errors.Newf("role %q does not exist in domain %q", role, domain)
+	if !f.roles[fakeRoleKey{scope, role}] {
+		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
-	f.memberships[fakeMembership{domain, user, role}] = true
+	f.memberships[fakeMembership{scope, user, role}] = true
 
 	return nil
 }
 
-func (f *fakeStore) DeleteUserRole(_ context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
+func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	delete(f.memberships, fakeMembership{domain, user, role})
+	delete(f.memberships, fakeMembership{scope, user, role})
 
 	return nil
 }
 
-func (f *fakeStore) ListUserRoles(_ context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error) {
+func (f *fakeStore) ListUserRoles(_ context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -122,7 +122,7 @@ func (f *fakeStore) ListUserRoles(_ context.Context, domain accesstypes.Domain, 
 	}
 	roles := make([]accesstypes.Role, 0)
 	for m := range f.memberships {
-		if m.domain == domain && m.user == user {
+		if m.scope == scope && m.user == user {
 			roles = append(roles, m.role)
 		}
 	}
@@ -131,7 +131,7 @@ func (f *fakeStore) ListUserRoles(_ context.Context, domain accesstypes.Domain, 
 	return roles, nil
 }
 
-func (f *fakeStore) ListRoleUsers(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {
+func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -139,7 +139,7 @@ func (f *fakeStore) ListRoleUsers(_ context.Context, domain accesstypes.Domain, 
 	}
 	users := make([]accesstypes.User, 0)
 	for m := range f.memberships {
-		if m.domain == domain && m.role == role {
+		if m.scope == scope && m.role == role {
 			users = append(users, m.user)
 		}
 	}
@@ -148,18 +148,18 @@ func (f *fakeStore) ListRoleUsers(_ context.Context, domain accesstypes.Domain, 
 	return users, nil
 }
 
-func (f *fakeStore) InsertRole(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
+func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	f.roles[fakeRoleKey{domain, role}] = true
+	f.roles[fakeRoleKey{scope, role}] = true
 
 	return nil
 }
 
-func (f *fakeStore) ListRoles(_ context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error) {
+func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -167,7 +167,7 @@ func (f *fakeStore) ListRoles(_ context.Context, domain accesstypes.Domain) ([]a
 	}
 	roles := make([]accesstypes.Role, 0)
 	for k := range f.roles {
-		if k.domain == domain {
+		if k.scope == scope {
 			roles = append(roles, k.role)
 		}
 	}
@@ -176,23 +176,23 @@ func (f *fakeStore) ListRoles(_ context.Context, domain accesstypes.Domain) ([]a
 	return roles, nil
 }
 
-func (f *fakeStore) DeleteRole(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
+func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return false, f.failWith
 	}
-	if !f.roles[fakeRoleKey{domain, role}] {
+	if !f.roles[fakeRoleKey{scope, role}] {
 		return false, nil
 	}
 	for m := range f.memberships {
-		if m.domain == domain && m.role == role {
-			return false, errors.Newf("role %q in domain %q still has members", role, domain)
+		if m.scope == scope && m.role == role {
+			return false, errors.Newf("role %q in scope %q still has members", role, scope)
 		}
 	}
-	delete(f.roles, fakeRoleKey{domain, role})
+	delete(f.roles, fakeRoleKey{scope, role})
 	for g := range f.grants {
-		if g.domain == domain && g.role == role {
+		if g.scope == scope && g.role == role {
 			delete(f.grants, g)
 		}
 	}
@@ -200,42 +200,42 @@ func (f *fakeStore) DeleteRole(_ context.Context, domain accesstypes.Domain, rol
 	return true, nil
 }
 
-func (f *fakeStore) RoleExists(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
+func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return false, f.failWith
 	}
 
-	return f.roles[fakeRoleKey{domain, role}], nil
+	return f.roles[fakeRoleKey{scope, role}], nil
 }
 
-func (f *fakeStore) InsertGrant(_ context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	if !f.roles[fakeRoleKey{domain, role}] {
-		return errors.Newf("role %q does not exist in domain %q", role, domain)
+	if !f.roles[fakeRoleKey{scope, role}] {
+		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
-	f.grants[fakeGrant{domain, role, perm, resource, field}] = true
+	f.grants[fakeGrant{scope, role, perm, resource, field}] = true
 
 	return nil
 }
 
-func (f *fakeStore) DeleteGrant(_ context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	delete(f.grants, fakeGrant{domain, role, perm, resource, field})
+	delete(f.grants, fakeGrant{scope, role, perm, resource, field})
 
 	return nil
 }
 
-func (f *fakeStore) ListRoleGrants(_ context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]policy.RoleGrant, error) {
+func (f *fakeStore) ListRoleGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -243,7 +243,7 @@ func (f *fakeStore) ListRoleGrants(_ context.Context, domain accesstypes.Domain,
 	}
 	grants := make([]policy.RoleGrant, 0)
 	for g := range f.grants {
-		if g.domain == domain && g.role == role {
+		if g.scope == scope && g.role == role {
 			grants = append(grants, policy.RoleGrant{Perm: g.perm, Resource: g.resource, Field: g.field})
 		}
 	}

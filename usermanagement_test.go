@@ -19,28 +19,28 @@ func seededManager(t *testing.T) (*userManager, *fakeStore) {
 	m := newUserManager(newStoreManager(store))
 
 	for _, seed := range []struct {
-		domain accesstypes.Domain
-		role   accesstypes.Role
+		scope accesstypes.Scope
+		role  accesstypes.Role
 	}{
-		{"tenant1", "Editor"},
-		{"tenant1", "Viewer"},
-		{"tenant2", "Viewer"},
-		{accesstypes.GlobalDomain, "Auditor"},
+		{tenant1Scope, "Editor"},
+		{tenant1Scope, "Viewer"},
+		{tenant2Scope, "Viewer"},
+		{accesstypes.GlobalScope(), "Auditor"},
 	} {
-		if err := m.AddRole(ctx, seed.domain, seed.role); err != nil {
-			t.Fatalf("AddRole(%q, %q) error = %v", seed.domain, seed.role, err)
+		if err := m.AddRole(ctx, seed.scope, seed.role); err != nil {
+			t.Fatalf("AddRole(%q, %q) error = %v", seed.scope, seed.role, err)
 		}
 	}
-	if err := m.AddRolePermissionResources(ctx, "tenant1", "Editor", "Read", "employees", "employees.name"); err != nil {
+	if err := m.AddRolePermissionResources(ctx, tenant1Scope, "Editor", "Read", "employees", "employees.name"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
-	if err := m.AddRolePermissionResources(ctx, accesstypes.GlobalDomain, "Auditor", "ViewUsers", accesstypes.GlobalResource); err != nil {
+	if err := m.AddRolePermission(ctx, accesstypes.GlobalScope(), "Auditor", "ViewUsers"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
-	if err := m.AddRoleUsers(ctx, "tenant1", "Editor", "alice"); err != nil {
+	if err := m.AddRoleUsers(ctx, tenant1Scope, "Editor", "alice"); err != nil {
 		t.Fatalf("AddRoleUsers() error = %v", err)
 	}
-	if err := m.AddUserRoles(ctx, "tenant2", "alice", "Viewer"); err != nil {
+	if err := m.AddUserRoles(ctx, tenant2Scope, "alice", "Viewer"); err != nil {
 		t.Fatalf("AddUserRoles() error = %v", err)
 	}
 
@@ -60,11 +60,11 @@ func Test_userManager_membership(t *testing.T) {
 		{
 			name: "AddRoleUsers assigns members",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRoleUsers(ctx, "tenant1", "Editor", "bob", "carol")
+				return m.AddRoleUsers(ctx, tenant1Scope, "Editor", "bob", "carol")
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				users, err := m.RoleUsers(ctx, "tenant1", "Editor")
+				users, err := m.RoleUsers(ctx, tenant1Scope, "Editor")
 				if err != nil {
 					t.Fatalf("RoleUsers() error = %v", err)
 				}
@@ -76,36 +76,36 @@ func Test_userManager_membership(t *testing.T) {
 		{
 			name: "AddRoleUsers rejects missing role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRoleUsers(ctx, "tenant1", "Ghost", "bob")
+				return m.AddRoleUsers(ctx, tenant1Scope, "Ghost", "bob")
 			},
 			wantErr: true,
 		},
 		{
-			name: "AddRoleUsers is domain-scoped on role existence",
+			name: "AddRoleUsers is scope-scoped on role existence",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRoleUsers(ctx, "tenant2", "Editor", "bob") // Editor exists only in tenant1
+				return m.AddRoleUsers(ctx, tenant2Scope, "Editor", "bob") // Editor exists only in tenant1
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddRoleUsers rejects empty user",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRoleUsers(ctx, "tenant1", "Editor", "")
+				return m.AddRoleUsers(ctx, tenant1Scope, "Editor", "")
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddUserRoles assigns roles",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddUserRoles(ctx, "tenant1", "bob", "Editor", "Viewer")
+				return m.AddUserRoles(ctx, tenant1Scope, "bob", "Editor", "Viewer")
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				roles, err := m.UserRoles(ctx, "bob", "tenant1")
+				roles, err := m.UserRoles(ctx, "bob", tenant1Scope)
 				if err != nil {
 					t.Fatalf("UserRoles() error = %v", err)
 				}
-				want := accesstypes.RoleCollection{"tenant1": {"Editor", "Viewer"}}
+				want := accesstypes.RoleCollection{tenant1Scope: {"Editor", "Viewer"}}
 				if diff := cmp.Diff(want, roles); diff != "" {
 					t.Errorf("UserRoles() (-want +got):\n%s", diff)
 				}
@@ -114,25 +114,25 @@ func Test_userManager_membership(t *testing.T) {
 		{
 			name: "AddUserRoles rejects any missing role before writing",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddUserRoles(ctx, "tenant1", "bob", "Editor", "Ghost")
+				return m.AddUserRoles(ctx, tenant1Scope, "bob", "Editor", "Ghost")
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddUserRoles rejects empty user",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddUserRoles(ctx, "tenant1", "", "Editor")
+				return m.AddUserRoles(ctx, tenant1Scope, "", "Editor")
 			},
 			wantErr: true,
 		},
 		{
 			name: "DeleteRoleUsers removes membership",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRoleUsers(ctx, "tenant1", "Editor", "alice")
+				return m.DeleteRoleUsers(ctx, tenant1Scope, "Editor", "alice")
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				users, err := m.RoleUsers(ctx, "tenant1", "Editor")
+				users, err := m.RoleUsers(ctx, tenant1Scope, "Editor")
 				if err != nil {
 					t.Fatalf("RoleUsers() error = %v", err)
 				}
@@ -144,22 +144,22 @@ func Test_userManager_membership(t *testing.T) {
 		{
 			name: "DeleteRoleUsers rejects missing role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRoleUsers(ctx, "tenant1", "Ghost", "alice")
+				return m.DeleteRoleUsers(ctx, tenant1Scope, "Ghost", "alice")
 			},
 			wantErr: true,
 		},
 		{
 			name: "DeleteUserRoles succeeds for roles never held",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteUserRoles(ctx, "tenant1", "alice", "Viewer")
+				return m.DeleteUserRoles(ctx, tenant1Scope, "alice", "Viewer")
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				roles, err := m.UserRoles(ctx, "alice", "tenant1")
+				roles, err := m.UserRoles(ctx, "alice", tenant1Scope)
 				if err != nil {
 					t.Fatalf("UserRoles() error = %v", err)
 				}
-				want := accesstypes.RoleCollection{"tenant1": {"Editor"}}
+				want := accesstypes.RoleCollection{tenant1Scope: {"Editor"}}
 				if diff := cmp.Diff(want, roles); diff != "" {
 					t.Errorf("UserRoles() (-want +got):\n%s", diff)
 				}
@@ -189,39 +189,39 @@ func Test_userManager_UserRoles_UserPermissions(t *testing.T) {
 	tests := []struct {
 		name      string
 		user      accesstypes.User
-		domains   []accesstypes.Domain
+		scopes    []accesstypes.Scope
 		wantErr   bool
 		wantRoles accesstypes.RoleCollection
 		wantPerms accesstypes.UserPermissionCollection
 	}{
 		{
-			name:    "multi-domain collection",
-			user:    "alice",
-			domains: []accesstypes.Domain{"tenant1", "tenant2"},
+			name:   "multi-scope collection",
+			user:   "alice",
+			scopes: []accesstypes.Scope{tenant1Scope, tenant2Scope},
 			wantRoles: accesstypes.RoleCollection{
-				"tenant1": {"Editor"},
-				"tenant2": {"Viewer"},
+				tenant1Scope: {"Editor"},
+				tenant2Scope: {"Viewer"},
 			},
 			wantPerms: accesstypes.UserPermissionCollection{
-				"tenant1": {"employees": {"Read"}, "employees.name": {"Read"}},
-				"tenant2": {},
+				tenant1Scope: {Resources: map[accesstypes.Resource][]accesstypes.Permission{"employees": {"Read"}, "employees.name": {"Read"}}},
+				tenant2Scope: {Resources: map[accesstypes.Resource][]accesstypes.Permission{}},
 			},
 		},
 		{
-			name:    "unknown domain yields empty entries",
-			user:    "alice",
-			domains: []accesstypes.Domain{"no-such-tenant"},
+			name:   "unknown tenant yields empty entries",
+			user:   "alice",
+			scopes: []accesstypes.Scope{accesstypes.DomainScope("no-such-tenant")},
 			wantRoles: accesstypes.RoleCollection{
-				"no-such-tenant": {},
+				accesstypes.DomainScope("no-such-tenant"): {},
 			},
 			wantPerms: accesstypes.UserPermissionCollection{
-				"no-such-tenant": {},
+				accesstypes.DomainScope("no-such-tenant"): {Resources: map[accesstypes.Resource][]accesstypes.Permission{}},
 			},
 		},
 		{
-			name:    "no domains is an error",
+			name:    "no scopes is an error",
 			user:    "alice",
-			domains: nil,
+			scopes:  nil,
 			wantErr: true,
 		},
 	}
@@ -231,11 +231,11 @@ func Test_userManager_UserRoles_UserPermissions(t *testing.T) {
 			ctx := context.Background()
 			m, _ := seededManager(t)
 
-			roles, err := m.UserRoles(ctx, tt.user, tt.domains...)
+			roles, err := m.UserRoles(ctx, tt.user, tt.scopes...)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("UserRoles() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			perms, err := m.UserPermissions(ctx, tt.user, tt.domains...)
+			perms, err := m.UserPermissions(ctx, tt.user, tt.scopes...)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("UserPermissions() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -264,20 +264,20 @@ func Test_userManager_roles(t *testing.T) {
 		{
 			name: "AddRole creates the role in its domain only",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRole(ctx, "tenant2", "Editor")
+				return m.AddRole(ctx, tenant2Scope, "Editor")
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				for domain, want := range map[accesstypes.Domain][]accesstypes.Role{
-					"tenant1": {"Editor", "Viewer"},
-					"tenant2": {"Editor", "Viewer"},
+				for scope, want := range map[accesstypes.Scope][]accesstypes.Role{
+					tenant1Scope: {"Editor", "Viewer"},
+					tenant2Scope: {"Editor", "Viewer"},
 				} {
-					roles, err := m.Roles(ctx, domain)
+					roles, err := m.Roles(ctx, scope)
 					if err != nil {
-						t.Fatalf("Roles(%q) error = %v", domain, err)
+						t.Fatalf("Roles(%q) error = %v", scope, err)
 					}
 					if diff := cmp.Diff(want, roles); diff != "" {
-						t.Errorf("Roles(%q) (-want +got):\n%s", domain, diff)
+						t.Errorf("Roles(%q) (-want +got):\n%s", scope, diff)
 					}
 				}
 			},
@@ -285,21 +285,21 @@ func Test_userManager_roles(t *testing.T) {
 		{
 			name: "AddRole rejects duplicates",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRole(ctx, "tenant1", "Editor")
+				return m.AddRole(ctx, tenant1Scope, "Editor")
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddRole rejects empty role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRole(ctx, "tenant1", "")
+				return m.AddRole(ctx, tenant1Scope, "")
 			},
 			wantErr: true,
 		},
 		{
 			name: "DeleteRole refuses while users are assigned",
 			op: func(ctx context.Context, m *userManager) error {
-				_, err := m.DeleteRole(ctx, "tenant1", "Editor")
+				_, err := m.DeleteRole(ctx, tenant1Scope, "Editor")
 
 				return err
 			},
@@ -308,10 +308,10 @@ func Test_userManager_roles(t *testing.T) {
 		{
 			name: "DeleteRole removes an unassigned role and its grants, scoped to the domain",
 			op: func(ctx context.Context, m *userManager) error {
-				if err := m.DeleteRoleUsers(ctx, "tenant1", "Editor", "alice"); err != nil {
+				if err := m.DeleteRoleUsers(ctx, tenant1Scope, "Editor", "alice"); err != nil {
 					return err
 				}
-				deleted, err := m.DeleteRole(ctx, "tenant1", "Editor")
+				deleted, err := m.DeleteRole(ctx, tenant1Scope, "Editor")
 				if err != nil {
 					return err
 				}
@@ -323,12 +323,12 @@ func Test_userManager_roles(t *testing.T) {
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				exists, err := m.RoleExists(ctx, "tenant1", "Editor")
+				exists, err := m.RoleExists(ctx, tenant1Scope, "Editor")
 				if err != nil || exists {
 					t.Errorf("RoleExists() after delete = (%v, %v), want (false, nil)", exists, err)
 				}
 				// Viewer in tenant2 is untouched (delete is domain-scoped).
-				if exists, err := m.RoleExists(ctx, "tenant2", "Viewer"); err != nil || !exists {
+				if exists, err := m.RoleExists(ctx, tenant2Scope, "Viewer"); err != nil || !exists {
 					t.Errorf("RoleExists(tenant2, Viewer) = (%v, %v), want (true, nil)", exists, err)
 				}
 			},
@@ -359,81 +359,89 @@ func Test_userManager_permissions(t *testing.T) {
 		op      func(ctx context.Context, m *userManager) error
 		wantErr bool
 		// wantPerms, when set, is compared against RolePermissions for the
-		// (domain, role) below after a successful op.
-		domain    accesstypes.Domain
+		// (scope, role) below after a successful op.
+		scope     accesstypes.Scope
 		role      accesstypes.Role
 		wantPerms accesstypes.RolePermissionCollection
 	}{
 		{
-			// A domain-wide permission is an ordinary grant on GlobalResource.
-			name: "domain-wide permission is a grant on the global resource",
+			// A scope-wide permission is a resource-less grant through the
+			// dedicated method — there is no resource value that means it.
+			name: "scope-wide permission via AddRolePermission",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissionResources(ctx, "tenant1", "Viewer", "ViewReports", accesstypes.GlobalResource)
+				return m.AddRolePermission(ctx, tenant1Scope, "Viewer", "ViewReports")
 			},
-			domain: "tenant1",
-			role:   "Viewer",
+			scope: tenant1Scope,
+			role:  "Viewer",
 			wantPerms: accesstypes.RolePermissionCollection{
-				"ViewReports": {accesstypes.GlobalResource},
+				"ViewReports": {ScopeWide: true},
 			},
+		},
+		{
+			name: "AddRolePermission rejects missing role",
+			op: func(ctx context.Context, m *userManager) error {
+				return m.AddRolePermission(ctx, tenant1Scope, "Ghost", "ViewReports")
+			},
+			wantErr: true,
 		},
 		{
 			name: "AddRolePermissionResources adds resource and field grants",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissionResources(ctx, "tenant1", "Viewer", "Read", "widgets", "widgets.*")
+				return m.AddRolePermissionResources(ctx, tenant1Scope, "Viewer", "Read", "widgets", "widgets.*")
 			},
-			domain: "tenant1",
-			role:   "Viewer",
+			scope: tenant1Scope,
+			role:  "Viewer",
 			wantPerms: accesstypes.RolePermissionCollection{
-				"Read": {"widgets", "widgets.*"},
+				"Read": {Resources: []accesstypes.Resource{"widgets", "widgets.*"}},
 			},
 		},
 		{
 			name: "AddRolePermissionResources rejects missing role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissionResources(ctx, "tenant1", "Ghost", "Read", "widgets")
+				return m.AddRolePermissionResources(ctx, tenant1Scope, "Ghost", "Read", "widgets")
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddRolePermissionResources rejects empty resource",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissionResources(ctx, "tenant1", "Viewer", "Read", "")
+				return m.AddRolePermissionResources(ctx, tenant1Scope, "Viewer", "Read", "")
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddRolePermissionResources enforces the dot invariant",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRolePermissionResources(ctx, "tenant1", "Viewer", "Read", "a.b.c")
+				return m.AddRolePermissionResources(ctx, tenant1Scope, "Viewer", "Read", "a.b.c")
 			},
 			wantErr: true,
 		},
 		{
 			name: "DeleteRolePermissionResources removes grants",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRolePermissionResources(ctx, "tenant1", "Editor", "Read", "employees.name")
+				return m.DeleteRolePermissionResources(ctx, tenant1Scope, "Editor", "Read", "employees.name")
 			},
-			domain: "tenant1",
-			role:   "Editor",
+			scope: tenant1Scope,
+			role:  "Editor",
 			wantPerms: accesstypes.RolePermissionCollection{
-				"Read": {"employees"},
+				"Read": {Resources: []accesstypes.Resource{"employees"}},
 			},
 		},
 		{
-			name: "removing the global-resource grant removes the domain-wide permission",
+			name: "DeleteRolePermission removes the scope-wide permission",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRolePermissionResources(ctx, accesstypes.GlobalDomain, "Auditor", "ViewUsers", accesstypes.GlobalResource)
+				return m.DeleteRolePermission(ctx, accesstypes.GlobalScope(), "Auditor", "ViewUsers")
 			},
-			domain:    accesstypes.GlobalDomain,
+			scope:     accesstypes.GlobalScope(),
 			role:      "Auditor",
 			wantPerms: accesstypes.RolePermissionCollection{},
 		},
 		{
-			name: "DeleteAllRolePermissions clears global-resource grants",
+			name: "DeleteAllRolePermissions clears scope-wide grants",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteAllRolePermissions(ctx, accesstypes.GlobalDomain, "Auditor")
+				return m.DeleteAllRolePermissions(ctx, accesstypes.GlobalScope(), "Auditor")
 			},
-			domain:    accesstypes.GlobalDomain,
+			scope:     accesstypes.GlobalScope(),
 			role:      "Auditor",
 			wantPerms: accesstypes.RolePermissionCollection{},
 		},
@@ -443,16 +451,16 @@ func Test_userManager_permissions(t *testing.T) {
 			// contract — resource and field grants silently survived.
 			name: "DeleteAllRolePermissions clears resource-specific grants too",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteAllRolePermissions(ctx, "tenant1", "Editor")
+				return m.DeleteAllRolePermissions(ctx, tenant1Scope, "Editor")
 			},
-			domain:    "tenant1",
+			scope:     tenant1Scope,
 			role:      "Editor",
 			wantPerms: accesstypes.RolePermissionCollection{},
 		},
 		{
 			name: "DeleteRolePermissionResources rejects missing role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.DeleteRolePermissionResources(ctx, "tenant1", "Ghost", "Read", "employees")
+				return m.DeleteRolePermissionResources(ctx, tenant1Scope, "Ghost", "Read", "employees")
 			},
 			wantErr: true,
 		},
@@ -470,7 +478,7 @@ func Test_userManager_permissions(t *testing.T) {
 			if err != nil || tt.wantPerms == nil {
 				return
 			}
-			got, err := m.RolePermissions(ctx, tt.domain, tt.role)
+			got, err := m.RolePermissions(ctx, tt.scope, tt.role)
 			if err != nil {
 				t.Fatalf("RolePermissions() error = %v", err)
 			}
@@ -486,7 +494,7 @@ func Test_userManager_RolePermissions_missingRole(t *testing.T) {
 	ctx := context.Background()
 
 	m, _ := seededManager(t)
-	if _, err := m.RolePermissions(ctx, "tenant1", "Ghost"); err == nil {
+	if _, err := m.RolePermissions(ctx, tenant1Scope, "Ghost"); err == nil {
 		t.Fatal("RolePermissions() expected error for missing role, got nil")
 	}
 }
@@ -500,13 +508,13 @@ func Test_userManager_storeErrorsPropagate(t *testing.T) {
 	m, store := seededManager(t)
 	store.setFail(errors.New("store down"))
 
-	if _, err := m.RoleExists(ctx, "tenant1", "Editor"); err == nil {
+	if _, err := m.RoleExists(ctx, tenant1Scope, "Editor"); err == nil {
 		t.Error("RoleExists() expected error, got nil")
 	}
-	if err := m.AddRoleUsers(ctx, "tenant1", "Editor", "bob"); err == nil {
+	if err := m.AddRoleUsers(ctx, tenant1Scope, "Editor", "bob"); err == nil {
 		t.Error("AddRoleUsers() expected error, got nil")
 	}
-	if _, err := m.UserRoles(ctx, "alice", "tenant1"); err == nil {
+	if _, err := m.UserRoles(ctx, "alice", tenant1Scope); err == nil {
 		t.Error("UserRoles() expected error, got nil")
 	}
 }

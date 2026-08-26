@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/access/internal/storetest"
+	"github.com/cccteam/ccc/accesstypes"
 )
 
 func TestNew_naming(t *testing.T) {
@@ -73,14 +74,14 @@ func TestStore_isolation(t *testing.T) {
 		t.Fatalf("applying DDL: %v", err)
 	}
 
-	if err := adminStore.InsertRole(ctx, "tenant1", "Editor"); err != nil {
+	if err := adminStore.InsertRole(ctx, accesstypes.DomainScope("tenant1"), "Editor"); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, "tenant1", "alice", "Editor"); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainScope("tenant1"), "alice", "Editor"); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
-	if exists, err := partnerStore.RoleExists(ctx, "tenant1", "Editor"); err != nil || exists {
+	if exists, err := partnerStore.RoleExists(ctx, accesstypes.DomainScope("tenant1"), "Editor"); err != nil || exists {
 		t.Errorf("RoleExists() on sibling store = (%v, %v), want (false, nil)", exists, err)
 	}
 	records, err := partnerStore.ReadPolicy(ctx)

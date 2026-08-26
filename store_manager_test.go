@@ -19,16 +19,13 @@ func Test_splitGrantResource(t *testing.T) {
 		wantErr   bool
 	}{
 		{name: "parent resource", resource: "employees", wantBase: "employees", wantField: ""},
-		{name: "global resource", resource: accesstypes.GlobalResource, wantBase: string(accesstypes.GlobalResource), wantField: ""},
 		{name: "field on parent", resource: "employees.name", wantBase: "employees", wantField: "name"},
 		{name: "all-fields wildcard", resource: "employees.*", wantBase: "employees", wantField: "*"},
+		{name: "colon is ordinary data since the marker retired", resource: "acme:employees", wantBase: "acme:employees", wantField: ""},
 		{name: "two dots rejected", resource: "a.b.c", wantErr: true},
 		{name: "empty parent segment rejected", resource: ".name", wantErr: true},
 		{name: "empty field segment rejected", resource: "employees.", wantErr: true},
 		{name: "empty resource rejected", resource: "", wantErr: true},
-		{name: "reserved marker character rejected in parent", resource: "acme:employees", wantErr: true},
-		{name: "reserved marker character rejected in field", resource: "employees.na:me", wantErr: true},
-		{name: "marker-shaped resource rejected", resource: "access:whatever", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,17 +57,17 @@ func Test_storeManager_grants(t *testing.T) {
 		{
 			name:       "endpoint grant stores empty field",
 			grant:      "employees",
-			wantStored: fakeGrant{domain: "tenant1", role: "Editor", perm: "Read", resource: "employees", field: ""},
+			wantStored: fakeGrant{scope: tenant1Scope, role: "Editor", perm: "Read", resource: "employees", field: ""},
 		},
 		{
 			name:       "field grant stores split columns",
 			grant:      "employees.name",
-			wantStored: fakeGrant{domain: "tenant1", role: "Editor", perm: "Read", resource: "employees", field: "name"},
+			wantStored: fakeGrant{scope: tenant1Scope, role: "Editor", perm: "Read", resource: "employees", field: "name"},
 		},
 		{
 			name:       "wildcard grant stores star field",
 			grant:      "employees.*",
-			wantStored: fakeGrant{domain: "tenant1", role: "Editor", perm: "Read", resource: "employees", field: "*"},
+			wantStored: fakeGrant{scope: tenant1Scope, role: "Editor", perm: "Read", resource: "employees", field: "*"},
 		},
 		{
 			name:    "dot invariant rejected at declaration",
@@ -86,11 +83,11 @@ func Test_storeManager_grants(t *testing.T) {
 			notified := 0
 			manager.onPolicyChange = func() { notified++ }
 
-			if err := manager.addRole(ctx, "tenant1", "Editor"); err != nil {
+			if err := manager.addRole(ctx, tenant1Scope, "Editor"); err != nil {
 				t.Fatalf("addRole() error = %v", err)
 			}
 
-			err := manager.addGrant(ctx, "tenant1", "Editor", "Read", tt.grant)
+			err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("addGrant() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -108,7 +105,7 @@ func Test_storeManager_grants(t *testing.T) {
 				t.Errorf("onPolicyChange fired %d times, want 2 (addRole + addGrant)", notified)
 			}
 
-			if err := manager.removeGrant(ctx, "tenant1", "Editor", "Read", tt.grant); err != nil {
+			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant); err != nil {
 				t.Fatalf("removeGrant() error = %v", err)
 			}
 			if len(store.grants) != 0 {
@@ -127,25 +124,25 @@ func Test_storeManager_roleGrants_reassembly(t *testing.T) {
 
 	store := newFakeStore()
 	manager := newStoreManager(store)
-	if err := manager.addRole(ctx, "tenant1", "Editor"); err != nil {
+	if err := manager.addRole(ctx, tenant1Scope, "Editor"); err != nil {
 		t.Fatalf("addRole() error = %v", err)
 	}
 	for _, resource := range []accesstypes.Resource{"employees", "employees.name", "employees.*", "widgets"} {
-		if err := manager.addGrant(ctx, "tenant1", "Editor", "Read", resource); err != nil {
+		if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", resource); err != nil {
 			t.Fatalf("addGrant(%q) error = %v", resource, err)
 		}
 	}
-	if err := manager.addGrant(ctx, "tenant1", "Editor", "Update", "employees"); err != nil {
+	if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Update", "employees"); err != nil {
 		t.Fatalf("addGrant() error = %v", err)
 	}
 
-	got, err := manager.roleGrants(ctx, "tenant1", "Editor")
+	got, err := manager.roleGrants(ctx, tenant1Scope, "Editor")
 	if err != nil {
 		t.Fatalf("roleGrants() error = %v", err)
 	}
 	want := accesstypes.RolePermissionCollection{
-		"Read":   {"employees", "employees.*", "employees.name", "widgets"},
-		"Update": {"employees"},
+		"Read":   {Resources: []accesstypes.Resource{"employees", "employees.*", "employees.name", "widgets"}},
+		"Update": {Resources: []accesstypes.Resource{"employees"}},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("roleGrants() mismatch (-want +got):\n%s", diff)
@@ -160,37 +157,39 @@ func Test_storeManager_userPermissions(t *testing.T) {
 		name  string
 		setup func(t *testing.T, m *storeManager)
 		user  accesstypes.User
-		want  map[accesstypes.Resource][]accesstypes.Permission
+		want  accesstypes.UserScopePermissions
 	}{
 		{
 			name: "permissions merge across roles and dedupe",
 			setup: func(t *testing.T, m *storeManager) {
 				t.Helper()
-				mustAddRole(t, m, "tenant1", "Editor")
-				mustAddRole(t, m, "tenant1", "Viewer")
+				mustAddRole(t, m, tenant1Scope, "Editor")
+				mustAddRole(t, m, tenant1Scope, "Viewer")
 				mustAddGrant(t, m, "Editor", "Read", "employees")
 				mustAddGrant(t, m, "Editor", "Update", "employees.name")
 				mustAddGrant(t, m, "Viewer", "Read", "employees") // duplicate of Editor's
 				mustAddGrant(t, m, "Viewer", "Read", "widgets")
-				if err := m.addUserRole(ctx, "tenant1", "alice", "Editor"); err != nil {
+				if err := m.addUserRole(ctx, tenant1Scope, "alice", "Editor"); err != nil {
 					t.Fatal(err)
 				}
-				if err := m.addUserRole(ctx, "tenant1", "alice", "Viewer"); err != nil {
+				if err := m.addUserRole(ctx, tenant1Scope, "alice", "Viewer"); err != nil {
 					t.Fatal(err)
 				}
 			},
 			user: "alice",
-			want: map[accesstypes.Resource][]accesstypes.Permission{
-				"employees":      {"Read"},
-				"employees.name": {"Update"},
-				"widgets":        {"Read"},
+			want: accesstypes.UserScopePermissions{
+				Resources: map[accesstypes.Resource][]accesstypes.Permission{
+					"employees":      {"Read"},
+					"employees.name": {"Update"},
+					"widgets":        {"Read"},
+				},
 			},
 		},
 		{
 			name:  "user with no roles has no permissions",
 			setup: func(t *testing.T, _ *storeManager) { t.Helper() },
 			user:  "nobody",
-			want:  map[accesstypes.Resource][]accesstypes.Permission{},
+			want:  accesstypes.UserScopePermissions{Resources: map[accesstypes.Resource][]accesstypes.Permission{}},
 		},
 	}
 	for _, tt := range tests {
@@ -199,7 +198,7 @@ func Test_storeManager_userPermissions(t *testing.T) {
 			manager := newStoreManager(newFakeStore())
 			tt.setup(t, manager)
 
-			got, err := manager.userPermissions(ctx, "tenant1", tt.user)
+			got, err := manager.userPermissions(ctx, tenant1Scope, tt.user)
 			if err != nil {
 				t.Fatalf("userPermissions() error = %v", err)
 			}
@@ -217,21 +216,21 @@ func Test_storeManager_deleteRole(t *testing.T) {
 	tests := []struct {
 		name        string
 		setup       func(t *testing.T, m *storeManager)
-		domain      accesstypes.Domain
+		scope       accesstypes.Scope
 		role        accesstypes.Role
 		wantDeleted bool
 		wantErr     bool
 		wantNotify  int
 	}{
 		{
-			name: "delete scoped to domain leaves other domains intact",
+			name: "delete scoped to scope leaves other scopes intact",
 			setup: func(t *testing.T, m *storeManager) {
 				t.Helper()
-				mustAddRole(t, m, "tenant1", "Editor")
-				mustAddRole(t, m, "tenant2", "Editor")
+				mustAddRole(t, m, tenant1Scope, "Editor")
+				mustAddRole(t, m, accesstypes.DomainScope("tenant2"), "Editor")
 				mustAddGrant(t, m, "Editor", "Read", "employees")
 			},
-			domain:      "tenant1",
+			scope:       tenant1Scope,
 			role:        "Editor",
 			wantDeleted: true,
 			wantNotify:  1,
@@ -239,7 +238,7 @@ func Test_storeManager_deleteRole(t *testing.T) {
 		{
 			name:        "absent role deletes nothing and does not notify",
 			setup:       func(t *testing.T, _ *storeManager) { t.Helper() },
-			domain:      "tenant1",
+			scope:       tenant1Scope,
 			role:        "Ghost",
 			wantDeleted: false,
 			wantNotify:  0,
@@ -248,12 +247,12 @@ func Test_storeManager_deleteRole(t *testing.T) {
 			name: "role with members refuses deletion",
 			setup: func(t *testing.T, m *storeManager) {
 				t.Helper()
-				mustAddRole(t, m, "tenant1", "Editor")
-				if err := m.addUserRole(ctx, "tenant1", "alice", "Editor"); err != nil {
+				mustAddRole(t, m, tenant1Scope, "Editor")
+				if err := m.addUserRole(ctx, tenant1Scope, "alice", "Editor"); err != nil {
 					t.Fatal(err)
 				}
 			},
-			domain:     "tenant1",
+			scope:      tenant1Scope,
 			role:       "Editor",
 			wantErr:    true,
 			wantNotify: 0,
@@ -269,7 +268,7 @@ func Test_storeManager_deleteRole(t *testing.T) {
 			notified := 0
 			manager.onPolicyChange = func() { notified++ }
 
-			deleted, err := manager.deleteRole(ctx, tt.domain, tt.role)
+			deleted, err := manager.deleteRole(ctx, tt.scope, tt.role)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("deleteRole() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -280,10 +279,10 @@ func Test_storeManager_deleteRole(t *testing.T) {
 				t.Errorf("onPolicyChange fired %d times, want %d", notified, tt.wantNotify)
 			}
 			if tt.wantDeleted {
-				if exists, err := manager.roleExists(ctx, tt.domain, tt.role); err != nil || exists {
+				if exists, err := manager.roleExists(ctx, tt.scope, tt.role); err != nil || exists {
 					t.Errorf("roleExists() after delete = (%v, %v), want (false, nil)", exists, err)
 				}
-				grants, err := manager.roleGrants(ctx, tt.domain, tt.role)
+				grants, err := manager.roleGrants(ctx, tt.scope, tt.role)
 				if err != nil {
 					t.Fatalf("roleGrants() error = %v", err)
 				}
@@ -295,93 +294,76 @@ func Test_storeManager_deleteRole(t *testing.T) {
 	}
 }
 
-func mustAddRole(t *testing.T, m *storeManager, domain accesstypes.Domain, role accesstypes.Role) {
+func mustAddRole(t *testing.T, m *storeManager, scope accesstypes.Scope, role accesstypes.Role) {
 	t.Helper()
-	if err := m.addRole(context.Background(), domain, role); err != nil {
-		t.Fatalf("addRole(%q, %q) error = %v", domain, role, err)
+	if err := m.addRole(context.Background(), scope, role); err != nil {
+		t.Fatalf("addRole(%q, %q) error = %v", scope, role, err)
 	}
 }
 
 func mustAddGrant(t *testing.T, m *storeManager, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) {
 	t.Helper()
-	if err := m.addGrant(context.Background(), "tenant1", role, perm, resource); err != nil {
+	if err := m.addGrant(context.Background(), tenant1Scope, role, perm, resource); err != nil {
 		t.Fatalf("addGrant(%q, %q, %q) error = %v", role, perm, resource, err)
 	}
 }
 
-// Test_validateDomain pins the reserved marker character on the domain axis:
-// only accesstypes.GlobalDomain may carry ':'. Tenant domains stay raw — a
-// tenant literally named "global" is ordinary data — and marker-shaped values
-// are rejected at every row-creating write, fail-closed.
-func Test_validateDomain(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		domain  accesstypes.Domain
-		wantErr bool
-	}{
-		{name: "tenant domain", domain: "tenant1"},
-		{name: "global marker constant", domain: accesstypes.GlobalDomain},
-		{name: "tenant literally named global is ordinary data", domain: "global"},
-		{name: "marker-shaped domain rejected", domain: "access:whatever", wantErr: true},
-		{name: "any colon-bearing domain rejected", domain: "acme:tenant", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := validateDomain(tt.domain)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateDomain(%q) error = %v, wantErr %v", tt.domain, err, tt.wantErr)
-			}
-		})
-	}
-}
-
-// Test_storeManager_reservedDomainWrites verifies the write boundary rejects
-// marker-shaped domains on every row-creating path.
-func Test_storeManager_reservedDomainWrites(t *testing.T) {
+// Test_storeManager_scopeWideGrants pins the structural encoding of a
+// permission held with no resource attachment: an empty resource+field store
+// row, written and removed only through the dedicated seam methods, listed
+// back as PermissionGrants.ScopeWide, and merged into
+// UserScopePermissions.ScopeWide.
+func Test_storeManager_scopeWideGrants(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	tests := []struct {
-		name string
-		op   func(m *storeManager) error
-	}{
-		{
-			name: "addRole",
-			op:   func(m *storeManager) error { return m.addRole(ctx, "acme:tenant", "Editor") },
-		},
-		{
-			name: "addUserRole",
-			op:   func(m *storeManager) error { return m.addUserRole(ctx, "acme:tenant", "alice", "Editor") },
-		},
-		{
-			name: "addGrant",
-			op:   func(m *storeManager) error { return m.addGrant(ctx, "acme:tenant", "Editor", "Read", "employees") },
-		},
-		{
-			name: "removeGrant",
-			op:   func(m *storeManager) error { return m.removeGrant(ctx, "acme:tenant", "Editor", "Read", "employees") },
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			store := newFakeStore()
-			manager := newStoreManager(store)
-			notified := 0
-			manager.onPolicyChange = func() { notified++ }
+	store := newFakeStore()
+	manager := newStoreManager(store)
+	globalScope := accesstypes.GlobalScope()
+	mustAddRole(t, manager, globalScope, "Admin")
 
-			if err := tt.op(manager); err == nil {
-				t.Fatal("expected reserved-domain error, got nil")
-			}
-			if notified != 0 {
-				t.Errorf("onPolicyChange fired %d times on a rejected write, want 0", notified)
-			}
-			if len(store.roles)+len(store.memberships)+len(store.grants) != 0 {
-				t.Errorf("rejected write reached the store: %+v %+v %+v", store.roles, store.memberships, store.grants)
-			}
-		})
+	if err := manager.addScopeWideGrant(ctx, globalScope, "Admin", "Export"); err != nil {
+		t.Fatalf("addScopeWideGrant() error = %v", err)
+	}
+	if err := manager.addGrant(ctx, globalScope, "Admin", "Read", "employees"); err != nil {
+		t.Fatalf("addGrant() error = %v", err)
+	}
+
+	got, err := manager.roleGrants(ctx, globalScope, "Admin")
+	if err != nil {
+		t.Fatalf("roleGrants() error = %v", err)
+	}
+	want := accesstypes.RolePermissionCollection{
+		"Export": {ScopeWide: true},
+		"Read":   {Resources: []accesstypes.Resource{"employees"}},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("roleGrants() mismatch (-want +got):\n%s", diff)
+	}
+
+	if err := manager.addUserRole(ctx, globalScope, "alice", "Admin"); err != nil {
+		t.Fatalf("addUserRole() error = %v", err)
+	}
+	perms, err := manager.userPermissions(ctx, globalScope, "alice")
+	if err != nil {
+		t.Fatalf("userPermissions() error = %v", err)
+	}
+	wantPerms := accesstypes.UserScopePermissions{
+		ScopeWide: []accesstypes.Permission{"Export"},
+		Resources: map[accesstypes.Resource][]accesstypes.Permission{"employees": {"Read"}},
+	}
+	if diff := cmp.Diff(wantPerms, perms); diff != "" {
+		t.Errorf("userPermissions() mismatch (-want +got):\n%s", diff)
+	}
+
+	if err := manager.removeScopeWideGrant(ctx, globalScope, "Admin", "Export"); err != nil {
+		t.Fatalf("removeScopeWideGrant() error = %v", err)
+	}
+	got, err = manager.roleGrants(ctx, globalScope, "Admin")
+	if err != nil {
+		t.Fatalf("roleGrants() error = %v", err)
+	}
+	if got["Export"].ScopeWide {
+		t.Error("scope-wide grant survived removeScopeWideGrant()")
 	}
 }

@@ -13,13 +13,18 @@ import (
 	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-// Fixture names shared by the suite's ordered phases.
-const (
-	tenant1 = accesstypes.Domain("tenant1")
-	tenant2 = accesstypes.Domain("tenant2")
+// Fixture names shared by the suite's ordered phases. Scopes are variables
+// because accesstypes.Scope is a struct.
+var (
+	tenant1     = accesstypes.DomainScope("tenant1")
+	tenant2     = accesstypes.DomainScope("tenant2")
+	globalScope = accesstypes.GlobalScope()
+)
 
+const (
 	editor = accesstypes.Role("Editor")
 	admin  = accesstypes.Role("Admin")
 	viewer = accesstypes.Role("Viewer")
@@ -40,6 +45,7 @@ func Run(t *testing.T, store access.Store) {
 	t.Run("roles", func(t *testing.T) { runRoles(t, store) })
 	t.Run("memberships", func(t *testing.T) { runMemberships(t, store) })
 	t.Run("grants", func(t *testing.T) { runGrants(t, store) })
+	t.Run("global scope", func(t *testing.T) { runGlobalScope(t, store) })
 	t.Run("delete role", func(t *testing.T) { runDeleteRole(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
@@ -180,6 +186,49 @@ func runGrants(t *testing.T, store access.Store) {
 	}
 }
 
+func runGlobalScope(t *testing.T, store access.Store) {
+	t.Helper()
+	ctx := t.Context()
+
+	tenantNamedGlobal := accesstypes.DomainScope("global")
+
+	if err := store.InsertRole(ctx, globalScope, admin); err != nil {
+		t.Fatalf("InsertRole(global scope) error = %v", err)
+	}
+	if err := store.InsertRole(ctx, tenantNamedGlobal, admin); err != nil {
+		t.Fatalf("InsertRole(tenant named global) error = %v", err)
+	}
+
+	// The global partition and a tenant literally named "global" are distinct
+	// rows: scope is structural, never a domain value.
+	if exists, err := store.RoleExists(ctx, globalScope, admin); err != nil || !exists {
+		t.Fatalf("RoleExists(global scope) = (%v, %v), want (true, nil)", exists, err)
+	}
+	if exists, err := store.RoleExists(ctx, tenantNamedGlobal, admin); err != nil || !exists {
+		t.Fatalf("RoleExists(tenant named global) = (%v, %v), want (true, nil)", exists, err)
+	}
+	if deleted, err := store.DeleteRole(ctx, tenantNamedGlobal, admin); err != nil || !deleted {
+		t.Fatalf("DeleteRole(tenant named global) = (%v, %v), want (true, nil)", deleted, err)
+	}
+	if exists, err := store.RoleExists(ctx, globalScope, admin); err != nil || !exists {
+		t.Fatalf("RoleExists(global scope) after tenant delete = (%v, %v), want (true, nil): deleting the tenant row must not touch the global partition", exists, err)
+	}
+
+	// A scope-wide grant is stored as an empty resource+field row — a spot no
+	// real resource can occupy — and lists back exactly that way.
+	if err := store.InsertGrant(ctx, globalScope, admin, "Export", "", ""); err != nil {
+		t.Fatalf("InsertGrant(scope-wide) error = %v", err)
+	}
+	grants, err := store.ListRoleGrants(ctx, globalScope, admin)
+	if err != nil {
+		t.Fatalf("ListRoleGrants(global scope) error = %v", err)
+	}
+	want := []policy.RoleGrant{{Perm: "Export", Resource: "", Field: ""}}
+	if diff := cmp.Diff(want, grants); diff != "" {
+		t.Errorf("ListRoleGrants(global scope) (-want +got):\n%s", diff)
+	}
+}
+
 func runDeleteRole(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
@@ -219,9 +268,9 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
-	// State accumulated above: roles tenant1/{Admin,Viewer}, tenant2/Editor;
-	// membership alice->Viewer in tenant1. Add one grant to a surviving role
-	// so the read covers grants too.
+	// State accumulated above: roles tenant1/{Admin,Viewer}, tenant2/Editor,
+	// global/Admin with a scope-wide Export grant; membership alice->Viewer in
+	// tenant1. Add one grant to a surviving role so the read covers grants too.
 	if err := store.InsertGrant(ctx, tenant1, viewer, "List", "widgets", "*"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
@@ -233,15 +282,17 @@ func runReadPolicy(t *testing.T, store access.Store) {
 
 	want := &policy.Records{
 		Grants: []policy.Grant{
-			{Domain: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: globalScope, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(admin)}, Perm: "Export", Resource: "", Field: ""},
 		},
 		Memberships: []policy.Membership{
-			{Domain: tenant1, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(alice)}, Role: viewer},
+			{Scope: tenant1, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(alice)}, Role: viewer},
 		},
 	}
 	sortRecords(records)
 	sortRecords(want)
-	if diff := cmp.Diff(want, records); diff != "" {
+	// Scope is comparable with unexported fields; compare it by ==.
+	if diff := cmp.Diff(want, records, cmpopts.EquateComparable(accesstypes.Scope{})); diff != "" {
 		t.Errorf("ReadPolicy() (-want +got):\n%s", diff)
 	}
 }
@@ -265,10 +316,23 @@ func sortRecords(r *policy.Records) {
 
 		return 0
 	}
+	compareScopes := func(a, b accesstypes.Scope) int {
+		ag, ad := policy.ScopeColumns(a)
+		bg, bd := policy.ScopeColumns(b)
+		gi := func(g bool) int {
+			if g {
+				return 1
+			}
+
+			return 0
+		}
+
+		return cmpChain(gi(ag)-gi(bg), strings.Compare(ad, bd))
+	}
 
 	slices.SortFunc(r.Grants, func(a, b policy.Grant) int {
 		return cmpChain(
-			strings.Compare(string(a.Domain), string(b.Domain)),
+			compareScopes(a.Scope, b.Scope),
 			compareSubjects(a.Subject, b.Subject),
 			strings.Compare(string(a.Perm), string(b.Perm)),
 			strings.Compare(a.Resource, b.Resource),
@@ -277,7 +341,7 @@ func sortRecords(r *policy.Records) {
 	})
 	slices.SortFunc(r.Memberships, func(a, b policy.Membership) int {
 		return cmpChain(
-			strings.Compare(string(a.Domain), string(b.Domain)),
+			compareScopes(a.Scope, b.Scope),
 			compareSubjects(a.Member, b.Member),
 			strings.Compare(string(a.Role), string(b.Role)),
 		)

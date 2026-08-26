@@ -8,6 +8,7 @@ import (
 	"github.com/cccteam/access"
 	"github.com/cccteam/access/postgressignal"
 	"github.com/cccteam/access/postgresstore"
+	"github.com/cccteam/ccc/accesstypes"
 	dbinitiator "github.com/cccteam/db-initiator"
 )
 
@@ -83,6 +84,8 @@ func newTestClient(t *testing.T, db *dbinitiator.PostgresDatabase, name string, 
 // through the typed policy tables, via each of the two propagation paths —
 // the change signal (heartbeat pinned out of the picture) and the heartbeat
 // alone (poll-only deployments, no signal configured).
+var tenant1 = accesstypes.DomainScope("tenant1")
+
 func Test_Client_policyPropagation(t *testing.T) {
 	t.Parallel()
 
@@ -142,26 +145,26 @@ func Test_Client_policyPropagation(t *testing.T) {
 			}
 
 			mgr := writer.UserManager()
-			if err := mgr.AddRole(ctx, "tenant1", "Editor"); err != nil {
+			if err := mgr.AddRole(ctx, tenant1, "Editor"); err != nil {
 				t.Fatalf("AddRole() error = %v", err)
 			}
-			if err := mgr.AddRolePermissionResources(ctx, "tenant1", "Editor", "Read", "employees"); err != nil {
+			if err := mgr.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees"); err != nil {
 				t.Fatalf("AddRolePermissionResources() error = %v", err)
 			}
-			if err := mgr.AddRoleUsers(ctx, "tenant1", "Editor", "erin"); err != nil {
+			if err := mgr.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
 				t.Fatalf("AddRoleUsers() error = %v", err)
 			}
 
 			// Read-your-writes on the writing instance.
-			if missing, err := writer.CheckUser(ctx, "erin", "tenant1", "Read", "employees"); err != nil || len(missing) != 0 {
-				t.Fatalf("writer CheckUser() = (%v, %v), want granted immediately", missing, err)
+			if missing, err := writer.CheckUserResources(ctx, "erin", tenant1, "Read", "employees"); err != nil || len(missing) != 0 {
+				t.Fatalf("writer CheckUserResources() = (%v, %v), want granted immediately", missing, err)
 			}
 
 			// Cross-instance propagation.
 			waitFor(t, 15*time.Second, "policy change never reached the reader instance", func() bool {
-				missing, err := reader.CheckUser(ctx, "erin", "tenant1", "Read", "employees")
+				missing, err := reader.CheckUserResources(ctx, "erin", tenant1, "Read", "employees")
 				if err != nil {
-					t.Fatalf("reader CheckUser() error = %v", err)
+					t.Fatalf("reader CheckUserResources() error = %v", err)
 				}
 
 				return len(missing) == 0

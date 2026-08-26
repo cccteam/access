@@ -5,6 +5,9 @@
 //
 // Each Store owns three tables named {Prefix}{Store}{Roles|UserRoles|
 // RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants.
+// Rows are partitioned by scope, persisted as the structural column pair
+// (IsGlobal, Domain): the global partition is a flag, never a distinguished
+// domain value.
 // Separate tables per store make cross-store leakage structurally impossible:
 // there is no store-key WHERE clause to forget. DDL returns the tables'
 // canonical schema rendered with the configured names; apps copy it into a
@@ -33,6 +36,7 @@ const defaultPrefix = "Access"
 // Column and query-parameter names shared by the prepared statements and
 // mutations.
 const (
+	colIsGlobal   = "IsGlobal"
 	colDomain     = "Domain"
 	colRole       = "Role"
 	colUser       = "User"
@@ -42,9 +46,10 @@ const (
 	colCreatedAt  = "CreatedAt"
 	colUpdatedAt  = "UpdatedAt"
 
-	paramDomain = "domain"
-	paramRole   = "role"
-	paramUser   = "user"
+	paramIsGlobal = "isGlobal"
+	paramDomain   = "domain"
+	paramRole     = "role"
+	paramUser     = "user"
 )
 
 var (
@@ -103,7 +108,7 @@ func resolveNames(opts []Option) (tableNames, error) {
 		roles:      base + "Roles",
 		userRoles:  base + "UserRoles",
 		roleGrants: base + "RoleGrants",
-		userIndex:  base + "UserRolesByDomainUser",
+		userIndex:  base + "UserRolesByScopeUser",
 	}, nil
 }
 
@@ -136,14 +141,14 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		client: client,
 		names:  names,
 
-		sqlDeleteRole:      fmt.Sprintf("DELETE FROM %s WHERE Domain = @domain AND Role = @role", names.roles),
-		sqlRoleExists:      fmt.Sprintf("SELECT 1 FROM %s WHERE Domain = @domain AND Role = @role", names.roles),
-		sqlListRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Domain = @domain ORDER BY Role", names.roles),
-		sqlListUserRoles:   fmt.Sprintf("SELECT Role FROM %s WHERE Domain = @domain AND User = @user ORDER BY Role", names.userRoles),
-		sqlListRoleUsers:   fmt.Sprintf("SELECT User FROM %s WHERE Domain = @domain AND Role = @role ORDER BY User", names.userRoles),
-		sqlListRoleGrants:  fmt.Sprintf("SELECT Permission, Resource, Field FROM %s WHERE Domain = @domain AND Role = @role ORDER BY Permission, Resource, Field", names.roleGrants),
-		sqlReadGrants:      fmt.Sprintf("SELECT Domain, Role, Permission, Resource, Field FROM %s", names.roleGrants),
-		sqlReadMemberships: fmt.Sprintf("SELECT Domain, User, Role FROM %s", names.userRoles),
+		sqlDeleteRole:      fmt.Sprintf("DELETE FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role", names.roles),
+		sqlRoleExists:      fmt.Sprintf("SELECT 1 FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role", names.roles),
+		sqlListRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain ORDER BY Role", names.roles),
+		sqlListUserRoles:   fmt.Sprintf("SELECT Role FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND User = @user ORDER BY Role", names.userRoles),
+		sqlListRoleUsers:   fmt.Sprintf("SELECT User FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role ORDER BY User", names.userRoles),
+		sqlListRoleGrants:  fmt.Sprintf("SELECT Permission, Resource, Field FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role ORDER BY Permission, Resource, Field", names.roleGrants),
+		sqlReadGrants:      fmt.Sprintf("SELECT IsGlobal, Domain, Role, Permission, Resource, Field FROM %s", names.roleGrants),
+		sqlReadMemberships: fmt.Sprintf("SELECT IsGlobal, Domain, User, Role FROM %s", names.userRoles),
 	}, nil
 }
 
@@ -156,26 +161,29 @@ func (s *Store) DDL() []string {
 
 	return []string{
 		fmt.Sprintf(`CREATE TABLE %s (
+  IsGlobal BOOL NOT NULL,
   Domain STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
-) PRIMARY KEY (Domain, Role)`, n.roles),
+) PRIMARY KEY (IsGlobal, Domain, Role)`, n.roles),
 		fmt.Sprintf(`CREATE TABLE %s (
+  IsGlobal BOOL NOT NULL,
   Domain STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   User STRING(320) NOT NULL,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
-) PRIMARY KEY (Domain, Role, User),
+) PRIMARY KEY (IsGlobal, Domain, Role, User),
   INTERLEAVE IN PARENT %s ON DELETE NO ACTION`, n.userRoles, n.roles),
-		fmt.Sprintf(`CREATE INDEX %s ON %s (Domain, User)`, n.userIndex, n.userRoles),
+		fmt.Sprintf(`CREATE INDEX %s ON %s (IsGlobal, Domain, User)`, n.userIndex, n.userRoles),
 		fmt.Sprintf(`CREATE TABLE %s (
+  IsGlobal BOOL NOT NULL,
   Domain STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Permission STRING(64) NOT NULL,
   Resource STRING(128) NOT NULL,
   Field STRING(128) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
-) PRIMARY KEY (Domain, Role, Permission, Resource, Field),
+) PRIMARY KEY (IsGlobal, Domain, Role, Permission, Resource, Field),
   INTERLEAVE IN PARENT %s ON DELETE CASCADE`, n.roleGrants, n.roles),
 	}
 }
@@ -189,12 +197,13 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	records := &policy.Records{}
 
 	err := txn.Query(ctx, spanner.Statement{SQL: s.sqlReadGrants}).Do(func(row *spanner.Row) error {
+		var global bool
 		var domain, role, perm, resource, field string
-		if err := row.Columns(&domain, &role, &perm, &resource, &field); err != nil {
+		if err := row.Columns(&global, &domain, &role, &perm, &resource, &field); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		records.Grants = append(records.Grants, policy.Grant{
-			Domain:   accesstypes.Domain(domain),
+			Scope:    policy.ScopeFromColumns(global, domain),
 			Subject:  policy.Subject{Kind: policy.SubjectRole, Name: role},
 			Perm:     accesstypes.Permission(perm),
 			Resource: resource,
@@ -208,12 +217,13 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	}
 
 	err = txn.Query(ctx, spanner.Statement{SQL: s.sqlReadMemberships}).Do(func(row *spanner.Row) error {
+		var global bool
 		var domain, user, role string
-		if err := row.Columns(&domain, &user, &role); err != nil {
+		if err := row.Columns(&global, &domain, &user, &role); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		records.Memberships = append(records.Memberships, policy.Membership{
-			Domain: accesstypes.Domain(domain),
+			Scope:  policy.ScopeFromColumns(global, domain),
 			Member: policy.Subject{Kind: policy.SubjectUser, Name: user},
 			Role:   accesstypes.Role(role),
 		})
@@ -243,18 +253,20 @@ func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wra
 
 // InsertUserRole adds one user-role membership; adding an existing membership
 // is a no-op. The (domain, role) parent row must exist.
-func (s *Store) InsertUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
+func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+	global, domain := policy.ScopeColumns(scope)
 	m := spanner.Insert(s.names.userRoles,
-		[]string{colDomain, colRole, colUser, colCreatedAt},
-		[]any{string(domain), string(role), string(user), spanner.CommitTimestamp})
+		[]string{colIsGlobal, colDomain, colRole, colUser, colCreatedAt},
+		[]any{global, domain, string(role), string(user), spanner.CommitTimestamp})
 
 	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert user role")
 }
 
 // DeleteUserRole removes one user-role membership; removing an absent
 // membership is a no-op.
-func (s *Store) DeleteUserRole(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, role accesstypes.Role) error {
-	m := spanner.Delete(s.names.userRoles, spanner.Key{string(domain), string(role), string(user)})
+func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+	global, domain := policy.ScopeColumns(scope)
+	m := spanner.Delete(s.names.userRoles, spanner.Key{global, domain, string(role), string(user)})
 	if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply() delete user role")
 	}
@@ -262,9 +274,10 @@ func (s *Store) DeleteUserRole(ctx context.Context, domain accesstypes.Domain, u
 	return nil
 }
 
-// ListUserRoles returns the user's roles in domain, sorted.
-func (s *Store) ListUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User) ([]accesstypes.Role, error) {
-	stmt := spanner.Statement{SQL: s.sqlListUserRoles, Params: map[string]any{paramDomain: string(domain), paramUser: string(user)}}
+// ListUserRoles returns the user's roles in scope, sorted.
+func (s *Store) ListUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error) {
+	global, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlListUserRoles, Params: map[string]any{paramIsGlobal: global, paramDomain: domain, paramUser: string(user)}}
 	values, err := s.queryStrings(ctx, stmt)
 	if err != nil {
 		return nil, errors.Wrap(err, "user roles")
@@ -277,9 +290,10 @@ func (s *Store) ListUserRoles(ctx context.Context, domain accesstypes.Domain, us
 	return roles, nil
 }
 
-// ListRoleUsers returns the role's members in domain, sorted.
-func (s *Store) ListRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error) {
-	stmt := spanner.Statement{SQL: s.sqlListRoleUsers, Params: map[string]any{paramDomain: string(domain), paramRole: string(role)}}
+// ListRoleUsers returns the role's members in scope, sorted.
+func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
+	global, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlListRoleUsers, Params: map[string]any{paramIsGlobal: global, paramDomain: domain, paramRole: string(role)}}
 	values, err := s.queryStrings(ctx, stmt)
 	if err != nil {
 		return nil, errors.Wrap(err, "role users")
@@ -292,19 +306,21 @@ func (s *Store) ListRoleUsers(ctx context.Context, domain accesstypes.Domain, ro
 	return users, nil
 }
 
-// InsertRole creates the (domain, role) row; re-inserting an existing role is
+// InsertRole creates the (scope, role) row; re-inserting an existing role is
 // a no-op.
-func (s *Store) InsertRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error {
+func (s *Store) InsertRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
+	global, domain := policy.ScopeColumns(scope)
 	m := spanner.Insert(s.names.roles,
-		[]string{colDomain, colRole, colUpdatedAt},
-		[]any{string(domain), string(role), spanner.CommitTimestamp})
+		[]string{colIsGlobal, colDomain, colRole, colUpdatedAt},
+		[]any{global, domain, string(role), spanner.CommitTimestamp})
 
 	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert role")
 }
 
-// ListRoles returns the domain's roles, sorted.
-func (s *Store) ListRoles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error) {
-	stmt := spanner.Statement{SQL: s.sqlListRoles, Params: map[string]any{paramDomain: string(domain)}}
+// ListRoles returns the scope's roles, sorted.
+func (s *Store) ListRoles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
+	global, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlListRoles, Params: map[string]any{paramIsGlobal: global, paramDomain: domain}}
 	values, err := s.queryStrings(ctx, stmt)
 	if err != nil {
 		return nil, errors.Wrap(err, "roles")
@@ -317,16 +333,17 @@ func (s *Store) ListRoles(ctx context.Context, domain accesstypes.Domain) ([]acc
 	return roles, nil
 }
 
-// DeleteRole deletes the (domain, role) row through DML so the affected count
+// DeleteRole deletes the (scope, role) row through DML so the affected count
 // is known. Its grants cascade (interleaved ON DELETE CASCADE); memberships
 // block the delete (interleaved ON DELETE NO ACTION), so a role with members
 // refuses deletion.
-func (s *Store) DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
+func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+	global, domain := policy.ScopeColumns(scope)
 	var deleted bool
 	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		count, err := txn.Update(ctx, spanner.Statement{
 			SQL:    s.sqlDeleteRole,
-			Params: map[string]any{paramDomain: string(domain), paramRole: string(role)},
+			Params: map[string]any{paramIsGlobal: global, paramDomain: domain, paramRole: string(role)},
 		})
 		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -342,9 +359,10 @@ func (s *Store) DeleteRole(ctx context.Context, domain accesstypes.Domain, role 
 	return deleted, nil
 }
 
-// RoleExists reports whether the (domain, role) row exists.
-func (s *Store) RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error) {
-	stmt := spanner.Statement{SQL: s.sqlRoleExists, Params: map[string]any{paramDomain: string(domain), paramRole: string(role)}}
+// RoleExists reports whether the (scope, role) row exists.
+func (s *Store) RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+	global, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlRoleExists, Params: map[string]any{paramIsGlobal: global, paramDomain: domain, paramRole: string(role)}}
 	iter := s.client.Single().Query(ctx, stmt)
 	defer iter.Stop()
 
@@ -360,18 +378,20 @@ func (s *Store) RoleExists(ctx context.Context, domain accesstypes.Domain, role 
 }
 
 // InsertGrant adds one grant row; re-inserting an existing grant is a no-op.
-// The (domain, role) parent row must exist.
-func (s *Store) InsertGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+// The (scope, role) parent row must exist.
+func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+	global, domain := policy.ScopeColumns(scope)
 	m := spanner.Insert(s.names.roleGrants,
-		[]string{colDomain, colRole, colPermission, colResource, colField, colUpdatedAt},
-		[]any{string(domain), string(role), string(perm), resource, field, spanner.CommitTimestamp})
+		[]string{colIsGlobal, colDomain, colRole, colPermission, colResource, colField, colUpdatedAt},
+		[]any{global, domain, string(role), string(perm), resource, field, spanner.CommitTimestamp})
 
 	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert grant")
 }
 
 // DeleteGrant removes one grant row; removing an absent grant is a no-op.
-func (s *Store) DeleteGrant(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
-	m := spanner.Delete(s.names.roleGrants, spanner.Key{string(domain), string(role), string(perm), resource, field})
+func (s *Store) DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+	global, domain := policy.ScopeColumns(scope)
+	m := spanner.Delete(s.names.roleGrants, spanner.Key{global, domain, string(role), string(perm), resource, field})
 	if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply() delete grant")
 	}
@@ -379,9 +399,10 @@ func (s *Store) DeleteGrant(ctx context.Context, domain accesstypes.Domain, role
 	return nil
 }
 
-// ListRoleGrants returns the role's grant rows in domain, sorted.
-func (s *Store) ListRoleGrants(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]policy.RoleGrant, error) {
-	stmt := spanner.Statement{SQL: s.sqlListRoleGrants, Params: map[string]any{paramDomain: string(domain), paramRole: string(role)}}
+// ListRoleGrants returns the role's grant rows in scope, sorted.
+func (s *Store) ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error) {
+	global, domain := policy.ScopeColumns(scope)
+	stmt := spanner.Statement{SQL: s.sqlListRoleGrants, Params: map[string]any{paramIsGlobal: global, paramDomain: domain, paramRole: string(role)}}
 	grants := make([]policy.RoleGrant, 0)
 	err := s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		var perm, resource, field string

@@ -10,16 +10,25 @@ var _ Controller = &Client{}
 
 // Controller is the main interface for access control operations.
 type Controller interface {
-	// CheckUser returns the subset of resources that user does NOT hold perm on
-	// within domain, preserving input order; empty means everything passed.
-	CheckUser(
-		ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	// CheckUser reports whether user holds perm scope-wide (attached to no
+	// resource) within scope.
+	CheckUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
+
+	// CheckUserResources returns the subset of resources that user does NOT
+	// hold perm on within scope, preserving input order; empty means
+	// everything passed.
+	CheckUserResources(
+		ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (missing []accesstypes.Resource, err error)
 
-	// CheckRole returns the subset of resources that role does NOT hold perm on
-	// within domain, preserving input order; empty means everything passed.
-	CheckRole(
-		ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	// CheckRole reports whether role holds perm scope-wide within scope.
+	CheckRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
+
+	// CheckRoleResources returns the subset of resources that role does NOT
+	// hold perm on within scope, preserving input order; empty means
+	// everything passed.
+	CheckRoleResources(
+		ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (missing []accesstypes.Resource, err error)
 
 	// UserManager returns the UserManager for managing users, roles, and permissions.
@@ -31,57 +40,70 @@ type Controller interface {
 
 var _ UserManager = &userManager{}
 
-// UserManager manages RBAC users, roles, and permissions. Domains are opaque
-// partition labels: no method validates domain existence — the application
-// owns its tenant list and validates domains at its own boundaries.
+// UserManager manages RBAC users, roles, and permissions. Scopes are opaque
+// partition labels: no method validates tenant existence — the application
+// owns its tenant list and validates tenants at its own boundaries.
+//
+// The base-name/Resources-suffix pairing is the API's naming standard: the
+// base method addresses a permission held scope-wide (attached to no
+// resource); the Resources variant addresses specific resources.
 type UserManager interface {
-	// AddRoleUsers assigns role to users in domain. Errors if role doesn't exist.
-	AddRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error
+	// AddRoleUsers assigns role to users in scope. Errors if role doesn't exist.
+	AddRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, users ...accesstypes.User) error
 
-	// AddUserRoles assigns roles to user in domain. Errors if any role doesn't exist.
-	AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
+	// AddUserRoles assigns roles to user in scope. Errors if any role doesn't exist.
+	AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
 
-	// DeleteRoleUsers removes users from role in domain. Errors if role doesn't exist.
-	DeleteRoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, users ...accesstypes.User) error
+	// DeleteRoleUsers removes users from role in scope. Errors if role doesn't exist.
+	DeleteRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, users ...accesstypes.User) error
 
-	// DeleteUserRoles removes role assignments from user in domain.
-	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
+	// DeleteUserRoles removes role assignments from user in scope.
+	DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
 
-	// UserRoles returns user's roles for the given domains. At least one domain
-	// is required: access holds no domain list of its own to enumerate.
-	UserRoles(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.RoleCollection, error)
+	// UserRoles returns user's roles for the given scopes. At least one scope
+	// is required: access holds no scope list of its own to enumerate.
+	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.RoleCollection, error)
 
 	// UserPermissions returns user's effective permissions for the given
-	// domains. At least one domain is required.
-	UserPermissions(ctx context.Context, user accesstypes.User, domain ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
+	// scopes. At least one scope is required.
+	UserPermissions(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.UserPermissionCollection, error)
 
-	// AddRole creates role in domain. Errors if role already exists.
-	AddRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
+	// AddRole creates role in scope. Errors if role already exists.
+	AddRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error
 
-	// RoleExists reports whether role exists in domain.
-	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
+	// RoleExists reports whether role exists in scope.
+	RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
 
-	// Roles returns all roles in domain.
-	Roles(ctx context.Context, domain accesstypes.Domain) ([]accesstypes.Role, error)
+	// Roles returns all roles in scope.
+	Roles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error)
 
-	// DeleteRole removes role from domain. Returns false with error if role has
-	// users assigned. The delete is scoped to the given domain.
-	DeleteRole(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
+	// DeleteRole removes role from scope. Returns false with error if role has
+	// users assigned. The delete is scoped to the given scope.
+	DeleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
 
-	// AddRolePermissionResources grants permissions on resources to role in
-	// domain. Errors if role doesn't exist. A domain-wide permission (not tied
-	// to a specific resource) is a grant on accesstypes.GlobalResource.
-	AddRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
+	// AddRolePermission grants permission to role scope-wide: the permission is
+	// held with no resource attachment. Errors if role doesn't exist.
+	AddRolePermission(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission) error
 
-	// DeleteRolePermissionResources removes resource-specific permissions from role in domain. Errors if role doesn't exist.
-	DeleteRolePermissionResources(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
+	// DeleteRolePermission removes a scope-wide permission from role in scope.
+	// Errors if role doesn't exist.
+	DeleteRolePermission(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission) error
 
-	// DeleteAllRolePermissions removes all permissions from role in domain.
-	DeleteAllRolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) error
+	// AddRolePermissionResources grants permission on resources to role in
+	// scope. Errors if role doesn't exist.
+	AddRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
-	// RoleUsers returns users assigned to role in domain.
-	RoleUsers(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) ([]accesstypes.User, error)
+	// DeleteRolePermissionResources removes resource-specific permissions from role in scope. Errors if role doesn't exist.
+	DeleteRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
-	// RolePermissions returns permissions for role in domain as map of permissions to resources. Errors if role doesn't exist.
-	RolePermissions(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
+	// DeleteAllRolePermissions removes all permissions from role in scope,
+	// scope-wide and resource-specific alike.
+	DeleteAllRolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error
+
+	// RoleUsers returns users assigned to role in scope.
+	RoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error)
+
+	// RolePermissions returns the permissions role holds in scope and how each
+	// is granted (scope-wide, on resources, or both). Errors if role doesn't exist.
+	RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 }

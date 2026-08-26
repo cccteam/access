@@ -222,22 +222,40 @@ func (s *snapshotEngine) tryReload(ctx context.Context) {
 	}
 }
 
-func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	return snap.checkUser(user, domain, perm, resources...), nil
+	return snap.checkUser(user, scope, perm), nil
 }
 
-func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return snap.checkRole(role, domain, perm, resources...), nil
+	return snap.checkUserResources(user, scope, perm, resources...), nil
+}
+
+func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return snap.checkRole(role, scope, perm), nil
+}
+
+func (s *snapshotEngine) checkRoleResources(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return snap.checkRoleResources(role, scope, perm, resources...), nil
 }
 
 // peek returns the current snapshot without triggering loads. Nil until the

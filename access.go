@@ -28,7 +28,9 @@ type Client struct {
 //
 // The store's values — domains, users, resources — are opaque labels to
 // access: referential validity belongs to the callers that write them, and
-// checks fail closed on anything unknown.
+// checks fail closed on anything unknown. Whether an operation addresses a
+// tenant domain or the global partition is expressed by accesstypes.Scope,
+// never by a distinguished value.
 func New(store Store, opts ...Option) (*Client, error) {
 	options := defaultClientOptions()
 	for _, opt := range opts {
@@ -64,35 +66,53 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 	return newHandler(c, logHandler)
 }
 
-// CheckUser returns the subset of resources that user does NOT hold perm on
-// within domain, preserving input order; an empty result means everything
-// passed. A resource is either a parent name ("employees") or a single field
-// on a parent ("employees.name"); accesstypes.GlobalResource checks the
-// domain-wide permission itself.
+// CheckUser reports whether user holds perm scope-wide — attached to no
+// resource — within scope.
 //
-// There is no domain validation: an unknown domain simply holds no grants, so
-// everything comes back missing (fail closed). Callers wanting to distinguish
-// "invalid tenant" from "no permission" validate the domain in their own
-// guard, against the source that owns tenants.
-func (c *Client) CheckUser(
-	ctx context.Context, user accesstypes.User, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
-) (missing []accesstypes.Resource, err error) {
+// There is no scope validation: an unknown tenant simply holds no grants, so
+// the check fails closed. Callers wanting to distinguish "invalid tenant"
+// from "no permission" validate the tenant in their own guard, against the
+// source that owns tenants.
+func (c *Client) CheckUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.evaluator.checkUser(ctx, user, domain, perm, resources...)
+	return c.evaluator.checkUser(ctx, user, scope, perm)
 }
 
-// CheckRole returns the subset of resources that role does NOT hold perm on
-// within domain, preserving input order; an empty result means everything
-// passed. See CheckUser for the resource shape and domain semantics.
-func (c *Client) CheckRole(
-	ctx context.Context, role accesstypes.Role, domain accesstypes.Domain, perm accesstypes.Permission, resources ...accesstypes.Resource,
+// CheckUserResources returns the subset of resources that user does NOT hold
+// perm on within scope, preserving input order; an empty result means
+// everything passed. A resource is either a parent name ("employees") or a
+// single field on a parent ("employees.name"). See CheckUser for the scope
+// semantics.
+func (c *Client) CheckUserResources(
+	ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (missing []accesstypes.Resource, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.evaluator.checkRole(ctx, role, domain, perm, resources...)
+	return c.evaluator.checkUserResources(ctx, user, scope, perm, resources...)
+}
+
+// CheckRole reports whether role holds perm scope-wide within scope. See
+// CheckUser for the scope semantics.
+func (c *Client) CheckRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.checkRole(ctx, role, scope, perm)
+}
+
+// CheckRoleResources returns the subset of resources that role does NOT hold
+// perm on within scope, preserving input order; an empty result means
+// everything passed. See CheckUserResources for the resource shape.
+func (c *Client) CheckRoleResources(
+	ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) (missing []accesstypes.Resource, err error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
 }
 
 // UserManager returns the UserManager for managing users, roles, and permissions.
