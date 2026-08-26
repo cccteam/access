@@ -32,9 +32,16 @@ type Role struct {
 	Permissions map[accesstypes.Permission][]accesstypes.Resource
 }
 
-// MigrateRoles applies role configuration across all domains. Adds missing roles and permissions,
-// removes extras, and includes Administrator role with all permissions.
-func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig) error {
+// MigrateRoles applies role configuration across the given tenant domains:
+// adds missing roles and permissions, removes extras, and includes the
+// Administrator role with all permissions.
+//
+// The caller states its tenant universe explicitly; the global scope is
+// always included structurally (global-scoped grants live there), so
+// global-only applications pass no domains at all. Domains are opaque tenant
+// labels — any string is a legal tenant name, their validity is the caller's
+// business, and a domain not listed here is never reconciled.
+func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig, domains ...accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -44,23 +51,24 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 		Permissions: adminPermissions(store),
 	})
 
-	if err := bootstrapRoles(ctx, client, store, roleConfig.Roles); err != nil {
+	scopes := make([]accesstypes.Scope, 0, len(domains)+1)
+	scopes = append(scopes, accesstypes.GlobalScope())
+	for _, d := range domains {
+		scopes = append(scopes, accesstypes.DomainScope(d))
+	}
+
+	if err := bootstrapRoles(ctx, client, store, roleConfig.Roles, scopes); err != nil {
 		return errors.Wrap(err, "bootstrapRoles()")
 	}
 
 	return nil
 }
 
-func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, roles []*Role) error {
+func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, roles []*Role, scopes []accesstypes.Scope) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	domains, err := client.Domains(ctx)
-	if err != nil {
-		return errors.Wrap(err, "UserManager.Domains()")
-	}
-
-	if err := removeUnusedRoles(ctx, domains, client, roles); err != nil {
+	if err := removeUnusedRoles(ctx, scopes, client, roles); err != nil {
 		return err
 	}
 
@@ -89,42 +97,46 @@ func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCol
 			}
 		}
 
-		for _, domain := range domains {
-			if !client.RoleExists(ctx, domain, r.Name) {
-				if err := client.AddRole(ctx, domain, r.Name); err != nil {
-					return errors.Wrapf(err, "role %q to domain %s", r.Name, domain)
+		for _, scope := range scopes {
+			roleFound, err := client.RoleExists(ctx, scope, r.Name)
+			if err != nil {
+				return errors.Wrapf(err, "role %q in scope %s", r.Name, scope)
+			}
+			if !roleFound {
+				if err := client.AddRole(ctx, scope, r.Name); err != nil {
+					return errors.Wrapf(err, "role %q to scope %s", r.Name, scope)
 				}
-				fmt.Printf("Added role %q to domain %s\n", r.Name, domain)
+				fmt.Printf("Added role %q to scope %s\n", r.Name, scope)
 			}
 
 			perms := globalPermResources
-			if domain != accesstypes.GlobalDomain {
+			if !scope.IsGlobal() {
 				perms = domainPermResources
 			}
 
-			existingPermissions, err := client.RolePermissions(ctx, domain, r.Name)
+			existingPermissions, err := client.RolePermissions(ctx, scope, r.Name)
 			if err != nil {
-				return errors.Wrapf(err, "role %q to domain %s", r.Name, domain)
+				return errors.Wrapf(err, "role %q to scope %s", r.Name, scope)
 			}
 
-			newPermissions := exclude(perms, existingPermissions)
+			newPermissions := exclude(perms, resourceGrants(existingPermissions))
 			for permission, resources := range newPermissions {
-				if err := client.AddRolePermissionResources(ctx, domain, r.Name, permission, resources...); err != nil {
+				if err := client.AddRolePermissionResources(ctx, scope, r.Name, permission, resources...); err != nil {
 					return errors.Wrapf(err, "permissions %v, role %s", perms, r.Name)
 				}
 			}
 			if len(newPermissions) > 0 {
-				fmt.Printf("Added Permissions %v to role %s and domain %s\n", newPermissions, r.Name, domain)
+				fmt.Printf("Added Permissions %v to role %s and scope %s\n", newPermissions, r.Name, scope)
 			}
 
-			removePermissions := exclude(existingPermissions, perms)
+			removePermissions := exclude(resourceGrants(existingPermissions), perms)
 			for permission, resources := range removePermissions {
-				if err := client.DeleteRolePermissionResources(ctx, domain, r.Name, permission, resources...); err != nil {
+				if err := client.DeleteRolePermissionResources(ctx, scope, r.Name, permission, resources...); err != nil {
 					return errors.Wrapf(err, "permissions %v, role %s", perms, r.Name)
 				}
 			}
 			if len(removePermissions) > 0 {
-				fmt.Printf("Removed Permissions %v from role %s and domain %s\n", removePermissions, r.Name, domain)
+				fmt.Printf("Removed Permissions %v from role %s and scope %s\n", removePermissions, r.Name, scope)
 			}
 		}
 	}
@@ -132,9 +144,9 @@ func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCol
 	return nil
 }
 
-func removeUnusedRoles(ctx context.Context, domains []accesstypes.Domain, client UserManager, newRoles []*Role) error {
-	for _, domain := range domains {
-		existingRoles, err := client.Roles(ctx, domain)
+func removeUnusedRoles(ctx context.Context, scopes []accesstypes.Scope, client UserManager, newRoles []*Role) error {
+	for _, scope := range scopes {
+		existingRoles, err := client.Roles(ctx, scope)
 		if err != nil {
 			return errors.Wrap(err, "client.Roles()")
 		}
@@ -146,7 +158,7 @@ func removeUnusedRoles(ctx context.Context, domains []accesstypes.Domain, client
 					continue EXISTING
 				}
 			}
-			if _, err := client.DeleteRole(ctx, domain, er); err != nil {
+			if _, err := client.DeleteRole(ctx, scope, er); err != nil {
 				return errors.Wrap(err, "client.DeleteRole()")
 			}
 			fmt.Printf("Removed old Role %s\n", er)
@@ -167,6 +179,21 @@ func exclude(source, exclude map[accesstypes.Permission][]accesstypes.Resource) 
 				continue
 			}
 			list[sk] = append(list[sk], item)
+		}
+	}
+
+	return list
+}
+
+// resourceGrants projects a RolePermissionCollection onto its resource-grant
+// half. MigrateRoles reconciles resource grants only: scope-wide grants have
+// no writer here (RoleConfig entries are Collection-validated resource
+// names), so they are ignored rather than deleted.
+func resourceGrants(perms accesstypes.RolePermissionCollection) map[accesstypes.Permission][]accesstypes.Resource {
+	list := make(map[accesstypes.Permission][]accesstypes.Resource, len(perms))
+	for perm, grants := range perms {
+		if len(grants.Resources) > 0 {
+			list[perm] = grants.Resources
 		}
 	}
 

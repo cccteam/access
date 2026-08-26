@@ -1,7 +1,0 @@
-p, role:Editor,        domain:tenant1, resource:employees,        perm:Read, allow
-p, role:Editor,        domain:tenant1, resource:employees.name,   perm:Read, allow
-p, role:Editor,        domain:tenant1, resource:employees.*,      perm:Update, allow
-p, user:alice,         domain:tenant2, resource:global,           perm:ViewUsers, allow
-g, user:charlie,       role:Administrator, domain:tenant1
-g, role:Administrator, role:Editor,        domain:tenant1
-g, noop,               role:Editor,        domain:tenant1

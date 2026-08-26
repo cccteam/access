@@ -1,16 +1,17 @@
 # access
 
-Go library for role-based access control (RBAC) with domain-specific permission management. Policy is stored in a [Casbin](https://casbin.org/)-compatible table (`casbin_rule`); permission checks are answered by an in-memory snapshot engine compiled from that table, while policy writes go through casbin.
+Go library for role-based access control (RBAC) with domain-partitioned permission management. Policy lives in typed tables owned by this library; permission checks are answered by an immutable in-memory snapshot compiled from those tables — lock-free, allocation-free, and never touching the database on the request path.
 
 ## Overview
 
-Manages user permissions and roles across multiple domains or tenants. Supports PostgreSQL and Google Cloud Spanner as persistence backends.
+Manages user permissions and roles across multiple domains or tenants. Supports PostgreSQL and Google Cloud Spanner as persistence backends through the `postgresstore` and `spannerstore` subpackages.
 
 ## Features
 
 - Role-based access control (RBAC)
-- Multi-domain/tenant support with global domain option
-- Resource-specific permissions
+- Multi-tenant support with a structural global scope
+- Resource- and field-level permissions (`employees`, `employees.name`, `employees.*`)
+- Compiled in-memory snapshot evaluation with near-realtime change propagation
 - User, role, and permission management APIs
 - HTTP handlers for REST endpoints
 - Role migration and bootstrapping
@@ -23,25 +24,42 @@ go get github.com/cccteam/access
 
 ## Core Concepts
 
-- **Domain**: Tenant or organizational unit for permission isolation
+- **Scope**: The partition an operation applies to — the global partition (`accesstypes.GlobalScope()`) or one tenant domain (`accesstypes.DomainScope(domain)`). Global-ness is structural: no domain string means "global", so any tenant name is legal data (a tenant literally named "global" is an ordinary tenant). Scopes are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown tenants.
 - **User**: Individual with assigned roles
-- **Role**: Named collection of permissions
-- **Permission**: Action that can be performed (create, read, update, delete)
-- **Resource**: Object or entity that permissions apply to
+- **Role**: Named collection of permissions, scoped to a scope — role identity is `(scope, role)`
+- **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
+- **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet). An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
 
-## Database Adapters
+## Policy Stores
+
+Each store owns three tables named `{Prefix}{Store}{Roles|UserRoles|RoleGrants}` — defaults yield `AccessRoles`, `AccessUserRoles`, `AccessRoleGrants`. Applications with several independent permission stores in one database give each a store name (`WithStore("AdminPortal")` → `AccessAdminPortalRoles`, ...); separate tables make cross-store leakage structurally impossible.
+
+The library never runs DDL — applications own their schema lifecycle. `DDL()` returns the canonical schema rendered with the configured names; copy it into your migration file. The library's own test suites execute exactly these statements, so the shipped DDL is the tested DDL.
 
 ### PostgreSQL
 
 ```go
-connConfig, _ := pgx.ParseConfig("postgresql://user:pass@localhost/db")
-adapter := access.NewPostgresAdapter(connConfig, "database_name", "casbin_rule")
+import "github.com/cccteam/access/postgresstore"
+
+// Rides the application's existing pgx pool.
+store, err := postgresstore.New(pool /* *pgxpool.Pool */)
+
+// Or a named store with a custom prefix:
+store, err := postgresstore.New(pool, postgresstore.WithStore("AdminPortal"))
+
+// Schema for your migration file:
+for _, stmt := range store.DDL() { ... }
 ```
 
 ### Google Cloud Spanner
 
 ```go
-adapter := access.NewSpannerAdapter("projects/myproject/instances/myinstance/databases/mydb", "casbin_rule")
+import "github.com/cccteam/access/spannerstore"
+
+store, err := spannerstore.New(client /* *spanner.Client */)
+
+// Or a named store:
+store, err := spannerstore.New(client, spannerstore.WithStore("AdminPortal"))
 ```
 
 ## Quick Start
@@ -52,54 +70,47 @@ package main
 import (
     "context"
     "log"
-    
+
     "github.com/cccteam/access"
-    "github.com/cccteam/ccc/accesstypes"
-    "github.com/jackc/pgx/v5"
+    "github.com/cccteam/access/postgresstore"
+    "github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
-    // Configure PostgreSQL connection
-    connConfig, _ := pgx.ParseConfig("postgresql://user:pass@localhost/db")
-    
-    // Create adapters and domains implementation
-    adapter := access.NewPostgresAdapter(connConfig, "mydb", "casbin_rule")
-    domains := &MyDomainsImpl{} // Implement the Domains interface
-    
-    client, err := access.New(domains, adapter)
+    ctx := context.Background()
+
+    pool, _ := pgxpool.New(ctx, "postgresql://user:pass@localhost/db")
+
+    store, err := postgresstore.New(pool)
     if err != nil {
         log.Fatal(err)
     }
-    
-    ctx := context.Background()
+
+    client, err := access.New(store)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
     mgr := client.UserManager()
-    
+
+    tenant1 := accesstypes.DomainScope("tenant1")
+
     // Create role and grant permissions
-    mgr.AddRole(ctx, "tenant1", "admin")
-    mgr.AddRolePermissions(ctx, "tenant1", "admin", "create", "read", "update", "delete")
-    
+    mgr.AddRole(ctx, tenant1, "admin")
+    mgr.AddRolePermissionResources(ctx, tenant1, "admin", "Read", "documents", "documents.*")
+
     // Assign role to user
-    mgr.AddUserRoles(ctx, "tenant1", "john.doe", "admin")
-    
-    // Check permissions
-    err = client.RequireAll(ctx, "john.doe", "tenant1", "read", "write")
-}
-```
+    mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin")
 
-### Implementing Domains Interface
-
-Implement the `Domains` interface for domain validation:
-
-```go
-type MyDomainsImpl struct {}
-
-func (d *MyDomainsImpl) DomainIDs(ctx context.Context) ([]string, error) {
-    return []string{"tenant1", "tenant2", "tenant3"}, nil
-}
-
-func (d *MyDomainsImpl) DomainExists(ctx context.Context, domainID string) (bool, error) {
-    // Check domain existence in your system
-    return true, nil
+    // Check permissions: missing is the subset NOT granted; empty means all passed.
+    missing, err := client.CheckUserResources(ctx, "john.doe", tenant1, "Read", "documents", "documents.title")
+    if err != nil {
+        log.Fatal(err)
+    }
+    if len(missing) > 0 {
+        // deny: shape your own Forbidden response
+    }
 }
 ```
 
@@ -117,7 +128,7 @@ client are visible to its own checks immediately.
 ```go
 import "github.com/cccteam/access/postgressignal"
 
-client, err := access.New(domains, adapter,
+client, err := access.New(store,
     // Recommended: propagate changes between instances in near-realtime.
     // Rides the app's existing pgx pool.
     access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
@@ -144,82 +155,90 @@ import "github.com/cccteam/access/firebasesignal"
 
 fsClient, _ := firestore.NewClient(ctx, projectID)
 signal, err := firebasesignal.New(fsClient, "access/policy")
-client, err := access.New(domains, adapter, access.WithChangeSignal(signal))
-```
-
-### Deploy gate
-
-`ValidateEngineEquivalence` compares the casbin evaluator and the snapshot
-evaluator over the live policy store. Run it in the migrate job before
-`MigrateRoles` and abort the deploy on error:
-
-```go
-if err := client.ValidateEngineEquivalence(ctx); err != nil {
-    log.Fatalf("engines diverge, aborting deploy: %v", err)
-}
+client, err := access.New(store, access.WithChangeSignal(signal))
 ```
 
 ## API Usage
 
 ### Permission Checking
 
-```go
-// Check all permissions
-err := client.RequireAll(ctx, user, domain, "read", "write", "delete")
+The base name / `Resources` suffix pairing is the API's naming standard: the
+base method checks a permission held scope-wide (attached to no resource);
+the `Resources` variant checks specific resources.
 
-// Check resource-specific permissions
-ok, missing, err := client.RequireResources(ctx, user, domain, "read", "resource1", "resource2")
+`CheckUserResources` and `CheckRoleResources` return the subset of resources
+the subject does NOT hold the permission on, preserving input order; empty
+means everything passed. One permission per call; batch as many resources as
+you like — a check is a bit test per resource against the pinned snapshot.
+`CheckUser` and `CheckRole` report whether the subject holds the permission
+scope-wide.
+
+```go
+missing, err := client.CheckUserResources(ctx, user, scope, "Read", "documents", "documents.title", "images")
+missing, err := client.CheckRoleResources(ctx, role, scope, "Update", "documents")
+
+held, err := client.CheckUser(ctx, user, scope, "ExportReports") // scope-wide
 ```
+
+There is no tenant validation on the check path: an unknown tenant scope
+holds no grants, so everything comes back missing (fail closed). If your API
+wants to answer 400 for an invalid tenant rather than 403, validate the
+tenant in your own guard — your application owns the tenant table.
 
 ### User Management
 
 ```go
 mgr := client.UserManager()
+tenant1 := accesstypes.DomainScope("tenant1")
+tenant2 := accesstypes.DomainScope("tenant2")
 
-userAccess, err := mgr.User(ctx, "john.doe", "tenant1")
-allUsers, err := mgr.Users(ctx, "tenant1")
-roles, err := mgr.UserRoles(ctx, "john.doe", "tenant1")
-permissions, err := mgr.UserPermissions(ctx, "john.doe", "tenant1")
+// Enumeration is scope-explicit: access holds no tenant list of its own.
+roles, err := mgr.UserRoles(ctx, "john.doe", tenant1, tenant2)
+permissions, err := mgr.UserPermissions(ctx, "john.doe", tenant1)
 
-mgr.AddUserRoles(ctx, "tenant1", "john.doe", "admin", "editor")
-mgr.DeleteUserRoles(ctx, "tenant1", "john.doe", "editor")
+mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin", "editor")
+mgr.DeleteUserRoles(ctx, tenant1, "john.doe", "editor")
 ```
 
 ### Role Management
 
 ```go
-mgr.AddRole(ctx, "tenant1", "moderator")
-deleted, err := mgr.DeleteRole(ctx, "tenant1", "moderator")
+mgr.AddRole(ctx, tenant1, "moderator")
+deleted, err := mgr.DeleteRole(ctx, tenant1, "moderator") // scoped to tenant1
 
-roles, err := mgr.Roles(ctx, "tenant1")
-exists := mgr.RoleExists(ctx, "tenant1", "admin")
+roles, err := mgr.Roles(ctx, tenant1)
+exists, err := mgr.RoleExists(ctx, tenant1, "admin")
 
-users, err := mgr.RoleUsers(ctx, "tenant1", "admin")
-mgr.AddRoleUsers(ctx, "tenant1", "admin", "user1", "user2")
-mgr.DeleteRoleUsers(ctx, "tenant1", "admin", "user1")
+users, err := mgr.RoleUsers(ctx, tenant1, "admin")
+mgr.AddRoleUsers(ctx, tenant1, "admin", "user1", "user2")
+mgr.DeleteRoleUsers(ctx, tenant1, "admin", "user1")
+
+// Global-scope roles live in their own partition.
+mgr.AddRole(ctx, accesstypes.GlobalScope(), "SystemAdmin")
 ```
 
 ### Permission Management
 
 ```go
-// Domain-specific permissions
-mgr.AddRolePermissions(ctx, "tenant1", "admin", "create", "delete")
-mgr.DeleteRolePermissions(ctx, "tenant1", "admin", "delete")
-mgr.DeleteAllRolePermissions(ctx, "tenant1", "admin")
+// Resource- and field-specific permissions
+mgr.AddRolePermissionResources(ctx, tenant1, "editor", "Read", "documents", "documents.*")
+mgr.DeleteRolePermissionResources(ctx, tenant1, "editor", "Read", "documents.*")
 
-// Resource-specific permissions
-mgr.AddRolePermissionResources(ctx, "tenant1", "editor", "read", "document1", "document2")
-mgr.DeleteRolePermissionResources(ctx, "tenant1", "editor", "read", "document1")
+// A scope-wide permission (not tied to any resource) is granted through the
+// base-name method — there is no resource value that means it.
+mgr.AddRolePermission(ctx, tenant1, "admin", "CreateUsers")
+mgr.DeleteRolePermission(ctx, tenant1, "admin", "CreateUsers")
 
-permissions, err := mgr.RolePermissions(ctx, "tenant1", "admin")
+permissions, err := mgr.RolePermissions(ctx, tenant1, "admin")
 ```
+
+Grant writes enforce the resource shape fail-closed: at most one dot, both
+segments non-empty (`a.b.c`, `.name`, and `employees.` are rejected at
+declaration time).
 
 ## HTTP Handlers
 
 ```go
-import "github.com/go-playground/validator/v10"
-
-validate := validator.New()
 logHandler := func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         if err := handler(w, r); err != nil {
@@ -228,74 +247,71 @@ logHandler := func(handler func(w http.ResponseWriter, r *http.Request) error) h
     }
 }
 
-handlers := client.Handlers(validate, logHandler)
+handlers := client.Handlers(logHandler)
 
 http.HandleFunc("/roles", handlers.Roles())
 http.HandleFunc("/roles/add", handlers.AddRole())
-http.HandleFunc("/users", handlers.Users())
-http.HandleFunc("/user", handlers.User())
 ```
 
 ## Role Migration
 
-`MigrateRoles` automates role and permission setup across all domains. Use for initial setup, deployment automation, and permission updates.
+`MigrateRoles` reconciles role and permission configuration across the given
+domains: it creates missing roles and grants, removes extras, and adds an
+"Administrator" role with all permissions. Run it from your migrate job on
+every deploy.
+
+The caller states its tenant universe explicitly as plain domain names — any
+string is a legal tenant name; the global scope is always included
+structurally, so global-only applications pass no domains at all. Construct the
+migrate job's client with a change signal so running instances pick up the new
+configuration immediately.
 
 ### Usage
 
 ```go
 import (
     "context"
-    
+
     "github.com/cccteam/access"
     "github.com/cccteam/ccc/accesstypes"
     "github.com/cccteam/ccc/resource"
 )
 
-func migrateRoles(client *access.Client, store *resource.Collection) error {
-    ctx := context.Background()
-    
+func migrateRoles(ctx context.Context, client *access.Client, store *resource.GeneratedCollection, tenants []accesstypes.Domain) error {
     roleConfig := &access.RoleConfig{
         Roles: []*access.Role{
             {
                 Name: "Editor",
                 Permissions: map[accesstypes.Permission][]accesstypes.Resource{
-                    "read":   {"documents", "images", "files"},
-                    "create": {"documents", "images"},
-                    "update": {"documents", "images"},
+                    "Read":   {"documents", "documents.*", "images"},
+                    "Create": {"documents", "images"},
+                    "Update": {"documents"},
                 },
             },
             {
                 Name: "Viewer",
                 Permissions: map[accesstypes.Permission][]accesstypes.Resource{
-                    "read": {"documents", "images", "files"},
-                },
-            },
-            {
-                Name: "Moderator",
-                Permissions: map[accesstypes.Permission][]accesstypes.Resource{
-                    "read":   {"documents", "images", "files", "users"},
-                    "update": {"documents", "users"},
-                    "delete": {"documents"},
+                    "Read": {"documents", "images"},
                 },
             },
         },
     }
-    
-    return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig)
+
+    return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig, tenants...)
 }
 ```
 
 ### Behavior
 
 - Automatically adds "Administrator" role with all permissions
-- Applies roles across all domains (global and domain-specific)
+- Applies roles across the global scope plus a tenant scope for every domain passed in
 - Creates missing roles and adds missing permissions
 - Removes permissions not in configuration
 - Removes roles not in configuration
-- Validates resources and permissions against resource store
+- Validates resources and permissions against the resource store
 - Prevents update permissions on immutable resources
 
-**Note**: Safe to run multiple times - applies changes only when state differs from configuration. Modifies input config by appending Administrator role.
+**Note**: Safe to run multiple times — applies changes only when state differs from configuration, and a rollback that re-runs an older release's migrate job converges the store back to that release's defaults. Modifies input config by appending the Administrator role.
 
 ### JSON Configuration
 
@@ -305,15 +321,15 @@ func migrateRoles(client *access.Client, store *resource.Collection) error {
     {
       "Name": "Editor",
       "Permissions": {
-        "read": ["documents", "images"],
-        "create": ["documents", "images"],
-        "update": ["documents", "images"]
+        "Read": ["documents", "images"],
+        "Create": ["documents", "images"],
+        "Update": ["documents", "images"]
       }
     },
     {
       "Name": "Viewer",
       "Permissions": {
-        "read": ["documents", "images"]
+        "Read": ["documents", "images"]
       }
     }
   ]
@@ -324,7 +340,7 @@ func migrateRoles(client *access.Client, store *resource.Collection) error {
 data, _ := os.ReadFile("roles.json")
 var config access.RoleConfig
 json.Unmarshal(data, &config)
-access.MigrateRoles(ctx, client.UserManager(), store, &config)
+access.MigrateRoles(ctx, client.UserManager(), store, &config, tenants...)
 ```
 
 ## License

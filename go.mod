@@ -2,22 +2,24 @@ module github.com/cccteam/access
 
 go 1.26.6
 
+replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migrate/v4 v4.19.2-beta.0
+
 require (
 	cloud.google.com/go/firestore v1.25.0
-	github.com/casbin/casbin/v2 v2.135.0
-	github.com/cccteam/ccc/accesstypes v0.5.9
+	cloud.google.com/go/spanner v1.94.0
+	github.com/cccteam/ccc/accesstypes v0.5.10-0.20260826022329-9ed77f374614
 	github.com/cccteam/ccc/resource v0.10.6
 	github.com/cccteam/ccc/tracer v0.1.7
 	github.com/cccteam/db-initiator v0.3.13
 	github.com/cccteam/httpio v0.7.17
-	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/pckhoi/casbin-pgx-adapter/v3 v3.2.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	go.uber.org/mock v0.6.0
+	google.golang.org/api v0.290.0
+	google.golang.org/grpc v1.82.1
 )
 
 require (
@@ -30,7 +32,6 @@ require (
 	cloud.google.com/go/logging v1.19.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
 	cloud.google.com/go/monitoring v1.30.0 // indirect
-	cloud.google.com/go/spanner v1.94.0 // indirect
 	cloud.google.com/go/trace v1.16.0 // indirect
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.14 // indirect
 	dario.cat/mergo v1.0.2 // indirect
@@ -41,8 +42,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.58.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.58.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
-	github.com/casbin/govaluate v1.10.0 // indirect
 	github.com/cccteam/ccc v0.3.2 // indirect
 	github.com/cccteam/logger v0.1.25 // indirect
 	github.com/cccteam/session v0.9.1 // indirect
@@ -84,7 +83,6 @@ require (
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260627054121-477a66015f15 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
-	github.com/mmcloughlin/meow v0.0.0-20200201185800-3501c7c05d21 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.3.3 // indirect
 	github.com/moby/moby/api v1.55.0 // indirect
@@ -124,11 +122,9 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/api v0.290.0 // indirect
 	google.golang.org/genproto v0.0.0-20260720211330-0afa2a65878a // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260724162435-b2f20204f0df // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260724162435-b2f20204f0df // indirect
-	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

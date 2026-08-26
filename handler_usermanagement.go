@@ -8,66 +8,15 @@ import (
 	"github.com/cccteam/httpio"
 )
 
+// The HTTP management surface addresses tenant scopes only: the {domain} URL
+// parameter is data, so it always constructs a tenant scope — there is no URL
+// spelling for the global partition. Global grants are deploy-owned
+// (MigrateRoles); a deliberate global admin surface is Admin-UI-era work.
 const (
 	paramUser   httpio.ParamType = "user"
 	paramDomain httpio.ParamType = "domain"
 	paramRole   httpio.ParamType = "role"
 )
-
-// Users is the handler to get the list of users in the system
-//
-// Permissions Required: ViewUsers
-func (a *HandlerClient) Users() http.HandlerFunc {
-	type user struct {
-		Name        string                               `json:"name"`
-		Roles       accesstypes.RoleCollection           `json:"roles"`
-		Permissions accesstypes.UserPermissionCollection `json:"permissions"`
-	}
-
-	type response []*user
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		userList, err := a.manager.Users(ctx)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		res := make(response, 0, len(userList))
-		for _, u := range userList {
-			res = append(res, (*user)(u))
-		}
-
-		return httpio.NewEncoder(w).Ok(res)
-	})
-}
-
-// User is the handler to get a user
-//
-// Permissions Required: ViewUsers
-func (a *HandlerClient) User() http.HandlerFunc {
-	type response struct {
-		Name        string                               `json:"name"`
-		Roles       accesstypes.RoleCollection           `json:"roles"`
-		Permissions accesstypes.UserPermissionCollection `json:"permissions"`
-	}
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		username := httpio.Param[accesstypes.User](r, paramUser)
-
-		user, err := a.manager.User(ctx, username)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		return httpio.NewEncoder(w).Ok((*response)(user))
-	})
-}
 
 // AddRole is the handler to add a new role to the system
 //
@@ -92,8 +41,8 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
 
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
-		if err := a.manager.AddRole(ctx, domain, req.RoleName); err != nil {
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
+		if err := a.manager.AddRole(ctx, scope, req.RoleName); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -102,36 +51,6 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 		}
 
 		return httpio.NewEncoder(w).Ok(resp)
-	})
-}
-
-// AddRolePermissions is the handler to assign permissions to a given role
-//
-// Permissions Required: AddRolePermissions
-func (a *HandlerClient) AddRolePermissions() http.HandlerFunc {
-	type request struct {
-		Permissions []accesstypes.Permission `json:"permissions"`
-	}
-
-	decoder := newDecoder[request]()
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		req, err := decoder.Decode(r)
-		if err != nil {
-			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
-		}
-
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
-		role := httpio.Param[accesstypes.Role](r, paramRole)
-
-		if err := a.manager.AddRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		return nil
 	})
 }
 
@@ -153,10 +72,10 @@ func (a *HandlerClient) AddRoleUsers() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
-		if err := a.manager.AddRoleUsers(ctx, domain, role, req.Users...); err != nil {
+		if err := a.manager.AddRoleUsers(ctx, scope, role, req.Users...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -182,39 +101,10 @@ func (a *HandlerClient) DeleteRoleUsers() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
 		}
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
-		if err := a.manager.DeleteRoleUsers(ctx, domain, role, req.Users...); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		return nil
-	})
-}
-
-// DeleteRolePermissions is the handler to remove permissions from a role
-//
-// Permissions Required: DeleteRolePermissions
-func (a *HandlerClient) DeleteRolePermissions() http.HandlerFunc {
-	type request struct {
-		Permissions []accesstypes.Permission `json:"permissions"`
-	}
-
-	decoder := newDecoder[request]()
-
-	return a.handler(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		req, err := decoder.Decode(r)
-		if err != nil {
-			return httpio.NewEncoder(w).BadRequestWithError(ctx, err)
-		}
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
-		role := httpio.Param[accesstypes.Role](r, paramRole)
-
-		if err := a.manager.DeleteRolePermissions(ctx, domain, role, req.Permissions...); err != nil {
+		if err := a.manager.DeleteRoleUsers(ctx, scope, role, req.Users...); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -234,8 +124,8 @@ func (a *HandlerClient) Roles() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
-		roles, err := a.manager.Roles(ctx, domain)
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
+		roles, err := a.manager.Roles(ctx, scope)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -256,10 +146,10 @@ func (a *HandlerClient) RoleUsers() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
-		roleUsers, err := a.manager.RoleUsers(ctx, domain, role)
+		roleUsers, err := a.manager.RoleUsers(ctx, scope, role)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -280,10 +170,10 @@ func (a *HandlerClient) RolePermissions() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
-		rolePermissions, err := a.manager.RolePermissions(ctx, domain, role)
+		rolePermissions, err := a.manager.RolePermissions(ctx, scope, role)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -302,10 +192,10 @@ func (a *HandlerClient) DeleteRole() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		domain := httpio.Param[accesstypes.Domain](r, paramDomain)
+		scope := accesstypes.DomainScope(httpio.Param[accesstypes.Domain](r, paramDomain))
 		role := httpio.Param[accesstypes.Role](r, paramRole)
 
-		_, err := a.manager.DeleteRole(ctx, domain, role)
+		_, err := a.manager.DeleteRole(ctx, scope, role)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
