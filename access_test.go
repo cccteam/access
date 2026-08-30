@@ -36,6 +36,151 @@ func TestNew(t *testing.T) {
 	}
 }
 
+// TestClient_CheckUser_returnsDecision pins the ABAC-ready seam translation:
+// the RBAC snapshot evaluator answers a bare allow/deny, and the re-signed
+// seam surfaces it as a Granted/Denied Decision. Conditional cannot occur
+// until the engine holds conditions.
+func TestClient_CheckUser_returnsDecision(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	client, err := New(newFakeStore())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	manager := client.UserManager()
+	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddRolePermission(ctx, tenant1, "Editor", "Read"); err != nil {
+		t.Fatalf("AddRolePermission() error = %v", err)
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+		t.Fatalf("AddRoleUsers() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+		perm accesstypes.Permission
+		want accesstypes.Decision
+	}{
+		{
+			name: "scope-wide grant is granted",
+			user: "erin",
+			perm: "Read",
+			want: accesstypes.Granted(),
+		},
+		{
+			name: "unheld permission fails closed to denied",
+			user: "erin",
+			perm: "Delete",
+			want: accesstypes.Denied(),
+		},
+		{
+			name: "unknown user fails closed to denied",
+			user: "sam",
+			perm: "Read",
+			want: accesstypes.Denied(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := client.CheckUser(t.Context(), accesstypes.NewEnvironment(), tt.user, tenant1, tt.perm)
+			if err != nil {
+				t.Fatalf("CheckUser() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+				t.Errorf("CheckUser() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestClient_CheckUserResources_returnsDecisions pins the per-resource
+// Decision translation: every checked resource gets an answer from one
+// snapshot — Granted where a grant covers it, Denied otherwise.
+func TestClient_CheckUserResources_returnsDecisions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	client, err := New(newFakeStore())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	manager := client.UserManager()
+	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees", "employees.name"); err != nil {
+		t.Fatalf("AddRolePermissionResources() error = %v", err)
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+		t.Fatalf("AddRoleUsers() error = %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		resources []accesstypes.Resource
+		want      accesstypes.Decisions
+	}{
+		{
+			name:      "granted resources",
+			resources: []accesstypes.Resource{"employees", "employees.name"},
+			want: accesstypes.Decisions{
+				"employees":      accesstypes.Granted(),
+				"employees.name": accesstypes.Granted(),
+			},
+		},
+		{
+			name:      "mixed grants answer per resource",
+			resources: []accesstypes.Resource{"employees", "secrets"},
+			want: accesstypes.Decisions{
+				"employees": accesstypes.Granted(),
+				"secrets":   accesstypes.Denied(),
+			},
+		},
+		{
+			name:      "uncovered resource fails closed to denied",
+			resources: []accesstypes.Resource{"secrets"},
+			want: accesstypes.Decisions{
+				"secrets": accesstypes.Denied(),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := client.CheckUserResources(t.Context(), accesstypes.NewEnvironment(), "erin", tenant1, "Read", tt.resources...)
+			if err != nil {
+				t.Fatalf("CheckUserResources() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+				t.Errorf("CheckUserResources() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestClient_CheckUserResources_unknownTenantFailsClosed pins the Domains
 // decoupling: there is no tenant validation on the check path — an unknown
 // tenant scope holds no grants, so everything comes back missing, without an
@@ -67,19 +212,23 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 		t.Fatalf("AddRoleUsers() error = %v", err)
 	}
 
-	missing, err := client.CheckUserResources(ctx, "erin", tenant1, "Read", "employees")
+	env := accesstypes.NewEnvironment()
+
+	decisions, err := client.CheckUserResources(ctx, env, "erin", tenant1, "Read", "employees")
 	if err != nil {
 		t.Fatalf("CheckUserResources() error = %v", err)
 	}
-	if diff := cmp.Diff([]accesstypes.Resource{}, missing); diff != "" {
+	want := accesstypes.Decisions{"employees": accesstypes.Granted()}
+	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
 		t.Errorf("CheckUserResources() in known tenant (-want +got):\n%s", diff)
 	}
 
-	missing, err = client.CheckUserResources(ctx, "erin", accesstypes.DomainScope("no-such-tenant"), "Read", "employees")
+	decisions, err = client.CheckUserResources(ctx, env, "erin", accesstypes.DomainScope("no-such-tenant"), "Read", "employees")
 	if err != nil {
-		t.Fatalf("CheckUserResources() unknown tenant error = %v, want fail-closed missing, not an error", err)
+		t.Fatalf("CheckUserResources() unknown tenant error = %v, want fail-closed denial, not an error", err)
 	}
-	if diff := cmp.Diff([]accesstypes.Resource{"employees"}, missing); diff != "" {
+	want = accesstypes.Decisions{"employees": accesstypes.Denied()}
+	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
 		t.Errorf("CheckUserResources() in unknown tenant (-want +got):\n%s", diff)
 	}
 }

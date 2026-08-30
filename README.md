@@ -103,12 +103,13 @@ func main() {
     // Assign role to user
     mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin")
 
-    // Check permissions: missing is the subset NOT granted; empty means all passed.
-    missing, err := client.CheckUserResources(ctx, "john.doe", tenant1, "Read", "documents", "documents.title")
+    // Check permissions: one Decision per resource, from one policy snapshot.
+    env := accesstypes.NewEnvironment() // per-request decision context
+    decisions, err := client.CheckUserResources(ctx, env, "john.doe", tenant1, "Read", "documents", "documents.title")
     if err != nil {
         log.Fatal(err)
     }
-    if len(missing) > 0 {
+    if denied := decisions.DeniedResources(); len(denied) > 0 {
         // deny: shape your own Forbidden response
     }
 }
@@ -166,22 +167,32 @@ The base name / `Resources` suffix pairing is the API's naming standard: the
 base method checks a permission held scope-wide (attached to no resource);
 the `Resources` variant checks specific resources.
 
-`CheckUserResources` and `CheckRoleResources` return the subset of resources
-the subject does NOT hold the permission on, preserving input order; empty
+The user checks are the request-path seams and are ABAC-ready: they take the
+per-request decision context (`accesstypes.Environment`, immediately after
+`ctx`) and answer with Decisions (`Denied` / `Granted` / `Conditional`).
+`CheckUserResources` returns one Decision per resource, all from a single
+policy snapshot; `Decisions.DeniedResources()` lists what was denied — empty
 means everything passed. One permission per call; batch as many resources as
-you like — a check is a bit test per resource against the pinned snapshot.
-`CheckUser` and `CheckRole` report whether the subject holds the permission
-scope-wide.
+you like. `CheckUser` returns the Decision for a permission held scope-wide.
+Until the engine holds conditions, every Decision is `Granted` or `Denied`
+and an empty `Environment` is the normal argument.
+
+The role checks are introspection tools and keep the bare shape:
+`CheckRoleResources` returns the subset of resources the role does NOT hold
+the permission on; `CheckRole` reports scope-wide holding as a bool.
 
 ```go
-missing, err := client.CheckUserResources(ctx, user, scope, "Read", "documents", "documents.title", "images")
-missing, err := client.CheckRoleResources(ctx, role, scope, "Update", "documents")
+env := accesstypes.NewEnvironment()
 
-held, err := client.CheckUser(ctx, user, scope, "ExportReports") // scope-wide
+decisions, err := client.CheckUserResources(ctx, env, user, scope, "Read", "documents", "documents.title", "images")
+decision, err := client.CheckUser(ctx, env, user, scope, "ExportReports") // scope-wide
+
+missing, err := client.CheckRoleResources(ctx, role, scope, "Update", "documents")
+held, err := client.CheckRole(ctx, role, scope, "ExportReports")
 ```
 
 There is no tenant validation on the check path: an unknown tenant scope
-holds no grants, so everything comes back missing (fail closed). If your API
+holds no grants, so everything comes back denied (fail closed). If your API
 wants to answer 400 for an invalid tenant rather than 403, validate the
 tenant in your own guard — your application owns the tenant table.
 
