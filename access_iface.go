@@ -10,16 +10,22 @@ var _ Controller = &Client{}
 
 // Controller is the main interface for access control operations.
 type Controller interface {
-	// CheckUser reports whether user holds perm scope-wide (attached to no
-	// resource) within scope.
-	CheckUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
+	// CheckUser returns the Decision for whether user holds perm scope-wide
+	// (attached to no resource) within scope. env is the request's decision
+	// context; the check folds environment-referencing conditions against it
+	// and fails loudly when a referenced attribute is absent.
+	CheckUser(
+		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission,
+	) (accesstypes.Decision, error)
 
-	// CheckUserResources returns the subset of resources that user does NOT
-	// hold perm on within scope, preserving input order; empty means
-	// everything passed.
+	// CheckUserResources returns the Decision for each resource for whether
+	// user holds perm on it within scope, all answered from one policy
+	// snapshot. env is the request's decision context; the check folds
+	// environment-referencing conditions against it and fails loudly when a
+	// referenced attribute is absent.
 	CheckUserResources(
-		ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (missing []accesstypes.Resource, err error)
+		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	) (accesstypes.Decisions, error)
 
 	// CheckRole reports whether role holds perm scope-wide within scope.
 	CheckRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)

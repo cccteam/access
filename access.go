@@ -66,32 +66,68 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 	return newHandler(c, logHandler)
 }
 
-// CheckUser reports whether user holds perm scope-wide — attached to no
-// resource — within scope.
+// CheckUser returns the Decision for whether user holds perm scope-wide —
+// attached to no resource — within scope.
+//
+// The Environment is the per-request decision context (sampled once per
+// request). The engine folds environment-referencing conditions against it
+// at check time; a condition referencing an attribute the Environment does
+// not carry is a check error, never a silent allow or deny. Today's snapshot
+// evaluator holds no conditions, so the parameter is deliberately unused and
+// the answer is always Granted or Denied — the seam is ABAC-ready ahead of
+// the condition vocabulary.
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"
 // from "no permission" validate the tenant in their own guard, against the
 // source that owns tenants.
-func (c *Client) CheckUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+func (c *Client) CheckUser(ctx context.Context, _ accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.evaluator.checkUser(ctx, user, scope, perm)
+	ok, err := c.evaluator.checkUser(ctx, user, scope, perm)
+	if err != nil {
+		return accesstypes.Denied(), err
+	}
+	if !ok {
+		return accesstypes.Denied(), nil
+	}
+
+	return accesstypes.Granted(), nil
 }
 
-// CheckUserResources returns the subset of resources that user does NOT hold
-// perm on within scope, preserving input order; an empty result means
-// everything passed. A resource is either a parent name ("employees") or a
-// single field on a parent ("employees.name"). See CheckUser for the scope
-// semantics.
+// CheckUserResources returns the Decision for each resource for whether user
+// holds perm on it within scope — all answered from a single policy
+// snapshot, so a revocation can never land between two answers of the same
+// call. A resource is either a parent name ("employees") or a single field
+// on a parent ("employees.name"). See CheckUser for the Environment and
+// scope semantics.
 func (c *Client) CheckUserResources(
-	ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
-) (missing []accesstypes.Resource, err error) {
+	ctx context.Context, _ accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.evaluator.checkUserResources(ctx, user, scope, perm, resources...)
+	missing, err := c.evaluator.checkUserResources(ctx, user, scope, perm, resources...)
+	if err != nil {
+		return nil, err
+	}
+
+	denied := make(map[accesstypes.Resource]struct{}, len(missing))
+	for _, resource := range missing {
+		denied[resource] = struct{}{}
+	}
+
+	decisions := make(accesstypes.Decisions, len(resources))
+	for _, resource := range resources {
+		if _, ok := denied[resource]; ok {
+			decisions[resource] = accesstypes.Denied()
+		} else {
+			decisions[resource] = accesstypes.Granted()
+		}
+	}
+
+	return decisions, nil
 }
 
 // CheckRole reports whether role holds perm scope-wide within scope. See

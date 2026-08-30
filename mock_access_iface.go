@@ -77,37 +77,37 @@ func (mr *MockControllerMockRecorder) CheckRoleResources(ctx, role, scope, perm 
 }
 
 // CheckUser mocks base method.
-func (m *MockController) CheckUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+func (m *MockController) CheckUser(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckUser", ctx, user, scope, perm)
-	ret0, _ := ret[0].(bool)
+	ret := m.ctrl.Call(m, "CheckUser", ctx, env, user, scope, perm)
+	ret0, _ := ret[0].(accesstypes.Decision)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CheckUser indicates an expected call of CheckUser.
-func (mr *MockControllerMockRecorder) CheckUser(ctx, user, scope, perm any) *gomock.Call {
+func (mr *MockControllerMockRecorder) CheckUser(ctx, env, user, scope, perm any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckUser", reflect.TypeOf((*MockController)(nil).CheckUser), ctx, user, scope, perm)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckUser", reflect.TypeOf((*MockController)(nil).CheckUser), ctx, env, user, scope, perm)
 }
 
 // CheckUserResources mocks base method.
-func (m *MockController) CheckUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (m *MockController) CheckUserResources(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, user, scope, perm}
+	varargs := []any{ctx, env, user, scope, perm}
 	for _, a := range resources {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "CheckUserResources", varargs...)
-	ret0, _ := ret[0].([]accesstypes.Resource)
+	ret0, _ := ret[0].(accesstypes.Decisions)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CheckUserResources indicates an expected call of CheckUserResources.
-func (mr *MockControllerMockRecorder) CheckUserResources(ctx, user, scope, perm any, resources ...any) *gomock.Call {
+func (mr *MockControllerMockRecorder) CheckUserResources(ctx, env, user, scope, perm any, resources ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, user, scope, perm}, resources...)
+	varargs := append([]any{ctx, env, user, scope, perm}, resources...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckUserResources", reflect.TypeOf((*MockController)(nil).CheckUserResources), varargs...)
 }
 

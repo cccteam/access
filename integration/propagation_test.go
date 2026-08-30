@@ -155,19 +155,21 @@ func Test_Client_policyPropagation(t *testing.T) {
 				t.Fatalf("AddRoleUsers() error = %v", err)
 			}
 
+			env := accesstypes.NewEnvironment()
+
 			// Read-your-writes on the writing instance.
-			if missing, err := writer.CheckUserResources(ctx, "erin", tenant1, "Read", "employees"); err != nil || len(missing) != 0 {
-				t.Fatalf("writer CheckUserResources() = (%v, %v), want granted immediately", missing, err)
+			if decisions, err := writer.CheckUserResources(ctx, env, "erin", tenant1, "Read", "employees"); err != nil || !decisions["employees"].IsGranted() {
+				t.Fatalf("writer CheckUserResources() = (%v, %v), want granted immediately", decisions, err)
 			}
 
 			// Cross-instance propagation.
 			waitFor(t, 15*time.Second, "policy change never reached the reader instance", func() bool {
-				missing, err := reader.CheckUserResources(ctx, "erin", tenant1, "Read", "employees")
+				decisions, err := reader.CheckUserResources(ctx, env, "erin", tenant1, "Read", "employees")
 				if err != nil {
 					t.Fatalf("reader CheckUserResources() error = %v", err)
 				}
 
-				return len(missing) == 0
+				return decisions["employees"].IsGranted()
 			})
 		})
 	}
