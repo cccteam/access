@@ -79,7 +79,7 @@ func TestClient_ForUser(t *testing.T) {
 			if err != nil {
 				t.Fatalf("UserChecker.Check() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 				t.Errorf("UserChecker.Check() (-want +got):\n%s", diff)
 			}
 		})

@@ -508,7 +508,7 @@ func Test_newDecisions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := newDecisions(tt.resources, tt.decisions)
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 				t.Errorf("newDecisions() mismatch (-want +got):\n%s", diff)
 			}
 		})
