@@ -37,6 +37,11 @@ type Controller interface {
 		ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (missing []accesstypes.Resource, err error)
 
+	// ForUser returns the request-bound permission checker for user, whose
+	// method set structurally satisfies the resource package's UserPermissions
+	// seam. Test doubles implement it in one line over NewUserChecker.
+	ForUser(user accesstypes.User) *UserChecker
+
 	// UserManager returns the UserManager for managing users, roles, and permissions.
 	UserManager() UserManager
 

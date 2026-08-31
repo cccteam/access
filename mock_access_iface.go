@@ -111,6 +111,20 @@ func (mr *MockControllerMockRecorder) CheckUserResources(ctx, env, user, scope, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckUserResources", reflect.TypeOf((*MockController)(nil).CheckUserResources), varargs...)
 }
 
+// ForUser mocks base method.
+func (m *MockController) ForUser(user accesstypes.User) *UserChecker {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ForUser", user)
+	ret0, _ := ret[0].(*UserChecker)
+	return ret0
+}
+
+// ForUser indicates an expected call of ForUser.
+func (mr *MockControllerMockRecorder) ForUser(user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForUser", reflect.TypeOf((*MockController)(nil).ForUser), user)
+}
+
 // Handlers mocks base method.
 func (m *MockController) Handlers(handler LogHandler) Handlers {
 	m.ctrl.T.Helper()
