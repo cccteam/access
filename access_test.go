@@ -100,7 +100,7 @@ func TestClient_CheckUser_returnsDecision(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CheckUser() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 				t.Errorf("CheckUser() (-want +got):\n%s", diff)
 			}
 		})
@@ -174,7 +174,7 @@ func TestClient_CheckUserResources_returnsDecisions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CheckUserResources() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 				t.Errorf("CheckUserResources() (-want +got):\n%s", diff)
 			}
 		})
@@ -242,7 +242,7 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 		"widgets.name":     accesstypes.Granted(),
 		"secrets":          accesstypes.Denied(),
 	}
-	if diff := cmp.Diff(want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 		t.Errorf("CheckUserResources() (-want +got):\n%s", diff)
 	}
 }
@@ -285,7 +285,7 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 		t.Fatalf("CheckUserResources() error = %v", err)
 	}
 	want := accesstypes.Decisions{"employees": accesstypes.Granted()}
-	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 		t.Errorf("CheckUserResources() in known tenant (-want +got):\n%s", diff)
 	}
 
@@ -294,7 +294,7 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 		t.Fatalf("CheckUserResources() unknown tenant error = %v, want fail-closed denial, not an error", err)
 	}
 	want = accesstypes.Decisions{"employees": accesstypes.Denied()}
-	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 		t.Errorf("CheckUserResources() in unknown tenant (-want +got):\n%s", diff)
 	}
 }
