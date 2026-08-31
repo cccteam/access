@@ -8,7 +8,7 @@ require (
 	github.com/cccteam/ccc/accesstypes v0.5.9
 	github.com/cccteam/ccc/resource v0.10.6
 	github.com/cccteam/ccc/tracer v0.1.7
-	github.com/cccteam/db-initiator v0.3.13
+	github.com/cccteam/db-initiator v0.3.14
 	github.com/cccteam/httpio v0.7.17
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.4
 	github.com/go-chi/chi/v5 v5.3.2
