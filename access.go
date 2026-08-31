@@ -152,6 +152,13 @@ func (c *Client) CheckRoleResources(
 	return c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
 }
 
+// ForUser returns the request-bound permission checker for user — the
+// canonical implementation of the resource package's UserPermissions seam.
+// See UserChecker.
+func (c *Client) ForUser(user accesstypes.User) *UserChecker {
+	return NewUserChecker(c, user)
+}
+
 // UserManager returns the UserManager for managing users, roles, and permissions.
 func (c *Client) UserManager() UserManager {
 	return c.userManager
