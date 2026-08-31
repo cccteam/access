@@ -72,10 +72,14 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 // The Environment is the per-request decision context (sampled once per
 // request). The engine folds environment-referencing conditions against it
 // at check time; a condition referencing an attribute the Environment does
-// not carry is a check error, never a silent allow or deny. Today's snapshot
-// evaluator holds no conditions, so the parameter is deliberately unused and
-// the answer is always Granted or Denied — the seam is ABAC-ready ahead of
-// the condition vocabulary.
+// not carry is a check error, never a silent allow or deny. Folding awaits
+// the expression language, so the parameter is deliberately unused. The
+// answer here is always Granted or Denied: a scope-wide grant has no row
+// context, so a condition on one is rejected at snapshot load and this
+// check can never be Conditional. That rejection is interim — it narrows to
+// row-referencing conditions once the condition package classifies row-free
+// (environment/subject-only conditions fold at check time, keeping this
+// two-valued; design plan §05, revised 2026-08-31).
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"
@@ -100,34 +104,31 @@ func (c *Client) CheckUser(ctx context.Context, _ accesstypes.Environment, user 
 // holds perm on it within scope — all answered from a single policy
 // snapshot, so a revocation can never land between two answers of the same
 // call. A resource is either a parent name ("employees") or a single field
-// on a parent ("employees.name"). See CheckUser for the Environment and
-// scope semantics.
+// on a parent ("employees.name"). Per resource: Denied when no grant covers
+// it, Granted when at least one unconditional grant covers it (conditions on
+// other grants are moot), Conditional when only conditional grants cover it.
+//
+// Grouping is the engine's job — only the engine owns grant-set identity: a
+// Conditional decision carries one ConditionGroup whose Resources lists
+// every resource checked in this call sharing that covering-grant set, and
+// the same group value appears in each member's Decision, so callers
+// deduplicate by sorted-Resources equality. The distinct groups are exactly
+// a write check's boolean list — OR across a group's grants inside its
+// Condition, AND across groups computed by the caller — and a denial names
+// the failing group's Resources. See CheckUser for the Environment and scope
+// semantics.
 func (c *Client) CheckUserResources(
 	ctx context.Context, _ accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	missing, err := c.evaluator.checkUserResources(ctx, user, scope, perm, resources...)
+	resourceDecisions, err := c.evaluator.checkUserResources(ctx, user, scope, perm, resources...)
 	if err != nil {
 		return nil, err
 	}
 
-	denied := make(map[accesstypes.Resource]struct{}, len(missing))
-	for _, resource := range missing {
-		denied[resource] = struct{}{}
-	}
-
-	decisions := make(accesstypes.Decisions, len(resources))
-	for _, resource := range resources {
-		if _, ok := denied[resource]; ok {
-			decisions[resource] = accesstypes.Denied()
-		} else {
-			decisions[resource] = accesstypes.Granted()
-		}
-	}
-
-	return decisions, nil
+	return newDecisions(resources, resourceDecisions), nil
 }
 
 // CheckRole reports whether role holds perm scope-wide within scope. See

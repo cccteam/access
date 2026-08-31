@@ -231,13 +231,13 @@ func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, s
 	return snap.checkUser(user, scope, perm), nil
 }
 
-func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]resourceDecision, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return snap.checkUserResources(user, scope, perm, resources...), nil
+	return snap.decideUserResources(user, scope, perm, resources...), nil
 }
 
 func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {

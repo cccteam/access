@@ -150,7 +150,7 @@ func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, ro
 	if err != nil {
 		return err
 	}
-	if err := m.store.InsertGrant(ctx, scope, role, perm, base, field); err != nil {
+	if err := m.store.InsertGrant(ctx, scope, role, perm, base, field, ""); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): %q on %q for role %q", perm, resource, role)
 	}
 	m.notifyPolicyChange()
@@ -175,7 +175,7 @@ func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope,
 // row carries empty resource and field columns, a spot real resources can
 // never occupy (their names are validated non-empty in splitGrantResource).
 func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
-	if err := m.store.InsertGrant(ctx, scope, role, perm, "", ""); err != nil {
+	if err := m.store.InsertGrant(ctx, scope, role, perm, "", "", ""); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): scope-wide %q for role %q", perm, role)
 	}
 	m.notifyPolicyChange()

@@ -174,8 +174,22 @@ per-request decision context (`accesstypes.Environment`, immediately after
 policy snapshot; `Decisions.DeniedResources()` lists what was denied — empty
 means everything passed. One permission per call; batch as many resources as
 you like. `CheckUser` returns the Decision for a permission held scope-wide.
-Until the engine holds conditions, every Decision is `Granted` or `Denied`
-and an empty `Environment` is the normal argument.
+A grant may carry a condition — opaque expression text on its store row
+(`Condition`, NULL = unconditional) — and a resource covered only by
+conditional grants answers `Conditional`; any unconditional cover answers
+`Granted` outright. Grouping is the engine's job: within one
+`CheckUserResources` call, a Conditional decision's
+`ConditionGroup.Resources` lists every checked resource sharing that
+covering-grant set, the same group appearing in each member's Decision —
+deduplicate by sorted-Resources equality. Conditions never attach to
+scope-wide grants (there is no row for them to see — rejected at snapshot
+load; interim — this narrows to row-referencing conditions once the
+condition package classifies row-free, with environment/subject-only
+conditions folding at check time), so `CheckUser` never answers
+`Conditional`. Nothing authors
+conditions yet (the expression language is undesigned), so in practice every
+Decision is `Granted` or `Denied` and an empty `Environment` is the normal
+argument.
 
 The role checks are introspection tools and keep the bare shape:
 `CheckRoleResources` returns the subset of resources the role does NOT hold
