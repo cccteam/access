@@ -98,7 +98,7 @@ func Test_storeManager_grants(t *testing.T) {
 
 				return
 			}
-			if !store.grants[tt.wantStored] {
+			if _, ok := store.grants[tt.wantStored]; !ok {
 				t.Errorf("addGrant(%q) stored %v, want %v", tt.grant, store.grants, tt.wantStored)
 			}
 			if notified != 2 {

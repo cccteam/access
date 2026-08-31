@@ -44,12 +44,18 @@ type Subject struct {
 //   - Field == "*" grants all fields by implication (compiles to an all-flag,
 //     never materialized bits, so newly generated fields are covered).
 //   - otherwise it grants the single named field.
+//   - Condition == "" is an unconditional grant (a NULL store column);
+//     otherwise it is the grant's condition as opaque expression text. The
+//     records carry the text verbatim — nothing below the snapshot compiler
+//     interprets it, and the compiler only interns it (the expression
+//     language is undesigned).
 type Grant struct {
-	Scope    accesstypes.Scope
-	Subject  Subject
-	Perm     accesstypes.Permission
-	Resource string // bare base resource name; "" = scope-wide
-	Field    string
+	Scope     accesstypes.Scope
+	Subject   Subject
+	Perm      accesstypes.Permission
+	Resource  string // bare base resource name; "" = scope-wide
+	Field     string
+	Condition string // opaque expression text; "" = unconditional
 }
 
 // Membership is one normalized role membership. Member is usually a user; a
@@ -70,9 +76,10 @@ type Records struct {
 // RoleGrant is one stored grant row scoped to an already-known (domain, role):
 // the shape a store returns for role-grant listings.
 type RoleGrant struct {
-	Perm     accesstypes.Permission
-	Resource string // bare base resource name
-	Field    string // '' endpoint · '*' all fields · field name
+	Perm      accesstypes.Permission
+	Resource  string // bare base resource name
+	Field     string // '' endpoint · '*' all fields · field name
+	Condition string // opaque expression text; "" = unconditional
 }
 
 // Hash returns a canonical content hash of the records: independent of row
@@ -94,6 +101,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashString(h, string(g.Perm))
 		hashString(h, g.Resource)
 		hashString(h, g.Field)
+		hashString(h, g.Condition)
 	}
 	for _, m := range memberships {
 		hashString(h, "m")
@@ -115,6 +123,7 @@ func compareGrants(a, b Grant) int {
 		strings.Compare(string(a.Perm), string(b.Perm)),
 		strings.Compare(a.Resource, b.Resource),
 		strings.Compare(a.Field, b.Field),
+		strings.Compare(a.Condition, b.Condition),
 	)
 }
 

@@ -13,11 +13,13 @@ type evaluator interface {
 	// attachment) within scope.
 	checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
 
-	// checkUserResources returns the subset of resources that user does NOT
-	// hold perm on within scope. An empty result means all resources passed.
+	// checkUserResources returns user's decision for each resource within
+	// scope, aligned with the input order: granted on any unconditional
+	// cover, the covering conditions when only conditional grants cover it,
+	// denied otherwise.
 	checkUserResources(
 		ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (missing []accesstypes.Resource, err error)
+	) ([]resourceDecision, error)
 
 	// checkRole reports whether role holds perm scope-wide within scope.
 	checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)

@@ -181,6 +181,72 @@ func TestClient_CheckUserResources_returnsDecisions(t *testing.T) {
 	}
 }
 
+// TestClient_CheckUserResources_conditionalDecision pins the Conditional leg
+// of the public seam, including the shared-group emission: resources covered
+// only by conditional grants surface as Conditional Decisions, and the ones
+// sharing a covering set share ONE ConditionGroup listing every member —
+// the same group value in each member's Decision — while a distinct set is
+// its own group; an unconditional cover stays Granted regardless of other
+// conditional grants, and no cover stays Denied. The groups' Condition
+// payloads are the accesstypes placeholder until the expression language
+// lands. Grants are seeded through the store directly: nothing on the
+// management surface authors conditions yet.
+func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	store := newFakeStore()
+	client, err := New(store)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	if err := store.InsertRole(ctx, tenant1, "Editor"); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	for _, g := range []struct {
+		resource, field, condition string
+	}{
+		{resource: "employees", field: ""},
+		{resource: "employees", field: "name", condition: "owner = @subject"},
+		{resource: "employees", field: "email", condition: "owner = @subject"},
+		{resource: "employees", field: "salary", condition: "state = 'new'"},
+		{resource: "widgets", field: "*"},
+		{resource: "widgets", field: "name", condition: "owner = @subject"},
+	} {
+		if err := store.InsertGrant(ctx, tenant1, "Editor", "Update", g.resource, g.field, g.condition); err != nil {
+			t.Fatalf("InsertGrant(%v) error = %v", g, err)
+		}
+	}
+	if err := store.InsertUserRole(ctx, tenant1, "erin", "Editor"); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
+	}
+
+	got, err := client.CheckUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1, "Update",
+		"employees", "employees.name", "employees.email", "employees.salary", "widgets.name", "secrets")
+	if err != nil {
+		t.Fatalf("CheckUserResources() error = %v", err)
+	}
+	sharedGroup := accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"employees.name", "employees.email"}}
+	want := accesstypes.Decisions{
+		"employees":        accesstypes.Granted(),
+		"employees.name":   accesstypes.Conditional(sharedGroup),
+		"employees.email":  accesstypes.Conditional(sharedGroup),
+		"employees.salary": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"employees.salary"}}),
+		"widgets.name":     accesstypes.Granted(),
+		"secrets":          accesstypes.Denied(),
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+		t.Errorf("CheckUserResources() (-want +got):\n%s", diff)
+	}
+}
+
 // TestClient_CheckUserResources_unknownTenantFailsClosed pins the Domains
 // decoupling: there is no tenant validation on the check path — an unknown
 // tenant scope holds no grants, so everything comes back missing, without an

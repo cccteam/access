@@ -120,6 +120,7 @@ type Store struct {
 	sqlListUserRoles   string
 	sqlListRoleUsers   string
 	sqlInsertGrant     string
+	sqlGrantCondition  string
 	sqlDeleteGrant     string
 	sqlListRoleGrants  string
 	sqlReadGrants      string
@@ -147,12 +148,14 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		sqlListUserRoles:  fmt.Sprintf(`select "Role" from %s where "IsGlobal" = $1 and "Domain" = $2 and "User" = $3 order by "Role"`, names.userRoles),
 		sqlListRoleUsers:  fmt.Sprintf(`select "User" from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 order by "User"`, names.userRoles),
 		sqlInsertGrant: fmt.Sprintf(
-			`insert into %s ("IsGlobal", "Domain", "Role", "Permission", "Resource", "Field") values ($1, $2, $3, $4, $5, $6) on conflict do nothing`, names.roleGrants),
+			`insert into %s ("IsGlobal", "Domain", "Role", "Permission", "Resource", "Field", "Condition") values ($1, $2, $3, $4, $5, $6, $7) on conflict do nothing`, names.roleGrants),
+		sqlGrantCondition: fmt.Sprintf(
+			`select "Condition" from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 and "Permission" = $4 and "Resource" = $5 and "Field" = $6`, names.roleGrants),
 		sqlDeleteGrant: fmt.Sprintf(
 			`delete from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 and "Permission" = $4 and "Resource" = $5 and "Field" = $6`, names.roleGrants),
 		sqlListRoleGrants: fmt.Sprintf(
-			`select "Permission", "Resource", "Field" from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 order by "Permission", "Resource", "Field"`, names.roleGrants),
-		sqlReadGrants:      fmt.Sprintf(`select "IsGlobal", "Domain", "Role", "Permission", "Resource", "Field" from %s`, names.roleGrants),
+			`select "Permission", "Resource", "Field", "Condition" from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 order by "Permission", "Resource", "Field"`, names.roleGrants),
+		sqlReadGrants:      fmt.Sprintf(`select "IsGlobal", "Domain", "Role", "Permission", "Resource", "Field", "Condition" from %s`, names.roleGrants),
 		sqlReadMemberships: fmt.Sprintf(`select "IsGlobal", "Domain", "User", "Role" from %s`, names.userRoles),
 	}, nil
 }
@@ -190,6 +193,7 @@ func (s *Store) DDL() []string {
   "Permission" TEXT NOT NULL,
   "Resource" TEXT NOT NULL,
   "Field" TEXT NOT NULL,
+  "Condition" TEXT,
   "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY ("IsGlobal", "Domain", "Role", "Permission", "Resource", "Field"),
   FOREIGN KEY ("IsGlobal", "Domain", "Role") REFERENCES %s ("IsGlobal", "Domain", "Role") ON DELETE CASCADE
@@ -216,11 +220,15 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 		var g policy.Grant
 		var global bool
 		var domain, role string
-		if err := row.Scan(&global, &domain, &role, &g.Perm, &g.Resource, &g.Field); err != nil {
+		var condition *string
+		if err := row.Scan(&global, &domain, &role, &g.Perm, &g.Resource, &g.Field, &condition); err != nil {
 			return policy.Grant{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
 		}
 		g.Scope = policy.ScopeFromColumns(global, domain)
 		g.Subject = policy.Subject{Kind: policy.SubjectRole, Name: role}
+		if condition != nil {
+			g.Condition = *condition
+		}
 
 		return g, nil
 	})
@@ -357,12 +365,32 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.Scope, role ac
 	return exists, nil
 }
 
-// InsertGrant adds one grant row; re-inserting an existing grant is a no-op.
-// The (scope, role) parent row must exist.
-func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+// InsertGrant adds one grant row; re-inserting an existing grant with the
+// same condition is a no-op, and with a differing condition is an error (a
+// condition changes only by delete + re-insert). The (scope, role) parent
+// row must exist. An empty condition persists NULL (unconditional).
+func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertGrant, global, domain, role, perm, resource, field); err != nil {
+	var conditionCol *string
+	if condition != "" {
+		conditionCol = &condition
+	}
+	tag, err := s.pool.Exec(ctx, s.sqlInsertGrant, global, domain, role, perm, resource, field, conditionCol)
+	if err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() insert grant")
+	}
+	if tag.RowsAffected() == 0 {
+		var storedCol *string
+		if err := s.pool.QueryRow(ctx, s.sqlGrantCondition, global, domain, role, perm, resource, field).Scan(&storedCol); err != nil {
+			return errors.Wrap(err, "pgxpool.Pool.QueryRow() existing grant condition")
+		}
+		var stored string
+		if storedCol != nil {
+			stored = *storedCol
+		}
+		if stored != condition {
+			return errors.Newf("grant %q on %q/%q for role %q in scope %s already exists with a different condition (stored %q, incoming %q): a condition changes only by delete + re-insert", perm, resource, field, role, scope, stored, condition)
+		}
 	}
 
 	return nil
@@ -387,8 +415,12 @@ func (s *Store) ListRoleGrants(ctx context.Context, scope accesstypes.Scope, rol
 	}
 	grants, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.RoleGrant, error) {
 		var g policy.RoleGrant
-		if err := row.Scan(&g.Perm, &g.Resource, &g.Field); err != nil {
+		var condition *string
+		if err := row.Scan(&g.Perm, &g.Resource, &g.Field, &condition); err != nil {
 			return policy.RoleGrant{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
+		}
+		if condition != nil {
+			g.Condition = *condition
 		}
 
 		return g, nil

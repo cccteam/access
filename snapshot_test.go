@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -61,7 +62,29 @@ func Test_splitResourceField(t *testing.T) {
 	}
 }
 
-func Test_snapshot_checkUserResources(t *testing.T) {
+// missingFromDecisions derives the legacy missing list from per-resource
+// decisions: every resource whose decision is denied, in input order. The
+// fixtures here carry no conditions, so it also asserts nothing came back
+// conditional.
+func missingFromDecisions(t *testing.T, resources []accesstypes.Resource, decisions []resourceDecision) []accesstypes.Resource {
+	t.Helper()
+	if len(decisions) != len(resources) {
+		t.Fatalf("decideUserResources() returned %d decisions for %d resources", len(decisions), len(resources))
+	}
+	missing := make([]accesstypes.Resource, 0)
+	for i, d := range decisions {
+		if len(d.conditions) > 0 {
+			t.Fatalf("decideUserResources()[%d] = conditional %v, want unconditional decisions from a condition-free store", i, d.conditions)
+		}
+		if !d.granted {
+			missing = append(missing, resources[i])
+		}
+	}
+
+	return missing
+}
+
+func Test_snapshot_decideUserResources(t *testing.T) {
 	t.Parallel()
 
 	snap := compileSnapshot(t, &policy.Records{
@@ -165,9 +188,328 @@ func Test_snapshot_checkUserResources(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotMissing := snap.checkUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			decisions := snap.decideUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			gotMissing := missingFromDecisions(t, tt.args.resources, decisions)
 			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("snapshot.checkUserResources() mismatch (-want +got):\n%s", diff)
+				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_decideUserResources_conditions pins conditional coverage: a
+// resource covered only by conditional grants decides Conditional carrying
+// the covering grants' condition texts (OR semantics, canonically ordered,
+// deduplicated); any unconditional cover settles the decision as Granted; no
+// cover at all stays Denied. The texts are opaque — nothing here parses or
+// evaluates them.
+func Test_snapshot_decideUserResources_conditions(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("ServicingAgent"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = @subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
+			{Scope: tenant1Scope, Subject: roleSubject("Owner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = @subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("CoOwner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = @subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "*"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "title", Condition: "unpublished = false"},
+			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = @subject"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "DraftEditor"},
+			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "ServicingAgent"},
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: userSubject("frank"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: userSubject("frank"), Role: "Chief"},
+			{Scope: tenant1Scope, Member: userSubject("gina"), Role: "Owner"},
+			{Scope: tenant1Scope, Member: userSubject("gina"), Role: "CoOwner"},
+			{Scope: tenant1Scope, Member: userSubject("carol"), Role: "Editor"},
+		},
+	})
+
+	type args struct {
+		user      accesstypes.User
+		scope     accesstypes.Scope
+		perm      accesstypes.Permission
+		resources []accesstypes.Resource
+	}
+	tests := []struct {
+		name string
+		args args
+		want []resourceDecision
+	}{
+		{
+			name: "conditional covering set combines across roles in text order",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.phone"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'", "state IN ('new', 'approved')"}}},
+		},
+		{
+			name: "conditional wildcard covers unknown fields by implication",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.term"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'"}}},
+		},
+		{
+			name: "conditional wildcard does not cover the endpoint",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "wildcard check answers from wildcard coverage only",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.*"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'"}}},
+		},
+		{
+			name: "conditional endpoint grant",
+			args: args{user: "erin", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{conditions: []string{"region = @subject"}}},
+		},
+		{
+			name: "any unconditional cover settles as granted across roles",
+			args: args{user: "frank", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{granted: true}},
+		},
+		{
+			name: "identical condition texts deduplicate",
+			args: args{user: "gina", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"notes.body"}},
+			want: []resourceDecision{{conditions: []string{"owner = @subject"}}},
+		},
+		{
+			name: "direct user grant carries its condition",
+			args: args{user: "hank", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"notes.body"}},
+			want: []resourceDecision{{conditions: []string{"owner = @subject"}}},
+		},
+		{
+			name: "unconditional wildcard settles a conditionally granted field",
+			args: args{user: "carol", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"docs.title", "docs.other"}},
+			want: []resourceDecision{{granted: true}, {granted: true}},
+		},
+		{
+			name: "conditional grants stay inside their scope",
+			args: args{user: "dana", scope: tenant2Scope, perm: "Update", resources: []accesstypes.Resource{"loans.phone"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "uncovered resource stays denied",
+			args: args{user: "erin", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "unknown permission fails closed",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Fly", resources: []accesstypes.Resource{"loans.phone"}},
+			want: []resourceDecision{{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := snap.decideUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(resourceDecision{})); diff != "" {
+				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_zeroConditionsMatchesRBAC pins the "no conditions ⇒ pure
+// RBAC" invariant: over a full sweep of a condition-free store, the decision
+// path grants exactly where the untouched unconditional path (allowed, via
+// missingResources) grants, and nothing is ever Conditional.
+func Test_snapshot_zeroConditionsMatchesRBAC(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: tenant2Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "*"},
+			{Scope: tenant1Scope, Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: tenant2Scope, Member: userSubject("dana"), Role: "Editor"},
+		},
+	})
+
+	users := []accesstypes.User{"erin", "dana", "stranger"}
+	scopes := []accesstypes.Scope{tenant1Scope, tenant2Scope, accesstypes.GlobalScope()}
+	perms := []accesstypes.Permission{"Read", "List", "Fly"}
+	resources := []accesstypes.Resource{
+		"employees", "employees.name", "employees.salary", "employees.*",
+		"documents", "documents.title", "documents.*",
+		"widgets", "budgets", "spaceships", "spaceships.crew",
+	}
+
+	for _, user := range users {
+		for _, scope := range scopes {
+			for _, perm := range perms {
+				decisions := snap.decideUserResources(user, scope, perm, resources...)
+				missing := snap.missingResources(snap.userGrants(scope, user), perm, resources)
+				for i, resource := range resources {
+					wantGranted := !slices.Contains(missing, resource)
+					if decisions[i].granted != wantGranted {
+						t.Errorf("decide(%s, %s, %s, %s).granted = %v, want %v", user, scope, perm, resource, decisions[i].granted, wantGranted)
+					}
+					if len(decisions[i].conditions) != 0 {
+						t.Errorf("decide(%s, %s, %s, %s) = conditional %v, want unconditional from a condition-free store", user, scope, perm, resource, decisions[i].conditions)
+					}
+				}
+			}
+		}
+	}
+}
+
+// Test_newSnapshot_conditionValidation pins the one structural rule that is
+// already decided: a condition never attaches to a scope-wide grant — there
+// is no row for it to evaluate against — and such a record fails the load.
+// No other validation exists (syntax needs the expression language).
+func Test_newSnapshot_conditionValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		grant   policy.Grant
+		wantErr bool
+	}{
+		{
+			name:    "conditional scope-wide grant in a tenant scope fails the load",
+			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "state = 'new'"},
+			wantErr: true,
+		},
+		{
+			name:    "conditional scope-wide grant in the global scope fails the load",
+			grant:   policy.Grant{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Admin"), Perm: "Export", Resource: "", Condition: "state = 'new'"},
+			wantErr: true,
+		},
+		{
+			name:  "unconditional scope-wide grant compiles",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: ""},
+		},
+		{
+			name:  "conditional resource grant compiles",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets", Condition: "state = 'new'"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newSnapshot(&policy.Records{Grants: []policy.Grant{tt.grant}}, time.Now())
+			if (err != nil) != tt.wantErr {
+				t.Errorf("newSnapshot() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_newDecisions pins the translation to the public Decisions, including
+// the shared-group emission: resources sharing a covering condition set get
+// ONE ConditionGroup listing every member (first-appearance input order,
+// deduplicated), the same group value reachable from each member's Decision;
+// a distinct set is its own group. The group's Condition payload is the
+// accesstypes placeholder until the expression language lands, so the texts
+// do not cross the seam yet.
+func Test_newDecisions(t *testing.T) {
+	t.Parallel()
+
+	sharedGroup := accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.phone", "loans.term"}}
+
+	tests := []struct {
+		name      string
+		resources []accesstypes.Resource
+		decisions []resourceDecision
+		want      accesstypes.Decisions
+	}{
+		{
+			name:      "granted",
+			resources: []accesstypes.Resource{"employees.name"},
+			decisions: []resourceDecision{{granted: true}},
+			want:      accesstypes.Decisions{"employees.name": accesstypes.Granted()},
+		},
+		{
+			name:      "denied",
+			resources: []accesstypes.Resource{"employees.name"},
+			decisions: []resourceDecision{{}},
+			want:      accesstypes.Decisions{"employees.name": accesstypes.Denied()},
+		},
+		{
+			name:      "lone conditional carries one group naming the resource",
+			resources: []accesstypes.Resource{"employees.name"},
+			decisions: []resourceDecision{{conditions: []string{"owner = @subject"}}},
+			want: accesstypes.Decisions{
+				"employees.name": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"employees.name"}}),
+			},
+		},
+		{
+			name:      "identical covering sets share one group in each member's decision",
+			resources: []accesstypes.Resource{"loans.phone", "loans.term"},
+			decisions: []resourceDecision{
+				{conditions: []string{"state = 'new'"}},
+				{conditions: []string{"state = 'new'"}},
+			},
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(sharedGroup),
+				"loans.term":  accesstypes.Conditional(sharedGroup),
+			},
+		},
+		{
+			name:      "distinct covering sets get distinct groups",
+			resources: []accesstypes.Resource{"loans.phone", "loans.notes"},
+			decisions: []resourceDecision{
+				{conditions: []string{"crew IN subject.crews", "state = 'open'"}},
+				{conditions: []string{"crew IN subject.crews"}},
+			},
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.phone"}}),
+				"loans.notes": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.notes"}}),
+			},
+		},
+		{
+			name:      "grouping never absorbs granted or denied members",
+			resources: []accesstypes.Resource{"loans", "loans.phone", "loans.term", "secrets"},
+			decisions: []resourceDecision{
+				{granted: true},
+				{conditions: []string{"state = 'new'"}},
+				{conditions: []string{"state = 'new'"}},
+				{},
+			},
+			want: accesstypes.Decisions{
+				"loans":       accesstypes.Granted(),
+				"loans.phone": accesstypes.Conditional(sharedGroup),
+				"loans.term":  accesstypes.Conditional(sharedGroup),
+				"secrets":     accesstypes.Denied(),
+			},
+		},
+		{
+			name:      "duplicate checked resource appears once in its group",
+			resources: []accesstypes.Resource{"loans.phone", "loans.phone"},
+			decisions: []resourceDecision{
+				{conditions: []string{"state = 'new'"}},
+				{conditions: []string{"state = 'new'"}},
+			},
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.phone"}}),
+			},
+		},
+		{
+			name:      "empty batch",
+			resources: []accesstypes.Resource{},
+			decisions: []resourceDecision{},
+			want:      accesstypes.Decisions{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := newDecisions(tt.resources, tt.decisions)
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{})); diff != "" {
+				t.Errorf("newDecisions() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -222,10 +564,10 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 	}
 
 	// The scope-wide grant does not leak into the resource batch path either:
-	// checking the empty-string resource through checkUserResources is not a
+	// checking the empty-string resource through decideUserResources is not a
 	// public spelling, and real resources stay ungranted.
-	if missing := snap.checkUserResources("alice", globalScope, "Export", "employees"); len(missing) != 1 {
-		t.Errorf("checkUserResources() = %v, want employees missing: scope-wide grants must not satisfy resource checks", missing)
+	if decisions := snap.decideUserResources("alice", globalScope, "Export", "employees"); decisions[0].granted {
+		t.Errorf("decideUserResources() = %v, want employees denied: scope-wide grants must not satisfy resource checks", decisions)
 	}
 }
 
@@ -311,7 +653,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	store := newFakeStore()
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Scope, "Editor"),
-		store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "employees", ""),
+		store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "employees", "", ""),
 		store.InsertUserRole(ctx, tenant1Scope, "erin", "Editor"),
 	} {
 		if err != nil {
@@ -326,7 +668,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 // store without notifying this instance's engine.
 func grantWidgets(t *testing.T, store *fakeStore) {
 	t.Helper()
-	if err := store.InsertGrant(context.Background(), tenant1Scope, "Editor", "List", "widgets", ""); err != nil {
+	if err := store.InsertGrant(context.Background(), tenant1Scope, "Editor", "List", "widgets", "", ""); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 }
@@ -360,14 +702,12 @@ func Test_snapshotEngine_checkUserResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		storeDown   bool
-		wantErr     bool
-		wantMissing []accesstypes.Resource
+		name      string
+		storeDown bool
+		wantErr   bool
 	}{
 		{
-			name:        "served from snapshot",
-			wantMissing: []accesstypes.Resource{},
+			name: "served from snapshot",
 		},
 		{
 			name:      "first load failure returns an error",
@@ -384,15 +724,15 @@ func Test_snapshotEngine_checkUserResources(t *testing.T) {
 			}
 			e := testEngine(t, store, nil)
 
-			gotMissing, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
+			got, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("checkUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil {
 				return
 			}
-			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("checkUser() mismatch (-want +got):\n%s", diff)
+			if len(got) != 1 || !got[0].granted {
+				t.Errorf("checkUserResources() = %v, want employees granted", got)
 			}
 		})
 	}
@@ -446,21 +786,21 @@ func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	store := engineFakeStore(t)
 	e := testEngine(t, store, nil)
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
-		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the write", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the write", got, err)
 	}
 	settle(e)
 
 	grantWidgets(t, store)
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
-		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", got, err)
 	}
 
 	e.invalidate()
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 0 {
-		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", got, err)
 	}
 }
 
@@ -483,12 +823,12 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	store.setFail(errors.New("store down"))
 	e.invalidate()
 
-	missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees")
+	got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees")
 	if err != nil {
 		t.Fatalf("checkUser() error = %v, want stale snapshot served", err)
 	}
-	if len(missing) != 0 {
-		t.Fatalf("checkUser() missing = %v, want none from stale snapshot", missing)
+	if !got[0].granted {
+		t.Fatalf("checkUser() = %v, want granted from stale snapshot", got)
 	}
 }
 
@@ -507,8 +847,8 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	if err := e.close(); err != nil {
 		t.Fatalf("second close() error = %v", err)
 	}
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil || len(missing) != 0 {
-		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil || !got[0].granted {
+		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", got, err)
 	}
 }
 
@@ -560,8 +900,8 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	opts.signal = sig
 	e := testEngine(t, store, opts)
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
-		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the change", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the change", got, err)
 	}
 	settle(e)
 
@@ -577,11 +917,11 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
+		got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
 		if err != nil {
 			t.Fatalf("checkUser() error = %v", err)
 		}
-		if len(missing) == 0 {
+		if got[0].granted {
 			break
 		}
 		if time.Now().After(deadline) {

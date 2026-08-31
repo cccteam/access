@@ -43,6 +43,7 @@ const (
 	colPermission = "Permission"
 	colResource   = "Resource"
 	colField      = "Field"
+	colCondition  = "Condition"
 	colCreatedAt  = "CreatedAt"
 	colUpdatedAt  = "UpdatedAt"
 
@@ -146,8 +147,8 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlListRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain ORDER BY Role", names.roles),
 		sqlListUserRoles:   fmt.Sprintf("SELECT Role FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND User = @user ORDER BY Role", names.userRoles),
 		sqlListRoleUsers:   fmt.Sprintf("SELECT User FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role ORDER BY User", names.userRoles),
-		sqlListRoleGrants:  fmt.Sprintf("SELECT Permission, Resource, Field FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role ORDER BY Permission, Resource, Field", names.roleGrants),
-		sqlReadGrants:      fmt.Sprintf("SELECT IsGlobal, Domain, Role, Permission, Resource, Field FROM %s", names.roleGrants),
+		sqlListRoleGrants:  fmt.Sprintf("SELECT Permission, Resource, Field, Condition FROM %s WHERE IsGlobal = @isGlobal AND Domain = @domain AND Role = @role ORDER BY Permission, Resource, Field", names.roleGrants),
+		sqlReadGrants:      fmt.Sprintf("SELECT IsGlobal, Domain, Role, Permission, Resource, Field, Condition FROM %s", names.roleGrants),
 		sqlReadMemberships: fmt.Sprintf("SELECT IsGlobal, Domain, User, Role FROM %s", names.userRoles),
 	}, nil
 }
@@ -182,6 +183,7 @@ func (s *Store) DDL() []string {
   Permission STRING(64) NOT NULL,
   Resource STRING(128) NOT NULL,
   Field STRING(128) NOT NULL,
+  Condition STRING(MAX),
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (IsGlobal, Domain, Role, Permission, Resource, Field),
   INTERLEAVE IN PARENT %s ON DELETE CASCADE`, n.roleGrants, n.roles),
@@ -199,15 +201,17 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	err := txn.Query(ctx, spanner.Statement{SQL: s.sqlReadGrants}).Do(func(row *spanner.Row) error {
 		var global bool
 		var domain, role, perm, resource, field string
-		if err := row.Columns(&global, &domain, &role, &perm, &resource, &field); err != nil {
+		var condition spanner.NullString
+		if err := row.Columns(&global, &domain, &role, &perm, &resource, &field, &condition); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		records.Grants = append(records.Grants, policy.Grant{
-			Scope:    policy.ScopeFromColumns(global, domain),
-			Subject:  policy.Subject{Kind: policy.SubjectRole, Name: role},
-			Perm:     accesstypes.Permission(perm),
-			Resource: resource,
-			Field:    field,
+			Scope:     policy.ScopeFromColumns(global, domain),
+			Subject:   policy.Subject{Kind: policy.SubjectRole, Name: role},
+			Perm:      accesstypes.Permission(perm),
+			Resource:  resource,
+			Field:     field,
+			Condition: condition.StringVal,
 		})
 
 		return nil
@@ -377,15 +381,34 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.Scope, role ac
 	return true, nil
 }
 
-// InsertGrant adds one grant row; re-inserting an existing grant is a no-op.
-// The (scope, role) parent row must exist.
-func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+// InsertGrant adds one grant row; re-inserting an existing grant with the
+// same condition is a no-op, and with a differing condition is an error (a
+// condition changes only by delete + re-insert). The (scope, role) parent
+// row must exist. An empty condition persists NULL (unconditional).
+func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	global, domain := policy.ScopeColumns(scope)
 	m := spanner.Insert(s.names.roleGrants,
-		[]string{colIsGlobal, colDomain, colRole, colPermission, colResource, colField, colUpdatedAt},
-		[]any{global, domain, string(role), string(perm), resource, field, spanner.CommitTimestamp})
+		[]string{colIsGlobal, colDomain, colRole, colPermission, colResource, colField, colCondition, colUpdatedAt},
+		[]any{global, domain, string(role), string(perm), resource, field, spanner.NullString{StringVal: condition, Valid: condition != ""}, spanner.CommitTimestamp})
 
-	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert grant")
+	if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		if spanner.ErrCode(err) != codes.AlreadyExists {
+			return errors.Wrap(err, "spanner.Client.Apply() insert grant")
+		}
+		row, err := s.client.Single().ReadRow(ctx, s.names.roleGrants, spanner.Key{global, domain, string(role), string(perm), resource, field}, []string{colCondition})
+		if err != nil {
+			return errors.Wrap(err, "spanner.Client.ReadRow() existing grant condition")
+		}
+		var stored spanner.NullString
+		if err := row.Column(0, &stored); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+		if stored.StringVal != condition {
+			return errors.Newf("grant %q on %q/%q for role %q in scope %s already exists with a different condition (stored %q, incoming %q): a condition changes only by delete + re-insert", perm, resource, field, role, scope, stored.StringVal, condition)
+		}
+	}
+
+	return nil
 }
 
 // DeleteGrant removes one grant row; removing an absent grant is a no-op.
@@ -406,10 +429,11 @@ func (s *Store) ListRoleGrants(ctx context.Context, scope accesstypes.Scope, rol
 	grants := make([]policy.RoleGrant, 0)
 	err := s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		var perm, resource, field string
-		if err := row.Columns(&perm, &resource, &field); err != nil {
+		var condition spanner.NullString
+		if err := row.Columns(&perm, &resource, &field, &condition); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
-		grants = append(grants, policy.RoleGrant{Perm: accesstypes.Permission(perm), Resource: resource, Field: field})
+		grants = append(grants, policy.RoleGrant{Perm: accesstypes.Permission(perm), Resource: resource, Field: field, Condition: condition.StringVal})
 
 		return nil
 	})

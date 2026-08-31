@@ -63,7 +63,15 @@ type Store interface {
 	// resource "" (with field "") is a scope-wide grant — the permission held
 	// with no resource attachment; real resource names are validated non-empty
 	// above this seam, so "" is structurally unreachable from data.
-	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	// condition is the grant's condition as opaque expression text, persisted
+	// NULL when "" (unconditional); it is an attribute of the grant, never
+	// part of its identity, so DeleteGrant addresses rows without it.
+	// Re-inserting an existing grant with the same condition is a no-op; a
+	// DIFFERING condition is an error — a condition changes only by delete +
+	// re-insert, so a writer that reconciles by grant identity alone fails
+	// loudly instead of silently keeping stale policy (tripwire until
+	// MigrateRoles gains condition-aware reconciliation).
+	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
 	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
 	ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error)
 }
