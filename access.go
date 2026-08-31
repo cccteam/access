@@ -5,7 +5,9 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/accesstypes/condition"
 	"github.com/cccteam/ccc/tracer"
+	"github.com/go-playground/errors/v5"
 )
 
 var _ Controller = &Client{}
@@ -70,30 +72,44 @@ func (c *Client) Handlers(logHandler LogHandler) Handlers {
 // attached to no resource — within scope.
 //
 // The Environment is the per-request decision context (sampled once per
-// request). The engine folds environment-referencing conditions against it
-// at check time; a condition referencing an attribute the Environment does
-// not carry is a check error, never a silent allow or deny. Folding awaits
-// the expression language, so the parameter is deliberately unused. The
-// answer here is always Granted or Denied: a scope-wide grant has no row
-// context, so a condition on one is rejected at snapshot load and this
-// check can never be Conditional. That rejection is interim — it narrows to
-// row-referencing conditions once the condition package classifies row-free
-// (environment/subject-only conditions fold at check time, keeping this
-// two-valued; design plan §05, revised 2026-08-31).
+// request). The engine folds condition facts against it at check time; a
+// condition referencing an attribute the Environment does not carry is a
+// check error, never a silent allow or deny. The answer here is always
+// Granted or Denied: a scope-wide grant carries only row-free conditions
+// (row-referencing ones are rejected at snapshot load — no row exists for
+// them to see), and row-free conditions fold to a definite answer. A
+// condition folding leaves unsettled — a subject-attribute reference, which
+// is data only the database can compare — is a check error too: there is no
+// place to evaluate it on this path.
 //
 // There is no scope validation: an unknown tenant simply holds no grants, so
 // the check fails closed. Callers wanting to distinguish "invalid tenant"
 // from "no permission" validate the tenant in their own guard, against the
 // source that owns tenants.
-func (c *Client) CheckUser(ctx context.Context, _ accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
+func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	ok, err := c.evaluator.checkUser(ctx, user, scope, perm)
+	decision, err := c.evaluator.checkUser(ctx, user, scope, perm)
 	if err != nil {
 		return accesstypes.Denied(), err
 	}
-	if !ok {
+	switch {
+	case decision.granted:
+		return accesstypes.Granted(), nil
+	case len(decision.conditions) == 0:
+		return accesstypes.Denied(), nil
+	}
+
+	result, err := condition.Fold(anyOf(decision.exprs), factsFor(env, user))
+	if err != nil {
+		return accesstypes.Denied(), errors.Wrapf(err, "folding the scope-wide conditions for user %q in scope %s", user, scope)
+	}
+	truth, settled := result.(condition.Truth)
+	if !settled {
+		return accesstypes.Denied(), errors.Newf("scope-wide conditions for user %q in scope %s did not fold to a definite answer: %q needs data no scope-wide check can reach", user, scope, result)
+	}
+	if !truth.Value {
 		return accesstypes.Denied(), nil
 	}
 
@@ -108,6 +124,14 @@ func (c *Client) CheckUser(ctx context.Context, _ accesstypes.Environment, user 
 // it, Granted when at least one unconditional grant covers it (conditions on
 // other grants are moot), Conditional when only conditional grants cover it.
 //
+// Condition facts fold before the Decisions build: each covering set's
+// any-of combination is evaluated against the environment's instant and the
+// user's identity, so a set folding TRUE answers Granted, one folding FALSE
+// answers Denied, and a Conditional decision carries only what the database
+// must still evaluate — the engine folds facts, and never renders SQL. A
+// condition referencing an attribute the Environment does not carry is a
+// check error, never a silent allow or deny.
+//
 // Grouping is the engine's job — only the engine owns grant-set identity: a
 // Conditional decision carries one ConditionGroup whose Resources lists
 // every resource checked in this call sharing that covering-grant set, and
@@ -118,7 +142,7 @@ func (c *Client) CheckUser(ctx context.Context, _ accesstypes.Environment, user 
 // the failing group's Resources. See CheckUser for the Environment and scope
 // semantics.
 func (c *Client) CheckUserResources(
-	ctx context.Context, _ accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -128,7 +152,25 @@ func (c *Client) CheckUserResources(
 		return nil, err
 	}
 
-	return newDecisions(resources, resourceDecisions), nil
+	decisions, err := newDecisions(resources, resourceDecisions, factsFor(env, user))
+	if err != nil {
+		return nil, errors.Wrapf(err, "conditions for user %q in scope %s", user, scope)
+	}
+
+	return decisions, nil
+}
+
+// factsFor builds the condition-folding facts for one check: the checked
+// user's identity, plus the request's instant when the environment carries
+// one. Absence stays absent — a condition referencing a missing fact fails
+// the fold loudly, which is the designed posture.
+func factsFor(env accesstypes.Environment, user accesstypes.User) condition.Facts {
+	facts := condition.NewFacts().WithSubject(string(user))
+	if now, ok := env.Now(); ok {
+		facts = facts.WithNow(now)
+	}
+
+	return facts
 }
 
 // CheckRole reports whether role holds perm scope-wide within scope. See

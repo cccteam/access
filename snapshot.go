@@ -10,6 +10,7 @@ import (
 
 	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/accesstypes/condition"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -25,10 +26,11 @@ type snapshot struct {
 	loadedAt  time.Time
 
 	// conditions interns the distinct condition texts, sorted so a term set
-	// resolves to canonically ordered texts. The texts are opaque: the
-	// compiler never parses or evaluates them (the expression language is
-	// undesigned); it only carries them to Conditional decisions.
+	// resolves to canonically ordered texts; compiled carries each text's
+	// vocabulary AST, aligned by index. Compilation happens once, at load —
+	// malformed condition text fails the load, never a check.
 	conditions []string
+	compiled   []condition.Expr
 	condIDs    map[string]uint16
 
 	// recordsHash identifies the snapshot's source content; the heartbeat
@@ -192,40 +194,65 @@ func (f *fieldSet) clone() *fieldSet {
 // The zero value is denied (fail closed); granted marks an unconditional
 // cover; conditions carries the covering conditional grants' condition texts
 // (OR semantics, canonically ordered) when only conditional grants cover the
-// resource.
+// resource, with exprs the matching compiled trees, aligned by index.
 type resourceDecision struct {
 	granted    bool
 	conditions []string
+	exprs      []condition.Expr
 }
 
 // newDecisions assembles the public Decisions for one checked batch, aligned
-// by input order. Grouping is the engine's job — only the engine owns
-// grant-set identity: a Conditional decision carries one ConditionGroup whose
-// Resources lists every checked resource in the batch sharing that covering
-// condition set (first-appearance input order, deduplicated), and every
-// member's Decision carries the same group value, so callers deduplicate by
-// sorted-Resources equality. The group's Condition payload is the accesstypes
-// placeholder: until the expression language lands the type cannot carry the
-// condition texts, which stay engine-internal.
+// by input order, folding facts first. Grouping is the engine's job — only
+// the engine owns grant-set identity: a Conditional decision carries one
+// ConditionGroup whose Resources lists every checked resource in the batch
+// sharing that covering condition set (first-appearance input order,
+// deduplicated), and every member's Decision carries the same group value, so
+// callers deduplicate by sorted-Resources equality.
+//
+// Each distinct covering set's any-of combination folds once against the
+// facts: TRUE settles its members Granted (some covering condition already
+// holds), FALSE settles them Denied (no covering condition can hold), and
+// anything left is a Conditional decision whose group payload carries the
+// folded expression — only what the database must still evaluate.
 //
 // The group key is the canonically ordered condition-text set of the covering
-// grants. Covering-grant sets whose texts are identical produce identical OR
-// expressions, so collapsing them is pure deduplication: their group booleans
-// could never differ.
-func newDecisions(resources []accesstypes.Resource, decisions []resourceDecision) accesstypes.Decisions {
-	// Pass 1: collect each distinct covering set's members in input order, so
-	// every member's group names the complete set before decisions build.
-	groups := make(map[string]accesstypes.ConditionGroup)
+// grants — grant identity, never the folded text, so members stay grouped
+// even when folding rewrites the payload. Covering sets whose texts are
+// identical produce identical any-of expressions, so collapsing them is pure
+// deduplication: their group booleans could never differ.
+func newDecisions(resources []accesstypes.Resource, decisions []resourceDecision, facts condition.Facts) (accesstypes.Decisions, error) {
+	// Pass 1: fold each distinct covering set once and collect its members in
+	// input order, so every member's group names the complete set before
+	// decisions build.
+	type foldedGroup struct {
+		settled bool // folding reached a definite answer
+		holds   bool // that answer, when settled
+		group   accesstypes.ConditionGroup
+	}
+	folded := make(map[string]*foldedGroup)
 	for i, d := range decisions {
 		if d.granted || len(d.conditions) == 0 {
 			continue
 		}
 		key := joinConditions(d.conditions)
-		group := groups[key]
-		if !slices.Contains(group.Resources, resources[i]) {
-			group.Resources = append(group.Resources, resources[i])
+		fg, ok := folded[key]
+		if !ok {
+			result, err := condition.Fold(anyOf(d.exprs), facts)
+			if err != nil {
+				return nil, errors.Wrapf(err, "folding the conditions covering %s", resources[i])
+			}
+			fg = &foldedGroup{}
+			if t, isTruth := result.(condition.Truth); isTruth {
+				fg.settled = true
+				fg.holds = t.Value
+			} else {
+				fg.group = accesstypes.ConditionGroup{Condition: accesstypes.ConditionFromExpr(result)}
+			}
+			folded[key] = fg
 		}
-		groups[key] = group
+		if !fg.settled && !slices.Contains(fg.group.Resources, resources[i]) {
+			fg.group.Resources = append(fg.group.Resources, resources[i])
+		}
 	}
 
 	out := make(accesstypes.Decisions, len(resources))
@@ -234,13 +261,31 @@ func newDecisions(resources []accesstypes.Resource, decisions []resourceDecision
 		case d.granted:
 			out[resources[i]] = accesstypes.Granted()
 		case len(d.conditions) > 0:
-			out[resources[i]] = accesstypes.Conditional(groups[joinConditions(d.conditions)])
+			fg := folded[joinConditions(d.conditions)]
+			switch {
+			case fg.settled && fg.holds:
+				out[resources[i]] = accesstypes.Granted()
+			case fg.settled:
+				out[resources[i]] = accesstypes.Denied()
+			default:
+				out[resources[i]] = accesstypes.Conditional(fg.group)
+			}
 		default:
 			out[resources[i]] = accesstypes.Denied()
 		}
 	}
 
-	return out
+	return out, nil
+}
+
+// anyOf combines a covering set's compiled conditions into the set's single
+// any-of expression: the target is covered when any one condition holds.
+func anyOf(exprs []condition.Expr) condition.Expr {
+	if len(exprs) == 1 {
+		return exprs[0]
+	}
+
+	return condition.Or{Operands: exprs}
 }
 
 // joinConditions builds the grouping key for one covering condition set: the
@@ -256,11 +301,20 @@ func joinConditions(conditions []string) string {
 	return b.String()
 }
 
-// checkUser reports whether user holds perm scope-wide within scope. Grants
-// reach a user through role membership or records written directly against
-// the user, both folded into one lookup at compile time.
-func (s *snapshot) checkUser(user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) bool {
-	return s.scopeWide(s.userGrants(scope, user), perm)
+// checkUser returns user's scope-wide decision within scope — the decision
+// for the empty resource, which real resources can never occupy (validated
+// non-empty at every write boundary). Grants reach a user through role
+// membership or records written directly against the user, both folded into
+// one lookup at compile time. Conditional coverage here is always row-free
+// (the load rejects anything else), so the caller folds it to a definite
+// answer.
+func (s *snapshot) checkUser(user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) resourceDecision {
+	permID, ok := s.perms[perm]
+	if !ok {
+		return resourceDecision{}
+	}
+
+	return s.decide(s.userGrants(scope, user), permID, "")
 }
 
 // decideUserResources returns user's decision for each resource within
@@ -430,11 +484,13 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 	}
 
 	conditions := make([]string, len(terms))
+	exprs := make([]condition.Expr, len(terms))
 	for i, id := range terms {
 		conditions[i] = s.conditions[id]
+		exprs[i] = s.compiled[id]
 	}
 
-	return resourceDecision{conditions: conditions}
+	return resourceDecision{conditions: conditions, exprs: exprs}
 }
 
 // newSnapshot compiles normalized policy records into an immutable snapshot.
@@ -484,28 +540,34 @@ func newSnapshot(records *policy.Records, loadedAt time.Time) (*snapshot, error)
 }
 
 // intern assigns dense IDs to permissions and resources and bit positions to
-// each resource's named fields, and interns the distinct condition texts. IDs
-// are uint16 by design; overflowing one would silently truncate and grant the
-// wrong permissions, so it fails the load instead.
+// each resource's named fields, and compiles the distinct condition texts.
+// IDs are uint16 by design; overflowing one would silently truncate and grant
+// the wrong permissions, so it fails the load instead.
 //
-// Conditions on scope-wide grants fail the load too: a condition limits its
-// grant per row, and a grant attached to no resource has no row context to
-// evaluate against. This blanket rejection is interim: once the condition
-// package can parse expressions, it narrows to row-referencing conditions
-// only (a binding-name attribute or new. reference) — row-free conditions
-// over environment and subject attributes are valid on scope-wide grants and
-// fold at check time (design plan §05, revised 2026-08-31).
+// Every condition text compiles here: malformed text fails the load, so a
+// check never meets an unparseable condition. A row-referencing condition (a
+// binding-name attribute or new. reference) on a scope-wide grant fails the
+// load too — a grant attached to no resource has no row for it to see; only
+// row-free conditions (environment and subject attributes) are valid there,
+// folding at check time (design plan §05, revised 2026-08-31).
 func (s *snapshot) intern(grants []policy.Grant) error {
+	exprs := make(map[string]condition.Expr)
 	for _, g := range grants {
 		if g.Condition != "" {
-			if g.Resource == "" {
-				return errors.Newf("conditional scope-wide grant for subject %q in scope %s: a condition requires a resource row context", g.Subject.Name, g.Scope)
-			}
-			if _, ok := s.condIDs[g.Condition]; !ok {
-				if len(s.condIDs) >= math.MaxUint16 {
+			expr, ok := exprs[g.Condition]
+			if !ok {
+				if len(exprs) >= math.MaxUint16 {
 					return errors.Newf("too many distinct conditions to compile: limit %d", math.MaxUint16)
 				}
-				s.condIDs[g.Condition] = 0 // placeholder; canonical IDs assigned below
+				var err error
+				expr, err = condition.Parse(g.Condition)
+				if err != nil {
+					return errors.Wrapf(err, "condition on grant for subject %q in scope %s", g.Subject.Name, g.Scope)
+				}
+				exprs[g.Condition] = expr
+			}
+			if g.Resource == "" && !condition.RowFree(expr) {
+				return errors.Newf("row-referencing condition %q on a scope-wide grant for subject %q in scope %s: a grant attached to no resource has no row for it to see", g.Condition, g.Subject.Name, g.Scope)
 			}
 		}
 		if _, ok := s.perms[g.Perm]; !ok {
@@ -535,9 +597,11 @@ func (s *snapshot) intern(grants []policy.Grant) error {
 
 	// Condition IDs sort by text so term sets — and the texts a decision
 	// carries — are canonically ordered regardless of record order.
-	s.conditions = slices.Sorted(maps.Keys(s.condIDs))
+	s.conditions = slices.Sorted(maps.Keys(exprs))
+	s.compiled = make([]condition.Expr, len(s.conditions))
 	for i, text := range s.conditions {
 		s.condIDs[text] = uint16(i)
+		s.compiled[i] = exprs[text]
 	}
 
 	return nil

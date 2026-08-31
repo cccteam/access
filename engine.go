@@ -9,9 +9,11 @@ import (
 // evaluator answers permission checks on the request path; the snapshot
 // engine implements it. Implementations must be safe for concurrent use.
 type evaluator interface {
-	// checkUser reports whether user holds perm scope-wide (with no resource
-	// attachment) within scope.
-	checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
+	// checkUser returns user's scope-wide (no resource attachment) decision
+	// within scope: granted on any unconditional cover, the covering
+	// conditions when only conditional grants cover it — always row-free,
+	// enforced at load — denied otherwise.
+	checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error)
 
 	// checkUserResources returns user's decision for each resource within
 	// scope, aligned with the input order: granted on any unconditional
