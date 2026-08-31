@@ -222,10 +222,10 @@ func (s *snapshotEngine) tryReload(ctx context.Context) {
 	}
 }
 
-func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
-		return false, err
+		return resourceDecision{}, err
 	}
 
 	return snap.checkUser(user, scope, perm), nil

@@ -2,6 +2,7 @@ package access
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/google/go-cmp/cmp"
@@ -214,11 +215,11 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 		resource, field, condition string
 	}{
 		{resource: "employees", field: ""},
-		{resource: "employees", field: "name", condition: "owner = @subject"},
-		{resource: "employees", field: "email", condition: "owner = @subject"},
+		{resource: "employees", field: "name", condition: "owner = subject"},
+		{resource: "employees", field: "email", condition: "owner = subject"},
 		{resource: "employees", field: "salary", condition: "state = 'new'"},
 		{resource: "widgets", field: "*"},
-		{resource: "widgets", field: "name", condition: "owner = @subject"},
+		{resource: "widgets", field: "name", condition: "owner = subject"},
 	} {
 		if err := store.InsertGrant(ctx, tenant1, "Editor", "Update", g.resource, g.field, g.condition); err != nil {
 			t.Fatalf("InsertGrant(%v) error = %v", g, err)
@@ -233,14 +234,28 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckUserResources() error = %v", err)
 	}
-	sharedGroup := accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"employees.name", "employees.email"}}
+	payload := func(source string) accesstypes.Condition {
+		c, err := accesstypes.NewCondition(source)
+		if err != nil {
+			t.Fatalf("accesstypes.NewCondition(%q) error = %v", source, err)
+		}
+
+		return c
+	}
+	sharedGroup := accesstypes.ConditionGroup{
+		Resources: []accesstypes.Resource{"employees.name", "employees.email"},
+		Condition: payload("owner = subject"),
+	}
 	want := accesstypes.Decisions{
-		"employees":        accesstypes.Granted(),
-		"employees.name":   accesstypes.Conditional(sharedGroup),
-		"employees.email":  accesstypes.Conditional(sharedGroup),
-		"employees.salary": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"employees.salary"}}),
-		"widgets.name":     accesstypes.Granted(),
-		"secrets":          accesstypes.Denied(),
+		"employees":       accesstypes.Granted(),
+		"employees.name":  accesstypes.Conditional(sharedGroup),
+		"employees.email": accesstypes.Conditional(sharedGroup),
+		"employees.salary": accesstypes.Conditional(accesstypes.ConditionGroup{
+			Resources: []accesstypes.Resource{"employees.salary"},
+			Condition: payload("state = 'new'"),
+		}),
+		"widgets.name": accesstypes.Granted(),
+		"secrets":      accesstypes.Denied(),
 	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 		t.Errorf("CheckUserResources() (-want +got):\n%s", diff)
@@ -296,5 +311,93 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 	want = accesstypes.Decisions{"employees": accesstypes.Denied()}
 	if diff := cmp.Diff(want, decisions, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 		t.Errorf("CheckUserResources() in unknown tenant (-want +got):\n%s", diff)
+	}
+}
+
+// TestClient_CheckUser_conditionFolding pins the scope-wide folding path: a
+// row-free condition on a scope-wide grant folds against the request's
+// Environment to a definite Granted or Denied, an absent referenced
+// attribute is a check error, and a row-free condition needing data (a
+// subject attribute) is a check error too — this path has nowhere to
+// evaluate it.
+func TestClient_CheckUser_conditionFolding(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	store := newFakeStore()
+	client, err := New(store)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	if err := store.InsertRole(ctx, tenant1, "Chief"); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	if err := store.InsertGrant(ctx, tenant1, "Chief", "Approve", "", "", "now < '2027-03-01T00:00:00Z'"); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
+	if err := store.InsertGrant(ctx, tenant1, "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
+	if err := store.InsertUserRole(ctx, tenant1, "erin", "Chief"); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
+	}
+
+	window := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		env     accesstypes.Environment
+		perm    accesstypes.Permission
+		want    accesstypes.Decision
+		wantErr bool
+	}{
+		{
+			name: "window open folds to granted",
+			env:  accesstypes.EnvironmentAt(window.Add(-time.Hour)),
+			perm: "Approve",
+			want: accesstypes.Granted(),
+		},
+		{
+			name: "window passed folds to denied",
+			env:  accesstypes.EnvironmentAt(window.Add(time.Hour)),
+			perm: "Approve",
+			want: accesstypes.Denied(),
+		},
+		{
+			name:    "environment without the referenced attribute is a check error",
+			env:     accesstypes.NewEnvironment(),
+			perm:    "Approve",
+			wantErr: true,
+		},
+		{
+			name:    "condition needing data no scope-wide check can reach is a check error",
+			env:     accesstypes.EnvironmentAt(window),
+			perm:    "Export",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := client.CheckUser(t.Context(), tt.env, "erin", tenant1, tt.perm)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("CheckUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
+				t.Errorf("CheckUser() (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

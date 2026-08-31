@@ -10,6 +10,7 @@ import (
 
 	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/accesstypes/condition"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 )
@@ -210,13 +211,13 @@ func Test_snapshot_decideUserResources_conditions(t *testing.T) {
 		Grants: []policy.Grant{
 			{Scope: tenant1Scope, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
 			{Scope: tenant1Scope, Subject: roleSubject("ServicingAgent"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
-			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = @subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
 			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
-			{Scope: tenant1Scope, Subject: roleSubject("Owner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = @subject"},
-			{Scope: tenant1Scope, Subject: roleSubject("CoOwner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = @subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Owner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("CoOwner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
 			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "*"},
 			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "title", Condition: "unpublished = false"},
-			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = @subject"},
+			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
 		},
 		Memberships: []policy.Membership{
 			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "DraftEditor"},
@@ -264,7 +265,7 @@ func Test_snapshot_decideUserResources_conditions(t *testing.T) {
 		{
 			name: "conditional endpoint grant",
 			args: args{user: "erin", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
-			want: []resourceDecision{{conditions: []string{"region = @subject"}}},
+			want: []resourceDecision{{conditions: []string{"region = subject"}}},
 		},
 		{
 			name: "any unconditional cover settles as granted across roles",
@@ -274,12 +275,12 @@ func Test_snapshot_decideUserResources_conditions(t *testing.T) {
 		{
 			name: "identical condition texts deduplicate",
 			args: args{user: "gina", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"notes.body"}},
-			want: []resourceDecision{{conditions: []string{"owner = @subject"}}},
+			want: []resourceDecision{{conditions: []string{"owner = subject"}}},
 		},
 		{
 			name: "direct user grant carries its condition",
 			args: args{user: "hank", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"notes.body"}},
-			want: []resourceDecision{{conditions: []string{"owner = @subject"}}},
+			want: []resourceDecision{{conditions: []string{"owner = subject"}}},
 		},
 		{
 			name: "unconditional wildcard settles a conditionally granted field",
@@ -306,6 +307,15 @@ func Test_snapshot_decideUserResources_conditions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := snap.decideUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			// The compiled trees ride beside the texts, always parallel;
+			// their content is the condition package's own contract, so this
+			// pin asserts the pairing and compares the texts.
+			for i := range got {
+				if len(got[i].exprs) != len(got[i].conditions) {
+					t.Errorf("decision %d carries %d compiled trees for %d conditions", i, len(got[i].exprs), len(got[i].conditions))
+				}
+				got[i].exprs = nil
+			}
 			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(resourceDecision{})); diff != "" {
 				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
 			}
@@ -366,10 +376,11 @@ func Test_snapshot_zeroConditionsMatchesRBAC(t *testing.T) {
 	}
 }
 
-// Test_newSnapshot_conditionValidation pins the one structural rule that is
-// already decided: a condition never attaches to a scope-wide grant — there
-// is no row for it to evaluate against — and such a record fails the load.
-// No other validation exists (syntax needs the expression language).
+// Test_newSnapshot_conditionValidation pins the load-time condition rules:
+// every condition text must compile, and a scope-wide grant may carry only a
+// row-free condition — a binding-name attribute or new. reference has no row
+// to see there and fails the load. Schema validation (binding names against
+// the Collection) is MigrateRoles' job, not the snapshot's.
 func Test_newSnapshot_conditionValidation(t *testing.T) {
 	t.Parallel()
 
@@ -379,13 +390,22 @@ func Test_newSnapshot_conditionValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "conditional scope-wide grant in a tenant scope fails the load",
+			name:    "row-referencing condition on a scope-wide grant fails the load",
 			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "state = 'new'"},
 			wantErr: true,
 		},
 		{
-			name:    "conditional scope-wide grant in the global scope fails the load",
+			name:    "row-referencing condition on a global scope-wide grant fails the load",
 			grant:   policy.Grant{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Admin"), Perm: "Export", Resource: "", Condition: "state = 'new'"},
+			wantErr: true,
+		},
+		{
+			name:  "row-free condition on a scope-wide grant compiles",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
+		},
+		{
+			name:    "malformed condition text fails the load",
+			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets", Condition: "state = "},
 			wantErr: true,
 		},
 		{
@@ -409,22 +429,55 @@ func Test_newSnapshot_conditionValidation(t *testing.T) {
 }
 
 // Test_newDecisions pins the translation to the public Decisions, including
-// the shared-group emission: resources sharing a covering condition set get
-// ONE ConditionGroup listing every member (first-appearance input order,
-// deduplicated), the same group value reachable from each member's Decision;
-// a distinct set is its own group. The group's Condition payload is the
-// accesstypes placeholder until the expression language lands, so the texts
-// do not cross the seam yet.
+// fact folding and the shared-group emission: each distinct covering set's
+// any-of combination folds once — TRUE settles its members Granted, FALSE
+// settles them Denied, anything left is Conditional — and resources sharing
+// a covering condition set get ONE ConditionGroup listing every member
+// (first-appearance input order, deduplicated), the same group value
+// reachable from each member's Decision, its payload the folded any-of
+// expression. The group key is the covering set (grant identity), never the
+// folded text.
 func Test_newDecisions(t *testing.T) {
 	t.Parallel()
 
-	sharedGroup := accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.phone", "loans.term"}}
+	instant := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// dec builds an engine decision covered by the given condition texts,
+	// compiled exactly as the snapshot load compiles them.
+	dec := func(texts ...string) resourceDecision {
+		exprs := make([]condition.Expr, len(texts))
+		for i, text := range texts {
+			expr, err := condition.Parse(text)
+			if err != nil {
+				t.Fatalf("condition.Parse(%q) error = %v", text, err)
+			}
+			exprs[i] = expr
+		}
+
+		return resourceDecision{conditions: texts, exprs: exprs}
+	}
+	// payload builds the Condition a group is expected to carry.
+	payload := func(source string) accesstypes.Condition {
+		c, err := accesstypes.NewCondition(source)
+		if err != nil {
+			t.Fatalf("accesstypes.NewCondition(%q) error = %v", source, err)
+		}
+
+		return c
+	}
+
+	sharedGroup := accesstypes.ConditionGroup{
+		Resources: []accesstypes.Resource{"loans.phone", "loans.term"},
+		Condition: payload("state = 'new'"),
+	}
 
 	tests := []struct {
 		name      string
 		resources []accesstypes.Resource
 		decisions []resourceDecision
+		facts     condition.Facts
 		want      accesstypes.Decisions
+		wantErr   bool
 	}{
 		{
 			name:      "granted",
@@ -441,17 +494,20 @@ func Test_newDecisions(t *testing.T) {
 		{
 			name:      "lone conditional carries one group naming the resource",
 			resources: []accesstypes.Resource{"employees.name"},
-			decisions: []resourceDecision{{conditions: []string{"owner = @subject"}}},
+			decisions: []resourceDecision{dec("owner = subject")},
 			want: accesstypes.Decisions{
-				"employees.name": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"employees.name"}}),
+				"employees.name": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"employees.name"},
+					Condition: payload("owner = subject"),
+				}),
 			},
 		},
 		{
 			name:      "identical covering sets share one group in each member's decision",
 			resources: []accesstypes.Resource{"loans.phone", "loans.term"},
 			decisions: []resourceDecision{
-				{conditions: []string{"state = 'new'"}},
-				{conditions: []string{"state = 'new'"}},
+				dec("state = 'new'"),
+				dec("state = 'new'"),
 			},
 			want: accesstypes.Decisions{
 				"loans.phone": accesstypes.Conditional(sharedGroup),
@@ -459,15 +515,21 @@ func Test_newDecisions(t *testing.T) {
 			},
 		},
 		{
-			name:      "distinct covering sets get distinct groups",
+			name:      "distinct covering sets get distinct groups with any-of payloads",
 			resources: []accesstypes.Resource{"loans.phone", "loans.notes"},
 			decisions: []resourceDecision{
-				{conditions: []string{"crew IN subject.crews", "state = 'open'"}},
-				{conditions: []string{"crew IN subject.crews"}},
+				dec("crew IN subject.crews", "state = 'open'"),
+				dec("crew IN subject.crews"),
 			},
 			want: accesstypes.Decisions{
-				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.phone"}}),
-				"loans.notes": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.notes"}}),
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.phone"},
+					Condition: payload("crew IN subject.crews OR state = 'open'"),
+				}),
+				"loans.notes": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.notes"},
+					Condition: payload("crew IN subject.crews"),
+				}),
 			},
 		},
 		{
@@ -475,8 +537,8 @@ func Test_newDecisions(t *testing.T) {
 			resources: []accesstypes.Resource{"loans", "loans.phone", "loans.term", "secrets"},
 			decisions: []resourceDecision{
 				{granted: true},
-				{conditions: []string{"state = 'new'"}},
-				{conditions: []string{"state = 'new'"}},
+				dec("state = 'new'"),
+				dec("state = 'new'"),
 				{},
 			},
 			want: accesstypes.Decisions{
@@ -490,12 +552,47 @@ func Test_newDecisions(t *testing.T) {
 			name:      "duplicate checked resource appears once in its group",
 			resources: []accesstypes.Resource{"loans.phone", "loans.phone"},
 			decisions: []resourceDecision{
-				{conditions: []string{"state = 'new'"}},
-				{conditions: []string{"state = 'new'"}},
+				dec("state = 'new'"),
+				dec("state = 'new'"),
 			},
 			want: accesstypes.Decisions{
-				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"loans.phone"}}),
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.phone"},
+					Condition: payload("state = 'new'"),
+				}),
 			},
+		},
+		{
+			name:      "environment window folding TRUE settles the member granted",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("now < '2027-06-01T00:00:00Z'")},
+			facts:     condition.NewFacts().WithNow(instant),
+			want:      accesstypes.Decisions{"loans.phone": accesstypes.Granted()},
+		},
+		{
+			name:      "environment window folding FALSE settles the member denied",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("now < '2027-01-01T00:00:00Z'")},
+			facts:     condition.NewFacts().WithNow(instant),
+			want:      accesstypes.Decisions{"loans.phone": accesstypes.Denied()},
+		},
+		{
+			name:      "folded window leaves only the data condition in the payload",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("crew IN subject.crews AND now < '2027-06-01T00:00:00Z'")},
+			facts:     condition.NewFacts().WithNow(instant),
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.phone"},
+					Condition: payload("crew IN subject.crews"),
+				}),
+			},
+		},
+		{
+			name:      "condition referencing an absent environment attribute is a check error",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("now < '2027-06-01T00:00:00Z'")},
+			wantErr:   true,
 		},
 		{
 			name:      "empty batch",
@@ -507,7 +604,13 @@ func Test_newDecisions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := newDecisions(tt.resources, tt.decisions)
+			got, err := newDecisions(tt.resources, tt.decisions, tt.facts)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("newDecisions() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
 			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
 				t.Errorf("newDecisions() mismatch (-want +got):\n%s", diff)
 			}
@@ -545,14 +648,14 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 		check func() bool
 		want  bool
 	}{
-		{name: "user holds scope-wide perm through role", check: func() bool { return snap.checkUser("alice", globalScope, "Export") }, want: true},
+		{name: "user holds scope-wide perm through role", check: func() bool { return snap.checkUser("alice", globalScope, "Export").granted }, want: true},
 		{name: "role holds its scope-wide perm", check: func() bool { return snap.checkRole("Admin", globalScope, "Export") }, want: true},
-		{name: "resource grant does not satisfy a scope-wide check", check: func() bool { return snap.checkUser("alice", globalScope, "Read") }},
-		{name: "scope-wide grant is partitioned by scope", check: func() bool { return snap.checkUser("alice", tenant1Scope, "Export") }},
-		{name: "tenant scope-wide grant works in its scope", check: func() bool { return snap.checkUser("carol", tenant1Scope, "Approve") }, want: true},
-		{name: "a tenant named global is not the global scope", check: func() bool { return snap.checkUser("alice", accesstypes.DomainScope("global"), "Export") }},
-		{name: "unknown perm fails closed", check: func() bool { return snap.checkUser("alice", globalScope, "Fly") }},
-		{name: "unknown user fails closed", check: func() bool { return snap.checkUser("stranger", globalScope, "Export") }},
+		{name: "resource grant does not satisfy a scope-wide check", check: func() bool { return snap.checkUser("alice", globalScope, "Read").granted }},
+		{name: "scope-wide grant is partitioned by scope", check: func() bool { return snap.checkUser("alice", tenant1Scope, "Export").granted }},
+		{name: "tenant scope-wide grant works in its scope", check: func() bool { return snap.checkUser("carol", tenant1Scope, "Approve").granted }, want: true},
+		{name: "a tenant named global is not the global scope", check: func() bool { return snap.checkUser("alice", accesstypes.DomainScope("global"), "Export").granted }},
+		{name: "unknown perm fails closed", check: func() bool { return snap.checkUser("alice", globalScope, "Fly").granted }},
+		{name: "unknown user fails closed", check: func() bool { return snap.checkUser("stranger", globalScope, "Export").granted }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
