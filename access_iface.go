@@ -104,6 +104,10 @@ type UserManager interface {
 	// scope. Errors if role doesn't exist.
 	AddRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
+	// AddRoleGrant grants permission on one resource to role in scope, limited
+	// by condition ("" is unconditional). Errors if role doesn't exist.
+	AddRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
+
 	// DeleteRolePermissionResources removes resource-specific permissions from role in scope. Errors if role doesn't exist.
 	DeleteRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
 
@@ -117,4 +121,9 @@ type UserManager interface {
 	// RolePermissions returns the permissions role holds in scope and how each
 	// is granted (scope-wide, on resources, or both). Errors if role doesn't exist.
 	RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
+
+	// RoleGrants returns the role's resource grants in scope with each grant's
+	// condition text ("" is unconditional), keyed by permission. Scope-wide
+	// grants are not included. Errors if role doesn't exist.
+	RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource]string, error)
 }
