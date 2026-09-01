@@ -8,48 +8,45 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 )
 
-func Test_exclude(t *testing.T) {
+func Test_diffGrants(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		source  map[accesstypes.Permission][]accesstypes.Resource
-		exclude map[accesstypes.Permission][]accesstypes.Resource
-	}
 	tests := []struct {
-		name string
-		args args
-		want map[accesstypes.Permission][]accesstypes.Resource
+		name    string
+		source  grantSet
+		exclude grantSet
+		want    grantSet
 	}{
 		{
-			name: "has intersection",
-			args: args{
-				source:  map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("1"), accesstypes.Resource("2"), accesstypes.Resource("3"), accesstypes.Resource("4")}},
-				exclude: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("2"), accesstypes.Resource("4")}},
-			},
-			want: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("1"), accesstypes.Resource("3")}},
+			name:    "matching pairs drop out",
+			source:  grantSet{"List": {"Widgets": "", "Widgets.name": ""}},
+			exclude: grantSet{"List": {"Widgets": ""}},
+			want:    grantSet{"List": {"Widgets.name": ""}},
 		},
 		{
-			name: "has no intersection",
-			args: args{
-				source:  map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("1"), accesstypes.Resource("2"), accesstypes.Resource("3"), accesstypes.Resource("4")}},
-				exclude: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("5"), accesstypes.Resource("6")}},
-			},
-			want: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("1"), accesstypes.Resource("2"), accesstypes.Resource("3"), accesstypes.Resource("4")}},
+			name:    "a changed condition is not a match",
+			source:  grantSet{"Read": {"Widgets": "owner = subject"}},
+			exclude: grantSet{"Read": {"Widgets": ""}},
+			want:    grantSet{"Read": {"Widgets": "owner = subject"}},
 		},
 		{
-			name: "complete overlap",
-			args: args{
-				source:  map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("1"), accesstypes.Resource("2")}},
-				exclude: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Permission("1"): {accesstypes.Resource("1"), accesstypes.Resource("2")}},
-			},
-			want: map[accesstypes.Permission][]accesstypes.Resource{},
+			name:    "complete overlap yields nothing",
+			source:  grantSet{"Read": {"Widgets": "owner = subject"}},
+			exclude: grantSet{"Read": {"Widgets": "owner = subject"}},
+			want:    grantSet{},
+		},
+		{
+			name:    "no overlap keeps everything",
+			source:  grantSet{"Read": {"Widgets": ""}},
+			exclude: grantSet{"List": {"Widgets": ""}},
+			want:    grantSet{"Read": {"Widgets": ""}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := exclude(tt.args.source, tt.args.exclude); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Exclude() = %v, want %v", got, tt.want)
+			if got := diffGrants(tt.source, tt.exclude); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("diffGrants() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -69,6 +66,18 @@ func (emptyCollection) Scope(accesstypes.Resource) accesstypes.PermissionScope {
 func (emptyCollection) IsResourceImmutable(accesstypes.PermissionScope, accesstypes.Resource) bool {
 	return false
 }
+
+func (emptyCollection) AttributeComparisonType(accesstypes.PermissionScope, accesstypes.Resource, string) (accesstypes.AttributeType, bool) {
+	return "", false
+}
+
+func (emptyCollection) AttributeIsColumn(accesstypes.PermissionScope, accesstypes.Resource, string) bool {
+	return false
+}
+
+func (emptyCollection) DeclaresSubjectSet(string) bool { return false }
+
+func (emptyCollection) DeclaresSubjectValue(string) bool { return false }
 
 // Test_MigrateRoles_tenantNamesArePureData pins the structural-scope model:
 // any string is a legal tenant name — including "global" and the retired
