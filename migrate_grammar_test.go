@@ -77,27 +77,28 @@ func TestExpandRoleGrants(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		perm       accesstypes.Permission
-		grants     []Grant
-		wantDomain grantSet
-		wantErr    string
+		name     string
+		perm     accesstypes.Permission
+		grants   []Grant
+		declared accesstypes.PermissionScope
+		want     grantSet
+		wantErr  string
 	}{
 		{
 			name:   "a grant expands into base and field rows sharing the condition",
 			perm:   "Read",
 			grants: []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name", "price"}, Condition: "owner = subject"}},
-			wantDomain: grantSet{"Read": {
+			want: grantSet{"Read": {
 				"Widgets":       "owner = subject",
 				"Widgets.name":  "owner = subject",
 				"Widgets.price": "owner = subject",
 			}},
 		},
 		{
-			name:       "an unconditional grant expands with empty conditions",
-			perm:       "Read",
-			grants:     []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
-			wantDomain: grantSet{"Read": {"Widgets": "", "Widgets.name": ""}},
+			name:   "an unconditional grant expands with empty conditions",
+			perm:   "Read",
+			grants: []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
+			want:   grantSet{"Read": {"Widgets": "", "Widgets.name": ""}},
 		},
 		{
 			name:    "two grants on one resource are rejected",
@@ -112,10 +113,10 @@ func TestExpandRoleGrants(t *testing.T) {
 			wantErr: "dotted field resource",
 		},
 		{
-			name:       "a bare dotted resource is a legal mechanical grant",
-			perm:       "Read",
-			grants:     []Grant{{Resource: "Widgets.name"}},
-			wantDomain: grantSet{"Read": {"Widgets.name": ""}},
+			name:   "a bare dotted resource is a legal mechanical grant",
+			perm:   "Read",
+			grants: []Grant{{Resource: "Widgets.name"}},
+			want:   grantSet{"Read": {"Widgets.name": ""}},
 		},
 		{
 			name:    "an unregistered field is rejected",
@@ -129,14 +130,39 @@ func TestExpandRoleGrants(t *testing.T) {
 			grants:  []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
 			wantErr: "does not require permission",
 		},
+		{
+			name:     "a global-resource grant in a domain role is rejected",
+			perm:     "Execute",
+			grants:   []Grant{{Resource: "DoThing"}},
+			declared: accesstypes.DomainPermissionScope,
+			wantErr:  "a role's grants live at its declared scope",
+		},
+		{
+			name:     "a domain-resource grant in a global role is rejected",
+			perm:     "Read",
+			grants:   []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
+			declared: accesstypes.GlobalPermissionScope,
+			wantErr:  "a role's grants live at its declared scope",
+		},
+		{
+			name:     "a global-resource grant in a global role expands",
+			perm:     "Execute",
+			grants:   []Grant{{Resource: "DoThing"}},
+			declared: accesstypes.GlobalPermissionScope,
+			want:     grantSet{"Execute": {"DoThing": ""}},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			declared := tt.declared
+			if declared == "" {
+				declared = accesstypes.DomainPermissionScope
+			}
 			role := &Role{Name: "Tester", Permissions: map[accesstypes.Permission][]Grant{tt.perm: tt.grants}}
-			_, domain, err := expandRoleGrants(grammarCollection{}, role)
+			got, err := expandRoleGrants(grammarCollection{}, role, declared)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("expandRoleGrants() error = %v, want containing %q", err, tt.wantErr)
@@ -147,8 +173,8 @@ func TestExpandRoleGrants(t *testing.T) {
 			if err != nil {
 				t.Fatalf("expandRoleGrants() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.wantDomain, domain); diff != "" {
-				t.Errorf("expandRoleGrants() domain mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("expandRoleGrants() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -237,12 +263,12 @@ func TestMigrateRoles_conditionReconciliation(t *testing.T) {
 
 	migrate := func(condition string) {
 		t.Helper()
-		config := &RoleConfig{Roles: []*Role{{
+		config := &RoleConfig{Roles: ScopedRoles{Domain: []*Role{{
 			Name: "Reader",
 			Permissions: map[accesstypes.Permission][]Grant{
 				"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: condition}},
 			},
-		}}}
+		}}}}
 		if err := MigrateRoles(ctx, manager, grammarCollection{}, config, "tenant1"); err != nil {
 			t.Fatalf("MigrateRoles() error = %v", err)
 		}

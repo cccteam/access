@@ -3,6 +3,7 @@ package access
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cccteam/ccc/accesstypes"
@@ -120,6 +121,112 @@ func Test_MigrateRoles_tenantNamesArePureData(t *testing.T) {
 				if !exists {
 					t.Errorf("RoleExists(%v) = false, want the Administrator role reconciled into this scope", scope)
 				}
+			}
+		})
+	}
+}
+
+// Test_MigrateRoles_rolesLiveAtTheirDeclaredScope pins the scoped-role model:
+// a global role exists in the global partition only, a domain role in every
+// tenant partition only, and a stale copy in the wrong partition — the shape
+// the old create-everywhere behavior left behind — is reconciled away.
+func Test_MigrateRoles_rolesLiveAtTheirDeclaredScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	manager := newUserManager(newStoreManager(newFakeStore()))
+
+	global := accesstypes.GlobalScope()
+	tenant := accesstypes.DomainScope("tenant1")
+
+	// A phantom copy of each role in the partition its declaration does not
+	// name, as the old behavior provisioned.
+	if err := manager.AddRole(ctx, tenant, "VendorManager"); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddRole(ctx, global, "Reader"); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+
+	config := &RoleConfig{Roles: ScopedRoles{
+		Global: []*Role{{
+			Name:        "VendorManager",
+			Permissions: map[accesstypes.Permission][]Grant{"Execute": {{Resource: "DoThing"}}},
+		}},
+		Domain: []*Role{{
+			Name:        "Reader",
+			Permissions: map[accesstypes.Permission][]Grant{"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}}},
+		}},
+	}}
+	if err := MigrateRoles(ctx, manager, grammarCollection{}, config, "tenant1"); err != nil {
+		t.Fatalf("MigrateRoles() error = %v", err)
+	}
+
+	tests := []struct {
+		scope accesstypes.Scope
+		role  accesstypes.Role
+		want  bool
+	}{
+		{global, "VendorManager", true},
+		{tenant, "VendorManager", false},
+		{tenant, "Reader", true},
+		{global, "Reader", false},
+	}
+	for _, tt := range tests {
+		exists, err := manager.RoleExists(ctx, tt.scope, tt.role)
+		if err != nil {
+			t.Fatalf("RoleExists(%v, %s) error = %v", tt.scope, tt.role, err)
+		}
+		if exists != tt.want {
+			t.Errorf("RoleExists(%v, %s) = %v, want %v", tt.scope, tt.role, exists, tt.want)
+		}
+	}
+}
+
+func Test_validateRoleNames(t *testing.T) {
+	t.Parallel()
+
+	role := func(name accesstypes.Role) *Role { return &Role{Name: name} }
+
+	tests := []struct {
+		name    string
+		roles   ScopedRoles
+		wantErr string
+	}{
+		{
+			name:  "distinct names at each scope pass",
+			roles: ScopedRoles{Global: []*Role{role("VendorManager")}, Domain: []*Role{role("Reader")}},
+		},
+		{
+			name:    "a name declared twice in one list is rejected",
+			roles:   ScopedRoles{Domain: []*Role{role("Reader"), role("Reader")}},
+			wantErr: "declared twice",
+		},
+		{
+			name:    "a name declared at both scopes is rejected",
+			roles:   ScopedRoles{Global: []*Role{role("Reader")}, Domain: []*Role{role("Reader")}},
+			wantErr: "exactly one scope",
+		},
+		{
+			name:    "the Administrator role cannot be authored",
+			roles:   ScopedRoles{Global: []*Role{role("Administrator")}},
+			wantErr: "provisioned automatically",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateRoleNames(tt.roles)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateRoleNames() error = %v, want nil", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validateRoleNames() error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
 	}
