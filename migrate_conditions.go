@@ -28,8 +28,11 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 	}
 	expr := compiled.Expr()
 
-	if perm == accesstypes.Execute {
-		return fail(errors.New("execute permissions check at decode time, where no row exists to evaluate a condition"))
+	// Execute permissions check at decode time, where no row exists: only a
+	// row-free condition — one that folds against the environment facts alone —
+	// can ever settle there (design plan §12, revised 2026-08-31).
+	if perm == accesstypes.Execute && (!condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0) {
+		return fail(errors.New("execute permissions check at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
 	}
 
 	scope := store.Scope(grant.Resource)

@@ -211,10 +211,17 @@ func TestValidateGrantCondition(t *testing.T) {
 func TestValidateGrantCondition_executeIsDecodeTime(t *testing.T) {
 	t.Parallel()
 
-	grant := Grant{Resource: "DoThing", Condition: "owner = subject"}
-	err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", grant)
+	// Row-referencing conditions cannot evaluate at decode; row-free
+	// conditions fold against the environment facts and are permitted.
+	rowBound := Grant{Resource: "DoThing", Condition: "owner = subject"}
+	err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", rowBound)
 	if err == nil || !strings.Contains(err.Error(), "decode time") {
-		t.Fatalf("validateGrantCondition() error = %v, want the decode-time rejection", err)
+		t.Fatalf("validateGrantCondition(row-referencing) error = %v, want the decode-time rejection", err)
+	}
+
+	rowFree := Grant{Resource: "DoThing", Condition: "now < '2027-01-01T00:00:00Z'"}
+	if err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", rowFree); err != nil {
+		t.Fatalf("validateGrantCondition(row-free) error = %v, want nil", err)
 	}
 }
 
