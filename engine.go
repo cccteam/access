@@ -23,6 +23,12 @@ type evaluator interface {
 		ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) ([]resourceDecision, error)
 
+	// userHasGrants reports whether user holds at least one grant in scope,
+	// answered from the policy snapshot — the visibility question concealed
+	// tenancy asks (a caller with no grants in a domain is answered as if the
+	// domain did not exist).
+	userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
+
 	// checkRole reports whether role holds perm scope-wide within scope.
 	checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
 

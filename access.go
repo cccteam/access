@@ -194,6 +194,20 @@ func (c *Client) CheckRoleResources(
 	return c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
 }
 
+// UserHasGrants reports whether user holds at least one grant in scope,
+// answered from the in-memory policy snapshot (safe inside transactions; no
+// store read). It is the visibility question concealed tenancy asks: an
+// application hiding tenant existence answers a caller with no grants in a
+// domain exactly as if the domain did not exist, while a caller with any
+// foothold proceeds to ordinary permission checks. Role membership that
+// resolves to no grants is not a foothold.
+func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.userHasGrants(ctx, user, scope)
+}
+
 // ForUser returns the request-bound permission checker for user — the
 // canonical implementation of the resource package's UserPermissions seam.
 // See UserChecker.
