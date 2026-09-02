@@ -258,6 +258,15 @@ func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.Use
 	return snap.userHasGrants(scope, user), nil
 }
 
+func (s *snapshotEngine) userDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return snap.userDomains(user), nil
+}
+
 func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {

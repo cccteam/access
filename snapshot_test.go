@@ -1305,3 +1305,50 @@ func Test_snapshot_userDigest(t *testing.T) {
 		})
 	}
 }
+
+// Test_snapshot_userDomains pins the membership enumeration: every domain
+// where the user holds a foothold — through a role, a scope-wide role grant,
+// or a direct grant — sorted; the global scope is never a domain; a grantless
+// membership, a global-only user, and an unknown user all enumerate to an
+// empty (never nil) list, so the wire payload is always a JSON array.
+func Test_snapshot_userDomains(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: accesstypes.DomainScope("tenant2"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read"},
+			{Scope: accesstypes.DomainScope("tenant3"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Auditor"), Perm: "List", Resource: "reports"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Chief"},
+			{Scope: accesstypes.GlobalScope(), Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("gale"), Role: "Idler"},
+			{Scope: accesstypes.GlobalScope(), Member: userSubject("hana"), Role: "Auditor"},
+		},
+	})
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+		want []accesstypes.Domain
+	}{
+		{name: "role footholds list sorted, global scope excluded", user: "erin", want: []accesstypes.Domain{"tenant1", "tenant2"}},
+		{name: "a direct grant is a foothold", user: "dana", want: []accesstypes.Domain{"tenant3"}},
+		{name: "membership in a grantless role is not", user: "gale", want: []accesstypes.Domain{}},
+		{name: "global-only grants list no domain", user: "hana", want: []accesstypes.Domain{}},
+		{name: "unknown user lists nothing", user: "nobody", want: []accesstypes.Domain{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, snap.userDomains(tt.user)); diff != "" {
+				t.Errorf("userDomains(%s) (-want +got):\n%s", tt.user, diff)
+			}
+		})
+	}
+}

@@ -35,6 +35,12 @@ type evaluator interface {
 	// domain did not exist).
 	userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
+	// userDomains lists the domains where user holds at least one grant,
+	// sorted — the membership question a tenant picker asks, answered with
+	// the same foothold predicate as userHasGrants. The global scope is not
+	// a domain and is never listed.
+	userDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
+
 	// checkRole reports whether role holds perm scope-wide within scope.
 	checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
 

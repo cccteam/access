@@ -8,16 +8,18 @@ import (
 )
 
 // UserResourceChecker is the engine surface a UserChecker delegates to: the
-// check call that answers enforcement, and the digest call that answers the
-// frontend's advisory enumeration. *Client satisfies it; test doubles that
-// script permission checks satisfy it with the same check method they
-// already fake plus a digest stub.
+// check call that answers enforcement, and the digest and domain calls that
+// answer the frontend's advisory questions. *Client satisfies it; test
+// doubles that script permission checks satisfy it with the same check
+// method they already fake plus digest and domain stubs.
 type UserResourceChecker interface {
 	CheckUserResources(
 		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (accesstypes.Decisions, error)
 
 	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
+
+	UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
 }
 
 // UserChecker is the request-bound permission checker for one user: the
@@ -66,6 +68,18 @@ func (u *UserChecker) PermissionDigest(ctx context.Context, scope accesstypes.Sc
 	}
 
 	return digest, nil
+}
+
+// Domains lists the domains where the bound user holds at least one grant,
+// sorted — the tenant picker's membership question. It is a pure delegate to
+// UserDomains; see Client.UserDomains for the foothold semantics.
+func (u *UserChecker) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
+	domains, err := u.checker.UserDomains(ctx, u.user)
+	if err != nil {
+		return nil, errors.Wrap(err, "access.UserResourceChecker.UserDomains()")
+	}
+
+	return domains, nil
 }
 
 // User returns the bound user.

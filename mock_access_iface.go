@@ -139,6 +139,21 @@ func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
 }
 
+// UserDomains mocks base method.
+func (m *MockController) UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDomains", ctx, user)
+	ret0, _ := ret[0].([]accesstypes.Domain)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserDomains indicates an expected call of UserDomains.
+func (mr *MockControllerMockRecorder) UserDomains(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDomains", reflect.TypeOf((*MockController)(nil).UserDomains), ctx, user)
+}
+
 // UserHasGrants mocks base method.
 func (m *MockController) UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
 	m.ctrl.T.Helper()

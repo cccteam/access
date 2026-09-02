@@ -362,6 +362,25 @@ func (s *snapshot) userHasGrants(scope accesstypes.Scope, user accesstypes.User)
 	return len(s.userGrants(scope, user)) > 0
 }
 
+// userDomains lists the domains where user holds at least one grant — the
+// foothold userHasGrants tests, enumerated across every scope the snapshot
+// knows and sorted for a stable payload. The global scope is not a domain and
+// never appears. A domain listed is exactly a domain whose routes answer the
+// user with ordinary 403s rather than a concealing 404.
+func (s *snapshot) userDomains(user accesstypes.User) []accesstypes.Domain {
+	domains := make([]accesstypes.Domain, 0)
+	for scope, sp := range s.scopes {
+		domain, ok := scope.Domain()
+		if !ok || len(sp.userGrants[user]) == 0 {
+			continue
+		}
+		domains = append(domains, domain)
+	}
+	slices.Sort(domains)
+
+	return domains
+}
+
 // userDigest returns user's structural grant enumeration within scope: every
 // resource and field the user's grants reach, each mapping permission to
 // granted (an unconditional cover exists) or conditional (only conditional
