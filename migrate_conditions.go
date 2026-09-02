@@ -37,6 +37,12 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 
 	scope := store.Scope(grant.Resource)
 
+	// Computed resources check permissions at decode time too — the same
+	// no-row surface as Execute, whatever the permission.
+	if store.IsComputedResource(scope, grant.Resource) && (!condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0) {
+		return fail(errors.New("computed resources check permissions at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
+	}
+
 	for _, name := range condition.Bindings(expr) {
 		if _, ok := store.AttributeComparisonType(scope, grant.Resource, name); !ok {
 			return fail(errors.Newf("condition references %q, which is not an attribute of %s", name, grant.Resource))
