@@ -344,6 +344,14 @@ func (s *snapshot) checkRoleResources(role accesstypes.Role, scope accesstypes.S
 	return s.missingResources(s.roleGrants(scope, role), perm, resources)
 }
 
+// userHasGrants reports whether user holds at least one grant in scope —
+// any permission, resource-attached or scope-wide, unconditional or
+// conditional. Role membership alone is not a grant: a user whose roles
+// resolve to nothing can observe nothing in the scope.
+func (s *snapshot) userHasGrants(scope accesstypes.Scope, user accesstypes.User) bool {
+	return len(s.userGrants(scope, user)) > 0
+}
+
 func (s *snapshot) userGrants(scope accesstypes.Scope, user accesstypes.User) grantMap {
 	if sp := s.scopes[scope]; sp != nil {
 		return sp.userGrants[user]

@@ -240,6 +240,15 @@ func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstype
 	return snap.decideUserResources(user, scope, perm, resources...), nil
 }
 
+func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return snap.userHasGrants(scope, user), nil
+}
+
 func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {

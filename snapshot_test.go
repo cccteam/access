@@ -1159,3 +1159,49 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 		})
 	}
 }
+
+// Test_snapshot_userHasGrants pins the visibility question concealed tenancy
+// asks: any grant in the scope — through a role or direct, resource-attached
+// or scope-wide — is a foothold; role membership resolving to no grants, an
+// unknown scope, and grants held only in another scope are not.
+func Test_snapshot_userHasGrants(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainScope("tenant2"), Subject: roleSubject("Chief"), Perm: "Read"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("gale"), Role: "Idler"},
+			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("hana"), Role: "Chief"},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		user  accesstypes.User
+		scope accesstypes.Scope
+		want  bool
+	}{
+		{name: "grant through a role is a foothold", user: "erin", scope: accesstypes.DomainScope("tenant1"), want: true},
+		{name: "direct grant is a foothold", user: "dana", scope: accesstypes.DomainScope("tenant1"), want: true},
+		{name: "scope-wide grant is a foothold", user: "hana", scope: accesstypes.DomainScope("tenant2"), want: true},
+		{name: "membership in a grantless role is not", user: "gale", scope: accesstypes.DomainScope("tenant1"), want: false},
+		{name: "grants in another scope do not carry over", user: "erin", scope: accesstypes.DomainScope("tenant2"), want: false},
+		{name: "unknown scope has no footholds", user: "erin", scope: accesstypes.DomainScope("tenant9"), want: false},
+		{name: "unknown user has no footholds", user: "nobody", scope: accesstypes.DomainScope("tenant1"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := snap.userHasGrants(tt.scope, tt.user); got != tt.want {
+				t.Errorf("userHasGrants(%s, %s) = %v, want %v", tt.scope, tt.user, got, tt.want)
+			}
+		})
+	}
+}
