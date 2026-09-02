@@ -208,6 +208,26 @@ func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope
 	return c.evaluator.userHasGrants(ctx, user, scope)
 }
 
+// UserDomains lists the domains where user holds at least one grant, sorted
+// — the membership question a tenant picker asks, answered from the
+// in-memory policy snapshot with the same foothold predicate as
+// UserHasGrants: a domain is listed exactly when its routes would answer
+// user with ordinary 403s rather than a concealing 404, so a picker built on
+// it can never disagree with concealed tenancy. The global scope is not a
+// domain and is never listed.
+//
+// The answer reports grants, not tenants: a domain the application has since
+// removed still lists while grants in it remain, and tenant existence stays
+// the application's DomainExists seam. Like the digest it is structural and
+// non-folding — no environment, no row data — so it caches cleanly per user
+// for the life of a policy snapshot.
+func (c *Client) UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.userDomains(ctx, user)
+}
+
 // UserPermissionDigest returns user's structural grant enumeration within
 // scope: every resource and field the user's grants reach, each mapping
 // permission → granted (an unconditional cover exists) or conditional (only

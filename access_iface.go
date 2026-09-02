@@ -42,6 +42,11 @@ type Controller interface {
 	// concealed tenancy asks (see Client.UserHasGrants).
 	UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
+	// UserDomains lists the domains where user holds at least one grant,
+	// sorted — the tenant picker's membership question, answered with the
+	// UserHasGrants foothold predicate (see Client.UserDomains).
+	UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
+
 	// UserPermissionDigest returns user's structural grant enumeration within
 	// scope — the frontend digest payload: resource → permission → granted or
 	// conditional, denied targets absent, nothing folded (see

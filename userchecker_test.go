@@ -156,3 +156,68 @@ func TestUserChecker_PermissionDigest(t *testing.T) {
 		})
 	}
 }
+
+func TestUserChecker_Domains(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	client, err := New(newFakeStore())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	tenant2 := accesstypes.DomainScope("tenant2")
+	global := accesstypes.GlobalScope()
+	manager := client.UserManager()
+	for _, seed := range []struct {
+		scope accesstypes.Scope
+		role  accesstypes.Role
+		perm  accesstypes.Permission
+		res   accesstypes.Resource
+		users []accesstypes.User
+	}{
+		{scope: tenant2, role: "Editor", perm: "Read", res: "employees", users: []accesstypes.User{"erin"}},
+		{scope: tenant1, role: "Chief", perm: "Read", res: "employees", users: []accesstypes.User{"erin"}},
+		{scope: global, role: "Auditor", perm: "List", res: "reports", users: []accesstypes.User{"erin", "hana"}},
+	} {
+		if err := manager.AddRole(ctx, seed.scope, seed.role); err != nil {
+			t.Fatalf("AddRole() error = %v", err)
+		}
+		if err := manager.AddRolePermissionResources(ctx, seed.scope, seed.role, seed.perm, seed.res); err != nil {
+			t.Fatalf("AddRolePermissionResources() error = %v", err)
+		}
+		if err := manager.AddRoleUsers(ctx, seed.scope, seed.role, seed.users...); err != nil {
+			t.Fatalf("AddRoleUsers() error = %v", err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+		want []accesstypes.Domain
+	}{
+		{name: "bound user's footholds list sorted, global excluded", user: "erin", want: []accesstypes.Domain{"tenant1", "tenant2"}},
+		{name: "global-only user lists no domain", user: "hana", want: []accesstypes.Domain{}},
+		{name: "unknown bound user lists nothing", user: "sam", want: []accesstypes.Domain{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := client.ForUser(tt.user).Domains(t.Context())
+			if err != nil {
+				t.Fatalf("UserChecker.Domains() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("UserChecker.Domains() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
