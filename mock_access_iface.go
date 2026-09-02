@@ -168,6 +168,21 @@ func (mr *MockControllerMockRecorder) UserManager() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserManager", reflect.TypeOf((*MockController)(nil).UserManager))
 }
 
+// UserPermissionDigest mocks base method.
+func (m *MockController) UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserPermissionDigest", ctx, user, scope)
+	ret0, _ := ret[0].(accesstypes.PermissionDigest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserPermissionDigest indicates an expected call of UserPermissionDigest.
+func (mr *MockControllerMockRecorder) UserPermissionDigest(ctx, user, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserPermissionDigest", reflect.TypeOf((*MockController)(nil).UserPermissionDigest), ctx, user, scope)
+}
+
 // MockUserManager is a mock of UserManager interface.
 type MockUserManager struct {
 	ctrl     *gomock.Controller

@@ -1205,3 +1205,103 @@ func Test_snapshot_userHasGrants(t *testing.T) {
 		})
 	}
 }
+
+// Test_snapshot_userDigest pins the digest enumeration: structural (nothing
+// folds), fail-closed by absence (denied targets never appear), granted
+// beating conditional, all-fields grants enumerating the known field
+// vocabulary, and scope-wide grants staying outside the digest.
+func Test_snapshot_userDigest(t *testing.T) {
+	t.Parallel()
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			// Editor: unconditional Read on the employees endpoint and its name
+			// field; conditional Update on both.
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Condition: "status = 'open'"},
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
+			// Chief: unconditional Update on the field Editor holds only
+			// conditionally, and an all-fields List on widgets.
+			{Scope: tenant1, Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
+			{Scope: tenant1, Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
+			// Auditor is assigned to nobody: its grant only puts "label" into
+			// the widgets field vocabulary the all-fields enumeration lists.
+			{Scope: tenant1, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
+			// Pinger holds only a scope-wide grant: no resource to enumerate.
+			{Scope: tenant1, Subject: roleSubject("Pinger"), Perm: "Ping"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1, Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1, Member: userSubject("casey"), Role: "Editor"},
+			{Scope: tenant1, Member: userSubject("casey"), Role: "Chief"},
+			{Scope: tenant1, Member: userSubject("wren"), Role: "Chief"},
+			{Scope: tenant1, Member: userSubject("gale"), Role: "Pinger"},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		user  accesstypes.User
+		scope accesstypes.Scope
+		want  accesstypes.PermissionDigest
+	}{
+		{
+			name:  "endpoint and field entries with the conditional tri-state",
+			user:  "erin",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+			},
+		},
+		{
+			name:  "an unconditional cover from any role settles the entry granted",
+			user:  "casey",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestGranted},
+				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "an all-fields grant lists the known vocabulary, never the endpoint",
+			user:  "wren",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees.name": {"Update": accesstypes.DigestGranted},
+				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "a scope-wide grant attaches to no resource and is not enumerated",
+			user:  "gale",
+			scope: tenant1,
+			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			name:  "grants in another scope do not carry over",
+			user:  "erin",
+			scope: accesstypes.DomainScope("tenant2"),
+			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			name:  "an unknown user holds nothing",
+			user:  "nobody",
+			scope: tenant1,
+			want:  accesstypes.PermissionDigest{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snap.userDigest(tt.scope, tt.user)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("userDigest(%s, %s) mismatch (-want +got):\n%s", tt.scope, tt.user, diff)
+			}
+		})
+	}
+}

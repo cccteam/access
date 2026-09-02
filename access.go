@@ -208,6 +208,26 @@ func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope
 	return c.evaluator.userHasGrants(ctx, user, scope)
 }
 
+// UserPermissionDigest returns user's structural grant enumeration within
+// scope: every resource and field the user's grants reach, each mapping
+// permission → granted (an unconditional cover exists) or conditional (only
+// conditional grants cover it), with denied targets absent — fail-closed by
+// construction. It is the payload of the frontend's per-scope permission
+// digest and is advisory only; enforcement stays with the Check seams.
+//
+// Unlike the Check seams the digest never folds: it reports grant structure
+// with no environment instant and no row data, so a payload is stable for
+// the life of a policy snapshot and caches cleanly per scope. Scope-wide
+// grants attach to no resource and are not enumerated. See CheckUser for the
+// scope semantics — an unknown tenant simply holds no grants, so its digest
+// is empty.
+func (c *Client) UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.userDigest(ctx, user, scope)
+}
+
 // ForUser returns the request-bound permission checker for user — the
 // canonical implementation of the resource package's UserPermissions seam.
 // See UserChecker.

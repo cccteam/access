@@ -42,6 +42,12 @@ type Controller interface {
 	// concealed tenancy asks (see Client.UserHasGrants).
 	UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
+	// UserPermissionDigest returns user's structural grant enumeration within
+	// scope — the frontend digest payload: resource → permission → granted or
+	// conditional, denied targets absent, nothing folded (see
+	// Client.UserPermissionDigest).
+	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
+
 	// ForUser returns the request-bound permission checker for user, whose
 	// method set structurally satisfies the resource package's UserPermissions
 	// seam. Test doubles implement it in one line over NewUserChecker.
