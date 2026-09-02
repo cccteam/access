@@ -73,6 +73,19 @@ func (grammarCollection) DeclaresSubjectSet(name string) bool { return name == "
 
 func (grammarCollection) DeclaresSubjectValue(name string) bool { return name == "approvalLimit" }
 
+func (grammarCollection) IsComputedResource(accesstypes.PermissionScope, accesstypes.Resource) bool {
+	return false
+}
+
+// computedGrammarCollection is grammarCollection with Widgets reported as a
+// computed resource, so the decode-time condition rules can be exercised
+// against the same attribute vocabulary.
+type computedGrammarCollection struct{ grammarCollection }
+
+func (computedGrammarCollection) IsComputedResource(_ accesstypes.PermissionScope, res accesstypes.Resource) bool {
+	return res == "Widgets"
+}
+
 func TestExpandRoleGrants(t *testing.T) {
 	t.Parallel()
 
@@ -248,6 +261,40 @@ func TestValidateGrantCondition_executeIsDecodeTime(t *testing.T) {
 	rowFree := Grant{Resource: "DoThing", Condition: "now < '2027-01-01T00:00:00Z'"}
 	if err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", rowFree); err != nil {
 		t.Fatalf("validateGrantCondition(row-free) error = %v, want nil", err)
+	}
+}
+
+func TestValidateGrantCondition_computedIsDecodeTime(t *testing.T) {
+	t.Parallel()
+
+	// A computed resource's checks run at decode, exactly like Execute: only
+	// row-free conditions can settle there, whatever the permission.
+	tests := []struct {
+		name      string
+		condition string
+		wantErr   bool
+	}{
+		{name: "row-referencing condition is rejected", condition: "owner = subject", wantErr: true},
+		{name: "subject-value condition is rejected", condition: "price <= subject.approvalLimit", wantErr: true},
+		{name: "row-free condition is permitted", condition: "now < '2027-01-01T00:00:00Z'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			grant := Grant{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: tt.condition}
+			err := validateGrantCondition(computedGrammarCollection{}, "Tester", "Read", grant)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "decode time") {
+					t.Fatalf("validateGrantCondition() error = %v, want the decode-time rejection", err)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateGrantCondition() error = %v", err)
+			}
+		})
 	}
 }
 

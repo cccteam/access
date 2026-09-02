@@ -26,6 +26,12 @@ type PermissionCollection interface {
 	AttributeIsColumn(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool
 	DeclaresSubjectSet(name string) bool
 	DeclaresSubjectValue(name string) bool
+
+	// IsComputedResource reports whether res is a computed resource: a
+	// hand-written query surface whose permission checks run at decode time,
+	// where no row exists — so its grants accept only row-free conditions,
+	// exactly as Execute grants do.
+	IsComputedResource(scope accesstypes.PermissionScope, res accesstypes.Resource) bool
 }
 
 // administratorRole is the default role granted all permissions by MigrateRoles.
