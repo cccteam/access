@@ -23,6 +23,12 @@ type evaluator interface {
 		ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) ([]resourceDecision, error)
 
+	// userDigest returns user's structural grant enumeration within scope:
+	// every resource and field the user's grants reach, permission → granted
+	// or conditional, with denied targets absent. Non-folding by design —
+	// the answer is a pure function of the policy snapshot.
+	userDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
+
 	// userHasGrants reports whether user holds at least one grant in scope,
 	// answered from the policy snapshot — the visibility question concealed
 	// tenancy asks (a caller with no grants in a domain is answered as if the

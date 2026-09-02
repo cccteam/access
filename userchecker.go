@@ -7,13 +7,17 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// UserResourceChecker is the single engine call a UserChecker delegates to.
-// *Client satisfies it; test doubles that script permission checks satisfy it
-// with the same method they already fake.
+// UserResourceChecker is the engine surface a UserChecker delegates to: the
+// check call that answers enforcement, and the digest call that answers the
+// frontend's advisory enumeration. *Client satisfies it; test doubles that
+// script permission checks satisfy it with the same check method they
+// already fake plus a digest stub.
 type UserResourceChecker interface {
 	CheckUserResources(
 		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (accesstypes.Decisions, error)
+
+	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 }
 
 // UserChecker is the request-bound permission checker for one user: the
@@ -49,6 +53,19 @@ func (u *UserChecker) Check(
 	}
 
 	return decisions, nil
+}
+
+// PermissionDigest returns the bound user's structural grant enumeration
+// within scope — the frontend digest payload. It is a pure delegate to
+// UserPermissionDigest; see Client.UserPermissionDigest for the non-folding
+// semantics.
+func (u *UserChecker) PermissionDigest(ctx context.Context, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	digest, err := u.checker.UserPermissionDigest(ctx, u.user, scope)
+	if err != nil {
+		return nil, errors.Wrap(err, "access.UserResourceChecker.UserPermissionDigest()")
+	}
+
+	return digest, nil
 }
 
 // User returns the bound user.

@@ -25,6 +25,12 @@ type snapshot struct {
 	scopes    map[accesstypes.Scope]*scopePolicy
 	loadedAt  time.Time
 
+	// permNames and resourceNames are the reverse of perms and resources,
+	// aligned by dense ID: the digest enumeration walks grant maps and needs
+	// names back out of keys.
+	permNames     []accesstypes.Permission
+	resourceNames []string
+
 	// conditions interns the distinct condition texts, sorted so a term set
 	// resolves to canonically ordered texts; compiled carries each text's
 	// vocabulary AST, aligned by index. Compilation happens once, at load —
@@ -57,6 +63,10 @@ type grantKey uint32
 
 func packGrantKey(permID, resID uint16) grantKey {
 	return grantKey(permID)<<16 | grantKey(resID)
+}
+
+func unpackGrantKey(key grantKey) (permID, resID uint16) {
+	return uint16(key >> 16), uint16(key & 0xFFFF)
 }
 
 // grantMap is a subject's complete effective grants: everything it holds
@@ -352,6 +362,59 @@ func (s *snapshot) userHasGrants(scope accesstypes.Scope, user accesstypes.User)
 	return len(s.userGrants(scope, user)) > 0
 }
 
+// userDigest returns user's structural grant enumeration within scope: every
+// resource and field the user's grants reach, each mapping permission to
+// granted (an unconditional cover exists) or conditional (only conditional
+// grants cover it). Denied targets are absent — the digest is fail-closed by
+// construction — and nothing folds: no facts are consulted, so the answer is
+// a pure function of the snapshot.
+//
+// Two grant shapes have no enumerable name and are deliberately outside the
+// digest: scope-wide grants (they attach to no resource) and the coverage an
+// all-fields grant extends to fields the snapshot has never seen named (the
+// enumeration lists the known field vocabulary; a check still answers for
+// the unnamed field itself).
+func (s *snapshot) userDigest(scope accesstypes.Scope, user accesstypes.User) accesstypes.PermissionDigest {
+	grants := s.userGrants(scope, user)
+	digest := make(accesstypes.PermissionDigest, len(grants))
+	set := func(res accesstypes.Resource, perm accesstypes.Permission, state accesstypes.DigestState) {
+		entry := digest[res]
+		if entry == nil {
+			entry = make(map[accesstypes.Permission]accesstypes.DigestState)
+			digest[res] = entry
+		}
+		entry[perm] = state
+	}
+	for key, fs := range grants {
+		permID, resID := unpackGrantKey(key)
+		base := s.resourceNames[resID]
+		if base == "" {
+			continue
+		}
+		perm := s.permNames[permID]
+		switch {
+		case fs.endpoint:
+			set(accesstypes.Resource(base), perm, accesstypes.DigestGranted)
+		case fs.cond != nil && len(fs.cond.endpoint) > 0:
+			set(accesstypes.Resource(base), perm, accesstypes.DigestConditional)
+		}
+		for field, i := range s.fields[resID] {
+			var state accesstypes.DigestState
+			switch {
+			case fs.all || fs.bit(i):
+				state = accesstypes.DigestGranted
+			case fs.cond != nil && (len(fs.cond.all) > 0 || len(fs.cond.fields[i]) > 0):
+				state = accesstypes.DigestConditional
+			default:
+				continue
+			}
+			set(accesstypes.Resource(base).ResourceWithTag(accesstypes.Tag(field)), perm, state)
+		}
+	}
+
+	return digest
+}
+
 func (s *snapshot) userGrants(scope accesstypes.Scope, user accesstypes.User) grantMap {
 	if sp := s.scopes[scope]; sp != nil {
 		return sp.userGrants[user]
@@ -583,6 +646,7 @@ func (s *snapshot) intern(grants []policy.Grant) error {
 				return errors.Newf("too many permissions to compile: limit %d", math.MaxUint16)
 			}
 			s.perms[g.Perm] = uint16(len(s.perms)) //nolint:gosec // bounded by the guard above
+			s.permNames = append(s.permNames, g.Perm)
 		}
 		resID, ok := s.resources[g.Resource]
 		if !ok {
@@ -591,6 +655,7 @@ func (s *snapshot) intern(grants []policy.Grant) error {
 			}
 			resID = uint16(len(s.resources)) //nolint:gosec // bounded by the guard above
 			s.resources[g.Resource] = resID
+			s.resourceNames = append(s.resourceNames, g.Resource)
 			s.fields = append(s.fields, make(map[string]uint16))
 		}
 		if g.Field != "" && g.Field != "*" {

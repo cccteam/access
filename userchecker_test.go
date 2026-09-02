@@ -85,3 +85,74 @@ func TestClient_ForUser(t *testing.T) {
 		})
 	}
 }
+
+// TestUserChecker_PermissionDigest pins the digest delegate: the bound user's
+// structural enumeration flows through ForUser unchanged — granted for an
+// unconditional grant, conditional for a condition-limited one, absence for
+// everything else, with nothing folded.
+func TestUserChecker_PermissionDigest(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	client, err := New(newFakeStore())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Client.Close() error = %v", err)
+		}
+	})
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	manager := client.UserManager()
+	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees", "employees.name"); err != nil {
+		t.Fatalf("AddRolePermissionResources() error = %v", err)
+	}
+	if err := manager.AddRoleGrant(ctx, tenant1, "Editor", "Update", "employees.name", "status = 'open'"); err != nil {
+		t.Fatalf("AddRoleGrant() error = %v", err)
+	}
+	if err := manager.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+		t.Fatalf("AddRoleUsers() error = %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		user  accesstypes.User
+		scope accesstypes.Scope
+		want  accesstypes.PermissionDigest
+	}{
+		{
+			name:  "bound user's grants enumerate structurally",
+			user:  "erin",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted},
+				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+			},
+		},
+		{
+			name:  "unknown bound user gets an empty digest",
+			user:  "sam",
+			scope: tenant1,
+			want:  accesstypes.PermissionDigest{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := client.ForUser(tt.user).PermissionDigest(t.Context(), tt.scope)
+			if err != nil {
+				t.Fatalf("UserChecker.PermissionDigest() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("UserChecker.PermissionDigest() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
