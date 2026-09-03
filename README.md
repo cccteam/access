@@ -167,9 +167,10 @@ The base name / `Resources` suffix pairing is the API's naming standard: the
 base method checks a permission held scope-wide (attached to no resource);
 the `Resources` variant checks specific resources.
 
-The user checks are the request-path seams and are ABAC-ready: they take the
-per-request decision context (`accesstypes.Environment`, immediately after
-`ctx`) and answer with Decisions (`Denied` / `Granted` / `Conditional`).
+The checks — for users and for roles alike — are the request-path seams and
+are ABAC-ready: they take the per-request decision context
+(`accesstypes.Environment`, immediately after `ctx`) and answer with
+Decisions (`Denied` / `Granted` / `Conditional`).
 `CheckUserResources` returns one Decision per resource, all from a single
 policy snapshot; `Decisions.DeniedResources()` lists what was denied — empty
 means everything passed. One permission per call; batch as many resources as
@@ -191,9 +192,18 @@ conditions yet (the expression language is undesigned), so in practice every
 Decision is `Granted` or `Denied` and an empty `Environment` is the normal
 argument.
 
-The role checks are introspection tools and keep the bare shape:
-`CheckRoleResources` returns the subset of resources the role does NOT hold
-the permission on; `CheckRole` reports scope-wide holding as a bool.
+The role checks are the same seams evaluated against a role's effective
+grants — its own and, transitively, every role it inherits — with no member
+involved: `CheckRole` and `CheckRoleResources` answer exactly what
+`CheckUser` and `CheckUserResources` answer a user holding only that role.
+They serve sessions that operate *as a role* (an administrator working a
+partner portal under a role chosen for the session — the session library's
+impersonated sessions) as well as policy introspection. A role has no
+identity of its own: a `subject` term in a row condition is bound by the
+resource layer to the session's effective identity at render time, and a
+scope-wide condition that needs a subject is a check error, as it is for a
+user. `RoleHasGrants`, `RoleDomains` and `RolePermissionDigest` are the role
+twins of the user foothold, tenant-picker and digest questions.
 
 ```go
 env := accesstypes.NewEnvironment()
@@ -201,9 +211,17 @@ env := accesstypes.NewEnvironment()
 decisions, err := client.CheckUserResources(ctx, env, user, scope, "Read", "documents", "documents.title", "images")
 decision, err := client.CheckUser(ctx, env, user, scope, "ExportReports") // scope-wide
 
-missing, err := client.CheckRoleResources(ctx, role, scope, "Update", "documents")
-held, err := client.CheckRole(ctx, role, scope, "ExportReports")
+decisions, err = client.CheckRoleResources(ctx, env, role, scope, "Update", "documents")
+decision, err = client.CheckRole(ctx, env, role, scope, "ExportReports")
 ```
+
+A request binds its principal once: `client.ForUser(user)` returns a
+`*UserChecker` and `client.ForRole(role)` a `*RoleChecker`, each carrying
+`Check`, `PermissionDigest` and `Domains` over the bound subject — the
+canonical implementations of the resource package's `UserPermissions` and
+`RolePermissions` seams. Only the `UserChecker` has `User()`: a role is not
+anyone, and the session's effective identity is the resource layer's to
+supply.
 
 There is no tenant validation on the check path: an unknown tenant scope
 holds no grants, so everything comes back denied (fail closed). If your API

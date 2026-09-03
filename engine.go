@@ -41,14 +41,29 @@ type evaluator interface {
 	// a domain and is never listed.
 	userDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
 
-	// checkRole reports whether role holds perm scope-wide within scope.
-	checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
+	// checkRole returns role's scope-wide decision within scope: what
+	// checkUser answers a member holding only that role, minus the
+	// membership lookup.
+	checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error)
 
-	// checkRoleResources returns the subset of resources that role does NOT
-	// hold perm on within scope. An empty result means all resources passed.
+	// checkRoleResources returns role's decision for each resource within
+	// scope, aligned with the input order — the role twin of
+	// checkUserResources.
 	checkRoleResources(
 		ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (missing []accesstypes.Resource, err error)
+	) ([]resourceDecision, error)
+
+	// roleDigest returns role's structural grant enumeration within scope —
+	// the role twin of userDigest.
+	roleDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
+
+	// roleHasGrants reports whether role holds at least one grant in scope —
+	// the role twin of userHasGrants.
+	roleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error)
+
+	// roleDomains lists the domains where role holds at least one grant,
+	// sorted — the role twin of userDomains.
+	roleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error)
 }
 
 // policyStore is the management surface for role membership, role existence, and
