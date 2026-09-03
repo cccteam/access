@@ -94,26 +94,12 @@ func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, use
 	if err != nil {
 		return accesstypes.Denied(), err
 	}
-	switch {
-	case decision.granted:
-		return accesstypes.Granted(), nil
-	case len(decision.conditions) == 0:
-		return accesstypes.Denied(), nil
-	}
-
-	result, err := condition.Fold(anyOf(decision.exprs), factsFor(env, user))
+	settled, err := settleScopeWide(decision, factsFor(env, user))
 	if err != nil {
-		return accesstypes.Denied(), errors.Wrapf(err, "folding the scope-wide conditions for user %q in scope %s", user, scope)
-	}
-	truth, settled := result.(condition.Truth)
-	if !settled {
-		return accesstypes.Denied(), errors.Newf("scope-wide conditions for user %q in scope %s did not fold to a definite answer: %q needs data no scope-wide check can reach", user, scope, result)
-	}
-	if !truth.Value {
-		return accesstypes.Denied(), nil
+		return accesstypes.Denied(), errors.Wrapf(err, "scope-wide conditions for user %q in scope %s", user, scope)
 	}
 
-	return accesstypes.Granted(), nil
+	return settled, nil
 }
 
 // CheckUserResources returns the Decision for each resource for whether user
@@ -160,12 +146,20 @@ func (c *Client) CheckUserResources(
 	return decisions, nil
 }
 
-// factsFor builds the condition-folding facts for one check: the checked
-// user's identity, plus the request's instant when the environment carries
-// one. Absence stays absent — a condition referencing a missing fact fails
-// the fold loudly, which is the designed posture.
+// factsFor builds the condition-folding facts for one user check: the
+// checked user's identity on top of the environment's facts. Absence stays
+// absent — a condition referencing a missing fact fails the fold loudly,
+// which is the designed posture.
 func factsFor(env accesstypes.Environment, user accesstypes.User) condition.Facts {
-	facts := condition.NewFacts().WithSubject(string(user))
+	return environmentFacts(env).WithSubject(string(user))
+}
+
+// environmentFacts builds the facts every check shares: the request's instant
+// when the environment carries one, and nothing else. A role check folds with
+// exactly these — a role has no identity of its own, so no subject fact is
+// available to it.
+func environmentFacts(env accesstypes.Environment) condition.Facts {
+	facts := condition.NewFacts()
 	if now, ok := env.Now(); ok {
 		facts = facts.WithNow(now)
 	}
@@ -173,25 +167,84 @@ func factsFor(env accesstypes.Environment, user accesstypes.User) condition.Fact
 	return facts
 }
 
-// CheckRole reports whether role holds perm scope-wide within scope. See
-// CheckUser for the scope semantics.
-func (c *Client) CheckRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
+// settleScopeWide translates a scope-wide engine decision into the public
+// Decision: granted and denied pass through, and conditional coverage —
+// always row-free, enforced at snapshot load — folds against the facts to a
+// definite answer. A condition folding leaves unsettled needs data no
+// scope-wide check can reach, and is an error rather than a guess.
+func settleScopeWide(decision resourceDecision, facts condition.Facts) (accesstypes.Decision, error) {
+	switch {
+	case decision.granted:
+		return accesstypes.Granted(), nil
+	case len(decision.conditions) == 0:
+		return accesstypes.Denied(), nil
+	}
 
-	return c.evaluator.checkRole(ctx, role, scope, perm)
+	result, err := condition.Fold(anyOf(decision.exprs), facts)
+	if err != nil {
+		return accesstypes.Denied(), errors.Wrap(err, "condition.Fold()")
+	}
+	truth, settled := result.(condition.Truth)
+	if !settled {
+		return accesstypes.Denied(), errors.Newf("did not fold to a definite answer: %q needs data no scope-wide check can reach", result)
+	}
+	if !truth.Value {
+		return accesstypes.Denied(), nil
+	}
+
+	return accesstypes.Granted(), nil
 }
 
-// CheckRoleResources returns the subset of resources that role does NOT hold
-// perm on within scope, preserving input order; an empty result means
-// everything passed. See CheckUserResources for the resource shape.
-func (c *Client) CheckRoleResources(
-	ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
-) (missing []accesstypes.Resource, err error) {
+// CheckRole returns the Decision for whether role holds perm scope-wide —
+// attached to no resource — within scope: what CheckUser answers a member
+// holding only that role, minus the membership lookup. It is the scope-wide
+// check for a session operating as a role principal, and an introspection
+// tool for policy tooling.
+//
+// The Environment and scope semantics are CheckUser's. A role has no identity
+// of its own, so the folding facts carry the request's instant and nothing
+// else; a scope-wide condition that needs a subject is a check error here
+// exactly as it is for a user.
+func (c *Client) CheckRole(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
+	decision, err := c.evaluator.checkRole(ctx, role, scope, perm)
+	if err != nil {
+		return accesstypes.Denied(), err
+	}
+	settled, err := settleScopeWide(decision, environmentFacts(env))
+	if err != nil {
+		return accesstypes.Denied(), errors.Wrapf(err, "scope-wide conditions for role %q in scope %s", role, scope)
+	}
+
+	return settled, nil
+}
+
+// CheckRoleResources returns the Decision for each resource for whether role
+// holds perm on it within scope — the role twin of CheckUserResources, with
+// the same single-snapshot, Decision, grouping, Environment, and scope
+// semantics. A Conditional decision's payload is what the database must still
+// evaluate; a subject term in it is bound at render time to the session's
+// effective identity by the resource layer, never here — a role has no
+// identity of its own.
+func (c *Client) CheckRoleResources(
+	ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+) (accesstypes.Decisions, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	resourceDecisions, err := c.evaluator.checkRoleResources(ctx, role, scope, perm, resources...)
+	if err != nil {
+		return nil, err
+	}
+
+	decisions, err := newDecisions(resources, resourceDecisions, environmentFacts(env))
+	if err != nil {
+		return nil, errors.Wrapf(err, "conditions for role %q in scope %s", role, scope)
+	}
+
+	return decisions, nil
 }
 
 // UserHasGrants reports whether user holds at least one grant in scope,
@@ -253,6 +306,52 @@ func (c *Client) UserPermissionDigest(ctx context.Context, user accesstypes.User
 // See UserChecker.
 func (c *Client) ForUser(user accesstypes.User) *UserChecker {
 	return NewUserChecker(c, user)
+}
+
+// RoleHasGrants reports whether role holds at least one grant in scope, own
+// or inherited, answered from the in-memory policy snapshot — the foothold
+// question UserHasGrants answers for a user, asked for a session operating as
+// the role: concealed tenancy answers a role with no grants in a domain
+// exactly as if the domain did not exist. A role that exists but resolves to
+// no grants has no foothold.
+func (c *Client) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.roleHasGrants(ctx, role, scope)
+}
+
+// RoleDomains lists the domains where role holds at least one grant, sorted
+// — the tenant picker's membership question for a session operating as the
+// role, answered with the same foothold predicate as RoleHasGrants. A role
+// provisioned into every tenant partition lists every partition its grants
+// reach; the global scope is not a domain and is never listed. Like
+// UserDomains it reports grants, not tenants, and is structural and
+// non-folding.
+func (c *Client) RoleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.roleDomains(ctx, role)
+}
+
+// RolePermissionDigest returns role's structural grant enumeration within
+// scope — the frontend digest payload for a session operating as the role,
+// with UserPermissionDigest's semantics: granted or conditional per resource
+// and permission, denied targets absent, nothing folded, scope-wide grants
+// not enumerated.
+func (c *Client) RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.roleDigest(ctx, role, scope)
+}
+
+// ForRole returns the request-bound permission checker for role — the
+// canonical implementation of the resource package's RolePermissions seam,
+// for sessions operating as a role principal. See RoleChecker.
+func (c *Client) ForRole(role accesstypes.Role) *RoleChecker {
+	return NewRoleChecker(c, role)
 }
 
 // UserManager returns the UserManager for managing users, roles, and permissions.

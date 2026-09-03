@@ -27,15 +27,22 @@ type Controller interface {
 		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 	) (accesstypes.Decisions, error)
 
-	// CheckRole reports whether role holds perm scope-wide within scope.
-	CheckRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error)
+	// CheckRole returns the Decision for whether role holds perm scope-wide
+	// within scope: what CheckUser answers a member holding only that role,
+	// minus the membership lookup. env is the request's decision context;
+	// the check folds environment-referencing conditions against it and
+	// fails loudly when a referenced attribute is absent.
+	CheckRole(
+		ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission,
+	) (accesstypes.Decision, error)
 
-	// CheckRoleResources returns the subset of resources that role does NOT
-	// hold perm on within scope, preserving input order; empty means
-	// everything passed.
+	// CheckRoleResources returns the Decision for each resource for whether
+	// role holds perm on it within scope, all answered from one policy
+	// snapshot — the role twin of CheckUserResources, with the same
+	// Environment, grouping, and fail-closed semantics.
 	CheckRoleResources(
-		ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
-	) (missing []accesstypes.Resource, err error)
+		ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
+	) (accesstypes.Decisions, error)
 
 	// UserHasGrants reports whether user holds at least one grant in scope,
 	// answered from the in-memory policy snapshot — the visibility question
@@ -57,6 +64,27 @@ type Controller interface {
 	// method set structurally satisfies the resource package's UserPermissions
 	// seam. Test doubles implement it in one line over NewUserChecker.
 	ForUser(user accesstypes.User) *UserChecker
+
+	// RoleHasGrants reports whether role holds at least one grant in scope —
+	// the foothold a session operating as the role has there (see
+	// Client.RoleHasGrants).
+	RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error)
+
+	// RoleDomains lists the domains where role holds at least one grant,
+	// sorted — the tenant picker's membership question for a session
+	// operating as the role (see Client.RoleDomains).
+	RoleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error)
+
+	// RolePermissionDigest returns role's structural grant enumeration within
+	// scope — the frontend digest payload for a session operating as the role
+	// (see Client.RolePermissionDigest).
+	RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
+
+	// ForRole returns the request-bound permission checker for role, whose
+	// method set structurally satisfies the resource package's
+	// RolePermissions seam. Test doubles implement it in one line over
+	// NewRoleChecker.
+	ForRole(role accesstypes.Role) *RoleChecker
 
 	// UserManager returns the UserManager for managing users, roles, and permissions.
 	UserManager() UserManager

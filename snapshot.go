@@ -319,21 +319,49 @@ func joinConditions(conditions []string) string {
 // (the load rejects anything else), so the caller folds it to a definite
 // answer.
 func (s *snapshot) checkUser(user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) resourceDecision {
-	permID, ok := s.perms[perm]
-	if !ok {
-		return resourceDecision{}
-	}
+	return s.decideScopeWide(s.userGrants(scope, user), perm)
+}
 
-	return s.decide(s.userGrants(scope, user), permID, "")
+// checkRole returns role's scope-wide decision within scope: what checkUser
+// answers a member holding only that role, minus the membership lookup. A
+// role's effective grants are its own plus its transitive parents', folded at
+// compile time exactly as they are for its members.
+func (s *snapshot) checkRole(role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) resourceDecision {
+	return s.decideScopeWide(s.roleGrants(scope, role), perm)
 }
 
 // decideUserResources returns user's decision for each resource within
 // scope, aligned with the input order.
 func (s *snapshot) decideUserResources(user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) []resourceDecision {
-	grants := s.userGrants(scope, user)
+	return s.decideResources(s.userGrants(scope, user), perm, resources)
+}
+
+// decideRoleResources returns role's decision for each resource within
+// scope, aligned with the input order — the role twin of
+// decideUserResources, over the role's effective grants.
+func (s *snapshot) decideRoleResources(role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) []resourceDecision {
+	return s.decideResources(s.roleGrants(scope, role), perm, resources)
+}
+
+// decideScopeWide answers the scope-wide check against one subject's grants:
+// the decision for the empty resource. Every check primitive is a function
+// of a grant map, so users and roles share it.
+func (s *snapshot) decideScopeWide(grants grantMap, perm accesstypes.Permission) resourceDecision {
+	permID, ok := s.perms[perm]
+	if !ok {
+		return resourceDecision{}
+	}
+
+	return s.decide(grants, permID, "")
+}
+
+// decideResources answers each resource against one subject's grants,
+// aligned with the input order. An unknown permission fails every resource
+// closed.
+func (s *snapshot) decideResources(grants grantMap, perm accesstypes.Permission, resources []accesstypes.Resource) []resourceDecision {
 	decisions := make([]resourceDecision, len(resources))
-	permID, permKnown := s.perms[perm]
-	if !permKnown {
+	permID, ok := s.perms[perm]
+	if !ok {
 		return decisions
 	}
 	for i, resource := range resources {
@@ -341,17 +369,6 @@ func (s *snapshot) decideUserResources(user accesstypes.User, scope accesstypes.
 	}
 
 	return decisions
-}
-
-// checkRole reports whether role holds perm scope-wide within scope.
-func (s *snapshot) checkRole(role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) bool {
-	return s.scopeWide(s.roleGrants(scope, role), perm)
-}
-
-// checkRoleResources returns the resources role does NOT hold perm on within
-// scope, preserving input order.
-func (s *snapshot) checkRoleResources(role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) []accesstypes.Resource {
-	return s.missingResources(s.roleGrants(scope, role), perm, resources)
 }
 
 // userHasGrants reports whether user holds at least one grant in scope —
@@ -362,16 +379,38 @@ func (s *snapshot) userHasGrants(scope accesstypes.Scope, user accesstypes.User)
 	return len(s.userGrants(scope, user)) > 0
 }
 
+// roleHasGrants reports whether role holds at least one grant in scope, own
+// or inherited — the foothold a session operating as the role has there. A
+// role that exists but resolves to no grants has none.
+func (s *snapshot) roleHasGrants(scope accesstypes.Scope, role accesstypes.Role) bool {
+	return len(s.roleGrants(scope, role)) > 0
+}
+
 // userDomains lists the domains where user holds at least one grant — the
 // foothold userHasGrants tests, enumerated across every scope the snapshot
 // knows and sorted for a stable payload. The global scope is not a domain and
 // never appears. A domain listed is exactly a domain whose routes answer the
 // user with ordinary 403s rather than a concealing 404.
 func (s *snapshot) userDomains(user accesstypes.User) []accesstypes.Domain {
+	return s.domainsWhere(func(sp *scopePolicy) bool { return len(sp.userGrants[user]) > 0 })
+}
+
+// roleDomains lists the domains where role holds at least one grant — the
+// foothold roleHasGrants tests, enumerated like userDomains. A role
+// provisioned into every tenant partition lists every partition its grants
+// reach; the global scope is never a domain.
+func (s *snapshot) roleDomains(role accesstypes.Role) []accesstypes.Domain {
+	return s.domainsWhere(func(sp *scopePolicy) bool { return len(sp.roleGrants[role]) > 0 })
+}
+
+// domainsWhere lists, sorted, the domains whose scope policy satisfies
+// foothold. The list is never nil, so the wire payload is always a JSON
+// array.
+func (s *snapshot) domainsWhere(foothold func(*scopePolicy) bool) []accesstypes.Domain {
 	domains := make([]accesstypes.Domain, 0)
 	for scope, sp := range s.scopes {
 		domain, ok := scope.Domain()
-		if !ok || len(sp.userGrants[user]) == 0 {
+		if !ok || !foothold(sp) {
 			continue
 		}
 		domains = append(domains, domain)
@@ -394,7 +433,18 @@ func (s *snapshot) userDomains(user accesstypes.User) []accesstypes.Domain {
 // enumeration lists the known field vocabulary; a check still answers for
 // the unnamed field itself).
 func (s *snapshot) userDigest(scope accesstypes.Scope, user accesstypes.User) accesstypes.PermissionDigest {
-	grants := s.userGrants(scope, user)
+	return s.digest(s.userGrants(scope, user))
+}
+
+// roleDigest returns role's structural grant enumeration within scope — the
+// digest a session operating as the role shows its frontend. See userDigest
+// for what the enumeration covers and leaves out.
+func (s *snapshot) roleDigest(scope accesstypes.Scope, role accesstypes.Role) accesstypes.PermissionDigest {
+	return s.digest(s.roleGrants(scope, role))
+}
+
+// digest enumerates one subject's grants into the digest shape.
+func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 	digest := make(accesstypes.PermissionDigest, len(grants))
 	set := func(res accesstypes.Resource, perm accesstypes.Permission, state accesstypes.DigestState) {
 		entry := digest[res]
@@ -450,75 +500,11 @@ func (s *snapshot) roleGrants(scope accesstypes.Scope, role accesstypes.Role) gr
 	return nil
 }
 
-// scopeWide reports whether the subject holds perm with no resource
-// attachment: a grant compiled under the empty resource name, which real
-// resources can never occupy (validated non-empty at every write boundary).
-func (s *snapshot) scopeWide(grants grantMap, perm accesstypes.Permission) bool {
-	if grants == nil {
-		return false
-	}
-	permID, ok := s.perms[perm]
-	if !ok {
-		return false
-	}
-	resID, ok := s.resources[""]
-	if !ok {
-		return false
-	}
-	fs := grants[packGrantKey(permID, resID)]
-
-	return fs != nil && fs.endpoint
-}
-
-func (s *snapshot) missingResources(grants grantMap, perm accesstypes.Permission, resources []accesstypes.Resource) []accesstypes.Resource {
-	missing := make([]accesstypes.Resource, 0)
-	permID, permKnown := s.perms[perm]
-	for _, resource := range resources {
-		if !permKnown || !s.allowed(grants, permID, resource) {
-			missing = append(missing, resource)
-		}
-	}
-
-	return missing
-}
-
-func (s *snapshot) allowed(grants grantMap, permID uint16, resource accesstypes.Resource) bool {
-	if grants == nil {
-		return false
-	}
-
-	base, field := splitResourceField(string(resource))
-	resID, ok := s.resources[base]
-	if !ok {
-		return false
-	}
-
-	fs := grants[packGrantKey(permID, resID)]
-	if fs == nil {
-		return false
-	}
-
-	switch field {
-	case "":
-		return fs.endpoint
-	case "*":
-		return fs.all
-	default:
-		if fs.all {
-			// Implication: an all-fields grant covers fields unknown to the
-			// snapshot, including ones generated after the grant was written.
-			return true
-		}
-		i, ok := s.fields[resID][field]
-
-		return ok && fs.bit(i)
-	}
-}
-
 // decide answers one resource against a subject's grants. Any unconditional
 // cover settles the decision as granted — conditions on other covering
 // grants are moot — so conditional coverage is consulted only after the
-// unconditional check (the allowed rules, verbatim) missed. A conditional
+// unconditional check (the pre-ABAC rules, kept verbatim as the RBAC oracle
+// in the snapshot tests) missed. A conditional
 // field cover is the union of the single-field terms and the all-fields
 // terms; a field unknown to the snapshot is covered only by all-fields
 // grants, mirroring the unconditional implication rule.

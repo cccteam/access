@@ -42,37 +42,37 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 }
 
 // CheckRole mocks base method.
-func (m *MockController) CheckRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+func (m *MockController) CheckRole(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (accesstypes.Decision, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckRole", ctx, role, scope, perm)
-	ret0, _ := ret[0].(bool)
+	ret := m.ctrl.Call(m, "CheckRole", ctx, env, role, scope, perm)
+	ret0, _ := ret[0].(accesstypes.Decision)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CheckRole indicates an expected call of CheckRole.
-func (mr *MockControllerMockRecorder) CheckRole(ctx, role, scope, perm any) *gomock.Call {
+func (mr *MockControllerMockRecorder) CheckRole(ctx, env, role, scope, perm any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRole", reflect.TypeOf((*MockController)(nil).CheckRole), ctx, role, scope, perm)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRole", reflect.TypeOf((*MockController)(nil).CheckRole), ctx, env, role, scope, perm)
 }
 
 // CheckRoleResources mocks base method.
-func (m *MockController) CheckRoleResources(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (m *MockController) CheckRoleResources(ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, role, scope, perm}
+	varargs := []any{ctx, env, role, scope, perm}
 	for _, a := range resources {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "CheckRoleResources", varargs...)
-	ret0, _ := ret[0].([]accesstypes.Resource)
+	ret0, _ := ret[0].(accesstypes.Decisions)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CheckRoleResources indicates an expected call of CheckRoleResources.
-func (mr *MockControllerMockRecorder) CheckRoleResources(ctx, role, scope, perm any, resources ...any) *gomock.Call {
+func (mr *MockControllerMockRecorder) CheckRoleResources(ctx, env, role, scope, perm any, resources ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, role, scope, perm}, resources...)
+	varargs := append([]any{ctx, env, role, scope, perm}, resources...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRoleResources", reflect.TypeOf((*MockController)(nil).CheckRoleResources), varargs...)
 }
 
@@ -111,6 +111,20 @@ func (mr *MockControllerMockRecorder) CheckUserResources(ctx, env, user, scope, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckUserResources", reflect.TypeOf((*MockController)(nil).CheckUserResources), varargs...)
 }
 
+// ForRole mocks base method.
+func (m *MockController) ForRole(role accesstypes.Role) *RoleChecker {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ForRole", role)
+	ret0, _ := ret[0].(*RoleChecker)
+	return ret0
+}
+
+// ForRole indicates an expected call of ForRole.
+func (mr *MockControllerMockRecorder) ForRole(role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForRole", reflect.TypeOf((*MockController)(nil).ForRole), role)
+}
+
 // ForUser mocks base method.
 func (m *MockController) ForUser(user accesstypes.User) *UserChecker {
 	m.ctrl.T.Helper()
@@ -137,6 +151,51 @@ func (m *MockController) Handlers(handler LogHandler) Handlers {
 func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
+}
+
+// RoleDomains mocks base method.
+func (m *MockController) RoleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RoleDomains", ctx, role)
+	ret0, _ := ret[0].([]accesstypes.Domain)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RoleDomains indicates an expected call of RoleDomains.
+func (mr *MockControllerMockRecorder) RoleDomains(ctx, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleDomains", reflect.TypeOf((*MockController)(nil).RoleDomains), ctx, role)
+}
+
+// RoleHasGrants mocks base method.
+func (m *MockController) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RoleHasGrants", ctx, role, scope)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RoleHasGrants indicates an expected call of RoleHasGrants.
+func (mr *MockControllerMockRecorder) RoleHasGrants(ctx, role, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleHasGrants", reflect.TypeOf((*MockController)(nil).RoleHasGrants), ctx, role, scope)
+}
+
+// RolePermissionDigest mocks base method.
+func (m *MockController) RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RolePermissionDigest", ctx, role, scope)
+	ret0, _ := ret[0].(accesstypes.PermissionDigest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RolePermissionDigest indicates an expected call of RolePermissionDigest.
+func (mr *MockControllerMockRecorder) RolePermissionDigest(ctx, role, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RolePermissionDigest", reflect.TypeOf((*MockController)(nil).RolePermissionDigest), ctx, role, scope)
 }
 
 // UserDomains mocks base method.
