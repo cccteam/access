@@ -7,7 +7,7 @@ replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migr
 require (
 	cloud.google.com/go/firestore v1.25.0
 	cloud.google.com/go/spanner v1.94.0
-	github.com/cccteam/ccc/accesstypes v0.5.10-0.20260902020911-66ed421e1b52
+	github.com/cccteam/ccc/accesstypes v0.5.10-0.20260903210924-a4dfff715a78
 	github.com/cccteam/ccc/resource v0.10.6
 	github.com/cccteam/ccc/tracer v0.1.7
 	github.com/cccteam/db-initiator v0.3.13
