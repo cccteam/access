@@ -30,8 +30,16 @@ type PermissionCollection interface {
 	// IsComputedResource reports whether res is a computed resource: a
 	// hand-written query surface whose permission checks run at decode time,
 	// where no row exists — so its grants accept only row-free conditions,
-	// exactly as Execute grants do.
+	// exactly as target-less Execute grants do.
 	IsComputedResource(scope accesstypes.PermissionScope, res accesstypes.Resource) bool
+
+	// MethodTarget reports the row resource an RPC method's @target field
+	// addresses, and whether the method declares one. A targeted method's
+	// generated handler locates that row inside its transaction, so its
+	// Execute grants may carry row-referencing conditions — validated here
+	// against the target resource's vocabulary; a method without a target
+	// keeps the decode-time row-free rule.
+	MethodTarget(scope accesstypes.PermissionScope, method accesstypes.Resource) (accesstypes.Resource, bool)
 }
 
 // administratorRole is the default role granted all permissions by MigrateRoles.

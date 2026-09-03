@@ -28,24 +28,35 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 	}
 	expr := compiled.Expr()
 
-	// Execute permissions check at decode time, where no row exists: only a
-	// row-free condition — one that folds against the environment facts alone —
-	// can ever settle there (design plan §12, revised 2026-08-31).
-	if perm == accesstypes.Execute && (!condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0) {
-		return fail(errors.New("execute permissions check at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
-	}
-
 	scope := store.Scope(grant.Resource)
 
+	// The vocabulary the condition validates against: the grant's own
+	// resource — or, for a targeted Execute grant, the @target row resource
+	// the generated handler locates and evaluates against (design plan §12).
+	vocabScope, vocabResource := scope, grant.Resource
+
+	if perm == accesstypes.Execute {
+		if target, targeted := store.MethodTarget(scope, grant.Resource); targeted {
+			vocabScope, vocabResource = store.Scope(target), target
+		} else if !condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0 {
+			// A method without a @target row checks at decode time, where no
+			// row exists: only a row-free condition — one that folds against
+			// the environment facts alone — can ever settle there (design
+			// plan §12, revised 2026-08-31; targeted methods carved out
+			// 2026-09-03).
+			return fail(errors.New("execute permissions on a method without a @target row check at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
+		}
+	}
+
 	// Computed resources check permissions at decode time too — the same
-	// no-row surface as Execute, whatever the permission.
+	// no-row surface as a target-less Execute, whatever the permission.
 	if store.IsComputedResource(scope, grant.Resource) && (!condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0) {
 		return fail(errors.New("computed resources check permissions at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
 	}
 
 	for _, name := range condition.Bindings(expr) {
-		if _, ok := store.AttributeComparisonType(scope, grant.Resource, name); !ok {
-			return fail(errors.Newf("condition references %q, which is not an attribute of %s", name, grant.Resource))
+		if _, ok := store.AttributeComparisonType(vocabScope, vocabResource, name); !ok {
+			return fail(errors.Newf("condition references %q, which is not an attribute of %s", name, vocabResource))
 		}
 	}
 	for _, name := range condition.SubjectSets(expr) {
@@ -65,7 +76,7 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 		}
 	}
 
-	if err := validateConditionTypes(store, scope, grant.Resource, expr); err != nil {
+	if err := validateConditionTypes(store, vocabScope, vocabResource, expr); err != nil {
 		return fail(err)
 	}
 
