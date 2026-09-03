@@ -84,6 +84,10 @@ func (emptyCollection) IsComputedResource(accesstypes.PermissionScope, accesstyp
 	return false
 }
 
+func (emptyCollection) MethodTarget(accesstypes.PermissionScope, accesstypes.Resource) (accesstypes.Resource, bool) {
+	return "", false
+}
+
 // Test_MigrateRoles_tenantNamesArePureData pins the structural-scope model:
 // any string is a legal tenant name — including "global" and the retired
 // sentinel spelling "access:global" — and every tenant lands in its own

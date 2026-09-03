@@ -77,6 +77,10 @@ func (grammarCollection) IsComputedResource(accesstypes.PermissionScope, accesst
 	return false
 }
 
+func (grammarCollection) MethodTarget(accesstypes.PermissionScope, accesstypes.Resource) (accesstypes.Resource, bool) {
+	return "", false
+}
+
 // computedGrammarCollection is grammarCollection with Widgets reported as a
 // computed resource, so the decode-time condition rules can be exercised
 // against the same attribute vocabulary.
@@ -84,6 +88,19 @@ type computedGrammarCollection struct{ grammarCollection }
 
 func (computedGrammarCollection) IsComputedResource(_ accesstypes.PermissionScope, res accesstypes.Resource) bool {
 	return res == "Widgets"
+}
+
+// targetedGrammarCollection is grammarCollection with DoThing reporting a
+// @target row (Widgets), so the targeted-Execute condition rules can be
+// exercised against the target's attribute vocabulary.
+type targetedGrammarCollection struct{ grammarCollection }
+
+func (targetedGrammarCollection) MethodTarget(_ accesstypes.PermissionScope, method accesstypes.Resource) (accesstypes.Resource, bool) {
+	if method == "DoThing" {
+		return "Widgets", true
+	}
+
+	return "", false
 }
 
 func TestExpandRoleGrants(t *testing.T) {
@@ -261,6 +278,45 @@ func TestValidateGrantCondition_executeIsDecodeTime(t *testing.T) {
 	rowFree := Grant{Resource: "DoThing", Condition: "now < '2027-01-01T00:00:00Z'"}
 	if err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", rowFree); err != nil {
 		t.Fatalf("validateGrantCondition(row-free) error = %v, want nil", err)
+	}
+}
+
+func TestValidateGrantCondition_targetedExecute(t *testing.T) {
+	t.Parallel()
+
+	// A @target-bearing method's generated handler locates its row inside the
+	// transaction (design plan §12), so its Execute grants may reference the
+	// row — bindings, subject values, and literal types all validate against
+	// the TARGET resource's vocabulary, never the method's.
+	tests := []struct {
+		name      string
+		condition string
+		wantErr   string
+	}{
+		{name: "row-referencing condition is permitted", condition: "owner = subject"},
+		{name: "subject-value threshold is permitted", condition: "price <= subject.approvalLimit"},
+		{name: "row-free condition still folds at decode", condition: "now < '2027-01-01T00:00:00Z'"},
+		{name: "unknown attribute names the target resource", condition: "ghost = subject", wantErr: "not an attribute of Widgets"},
+		{name: "literal types validate against the target", condition: "price = 'cheap'", wantErr: "cannot compare against the string"},
+		{name: "post-image stays rejected on Execute", condition: "new.price <= 100", wantErr: "post-image"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			grant := Grant{Resource: "DoThing", Condition: tt.condition}
+			err := validateGrantCondition(targetedGrammarCollection{}, "Tester", "Execute", grant)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("validateGrantCondition() error = %v, want containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateGrantCondition() error = %v", err)
+			}
+		})
 	}
 }
 
