@@ -76,6 +76,13 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 		}
 	}
 
+	// The old-vs-new form relates the post-image to the same row's pre-image;
+	// only an update has both (an insert's single image would compare a value
+	// against itself).
+	if condition.ComparesAttributes(expr) && perm != accesstypes.Update {
+		return fail(errors.Newf("condition compares the post-image against the row's own attributes (old-vs-new), which only update mutations can evaluate — both images exist only there"))
+	}
+
 	if err := validateConditionTypes(store, vocabScope, vocabResource, expr); err != nil {
 		return fail(err)
 	}
@@ -148,6 +155,22 @@ func validateComparisonTypes(store PermissionCollection, scope accesstypes.Permi
 	case condition.SubjectValue:
 		// The subject value's column type is the anchor table's business; the
 		// database compares.
+	case condition.Ref:
+		// The old-vs-new form: both sides are the grant resource's attributes
+		// and must carry the same comparison type (int, float, and decimal all
+		// collapse to number, so mixing those is legal by construction); the
+		// right side reads the pre-image row directly, so it must be a column
+		// attribute, not a join path.
+		rightType, err := refType(store, scope, res, operand)
+		if err != nil {
+			return err
+		}
+		if rightType != attrType {
+			return errors.Newf("new.%s is a %s attribute and cannot compare against %s, a %s attribute", cmp.Left.Name, attrType, operand.Name, rightType)
+		}
+		if !store.AttributeIsColumn(scope, res, operand.Name) {
+			return errors.Newf("%s is a join-path attribute and cannot stand on the right side of an old-vs-new comparison", operand.Name)
+		}
 	}
 
 	return nil
