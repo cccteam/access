@@ -111,9 +111,9 @@ func validateConditionTypes(store PermissionCollection, scope accesstypes.Permis
 	case condition.Not:
 		return validateConditionTypes(store, scope, res, n.Operand)
 	case condition.Comparison:
-		return validateComparisonTypes(store, scope, res, n)
+		return validateComparisonTypes(store, scope, res, &n)
 	case condition.In:
-		return validateInTypes(store, scope, res, n)
+		return validateInTypes(store, scope, res, &n)
 	case condition.NullTest, condition.Truth:
 		// Nothing to type: IS NULL tests presence, and Truth is a folded fact.
 	}
@@ -121,7 +121,10 @@ func validateConditionTypes(store PermissionCollection, scope accesstypes.Permis
 	return nil
 }
 
-func validateComparisonTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, cmp condition.Comparison) error {
+func validateComparisonTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, cmp *condition.Comparison) error {
+	if cmp.Left.IsTemporal() {
+		return validateTemporalComparison(cmp)
+	}
 	if cmp.Left.IsNow() {
 		// now compares against timestamp strings (or, degenerately, itself as
 		// an attribute comparison's operand — handled below).
@@ -176,7 +179,65 @@ func validateComparisonTypes(store PermissionCollection, scope accesstypes.Permi
 	return nil
 }
 
-func validateInTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, in condition.In) error {
+// validateTemporalComparison checks a temporal function's zone and literal at
+// deploy time — the same rules the fold enforces per request, caught while
+// the mistake is still the operator's alone. The bare word local cannot be
+// validated here: whether the application wires a zone into its Environment
+// is a runtime fact, and a missing one fails the check loudly at first use.
+func validateTemporalComparison(cmp *condition.Comparison) error {
+	if err := validateTemporalZone(cmp.Left); err != nil {
+		return err
+	}
+
+	literal, ok := cmp.Right.(condition.StringLiteral)
+	if !ok {
+		return errors.Newf("%s compares against a quoted literal, not %s", cmp.Left.Func, cmp.Right.String())
+	}
+
+	switch cmp.Left.Func {
+	case condition.FuncTimeOfDay:
+		if _, err := condition.ParseTimeOfDay(literal.Value); err != nil {
+			return errors.Wrapf(err, "%s comparison", cmp.Left.Func)
+		}
+	case condition.FuncDayOfWeek:
+		if cmp.Op != condition.Eq && cmp.Op != condition.NotEq {
+			return errors.Newf("%s supports =, != and [NOT] IN, not %q", condition.FuncDayOfWeek, cmp.Op)
+		}
+		if !condition.ValidDayName(literal.Value) {
+			return errors.Newf("%q is not a day name (mon, tue, wed, thu, fri, sat, sun)", literal.Value)
+		}
+	}
+
+	return nil
+}
+
+func validateTemporalZone(ref condition.Ref) error {
+	if ref.ZoneLocal {
+		return nil
+	}
+	if _, err := condition.LoadZone(ref.Zone); err != nil {
+		return errors.Wrapf(err, "%s zone", ref.Func)
+	}
+
+	return nil
+}
+
+func validateInTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, in *condition.In) error {
+	if in.Left.IsTemporal() {
+		// The parser admits only dayOfWeek over a literal list here.
+		if err := validateTemporalZone(in.Left); err != nil {
+			return err
+		}
+		for _, literal := range in.Literals {
+			day, ok := literal.(condition.StringLiteral)
+			if !ok || !condition.ValidDayName(day.Value) {
+				return errors.Newf("%s is not a day name (mon, tue, wed, thu, fri, sat, sun)", literal.String())
+			}
+		}
+
+		return nil
+	}
+
 	if in.SubjectSet != "" {
 		return nil
 	}
