@@ -409,6 +409,20 @@ func (mr *MockUserManagerMockRecorder) DeleteRole(ctx, scope, role any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRole", reflect.TypeOf((*MockUserManager)(nil).DeleteRole), ctx, scope, role)
 }
 
+// DeleteRoleGrant mocks base method.
+func (m *MockUserManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRoleGrant", ctx, scope, role, permission, resource, condition)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRoleGrant indicates an expected call of DeleteRoleGrant.
+func (mr *MockUserManagerMockRecorder) DeleteRoleGrant(ctx, scope, role, permission, resource, condition any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRoleGrant", reflect.TypeOf((*MockUserManager)(nil).DeleteRoleGrant), ctx, scope, role, permission, resource, condition)
+}
+
 // DeleteRolePermission mocks base method.
 func (m *MockUserManager) DeleteRolePermission(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission) error {
 	m.ctrl.T.Helper()
@@ -496,10 +510,10 @@ func (mr *MockUserManagerMockRecorder) RoleExists(ctx, scope, role any) *gomock.
 }
 
 // RoleGrants mocks base method.
-func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource]string, error) {
+func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleGrants", ctx, scope, role)
-	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource]string)
+	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource][]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

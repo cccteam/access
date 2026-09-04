@@ -118,23 +118,58 @@ func TestExpandRoleGrants(t *testing.T) {
 			name:   "a grant expands into base and field rows sharing the condition",
 			perm:   "Read",
 			grants: []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name", "price"}, Condition: "owner = subject"}},
-			want: grantSet{"Read": {
-				"Widgets":       "owner = subject",
-				"Widgets.name":  "owner = subject",
-				"Widgets.price": "owner = subject",
-			}},
+			want: rows(
+				"Read", "Widgets", "owner = subject",
+				"Read", "Widgets.name", "owner = subject",
+				"Read", "Widgets.price", "owner = subject",
+			),
 		},
 		{
 			name:   "an unconditional grant expands with empty conditions",
 			perm:   "Read",
 			grants: []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
-			want:   grantSet{"Read": {"Widgets": "", "Widgets.name": ""}},
+			want:   rows("Read", "Widgets", "", "Read", "Widgets.name", ""),
 		},
 		{
-			name:    "two grants on one resource are rejected",
+			name: "two grants with different conditions share the base row and keep their fields apart",
+			perm: "Read",
+			grants: []Grant{
+				{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: "price < 10"},
+				{Resource: "Widgets", Fields: []accesstypes.Tag{"price"}, Condition: "owner = subject"},
+			},
+			want: rows(
+				"Read", "Widgets", "owner = subject",
+				"Read", "Widgets", "price < 10",
+				"Read", "Widgets.name", "price < 10",
+				"Read", "Widgets.price", "owner = subject",
+			),
+		},
+		{
+			name: "an unconditional grant and a conditional one on the same rows both store",
+			perm: "Read",
+			grants: []Grant{
+				{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}},
+				{Resource: "Widgets", Fields: []accesstypes.Tag{"name", "price"}, Condition: "owner = subject"},
+			},
+			want: rows(
+				"Read", "Widgets", "",
+				"Read", "Widgets", "owner = subject",
+				"Read", "Widgets.name", "",
+				"Read", "Widgets.name", "owner = subject",
+				"Read", "Widgets.price", "owner = subject",
+			),
+		},
+		{
+			name:    "two grants with the same condition are rejected",
+			perm:    "Read",
+			grants:  []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: "owner = subject"}, {Resource: "Widgets", Fields: []accesstypes.Tag{"price"}, Condition: "owner = subject"}},
+			wantErr: "carry the same condition",
+		},
+		{
+			name:    "two unconditional grants are rejected",
 			perm:    "Read",
 			grants:  []Grant{{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}, {Resource: "Widgets", Fields: []accesstypes.Tag{"price"}}},
-			wantErr: "exactly once",
+			wantErr: "two unconditional",
 		},
 		{
 			name:    "a dotted resource takes no fields or condition",
@@ -146,7 +181,7 @@ func TestExpandRoleGrants(t *testing.T) {
 			name:   "a bare dotted resource is a legal mechanical grant",
 			perm:   "Read",
 			grants: []Grant{{Resource: "Widgets.name"}},
-			want:   grantSet{"Read": {"Widgets.name": ""}},
+			want:   rows("Read", "Widgets.name", ""),
 		},
 		{
 			name:    "an unregistered field is rejected",
@@ -179,7 +214,7 @@ func TestExpandRoleGrants(t *testing.T) {
 			perm:     "Execute",
 			grants:   []Grant{{Resource: "DoThing"}},
 			declared: accesstypes.GlobalPermissionScope,
-			want:     grantSet{"Execute": {"DoThing": ""}},
+			want:     rows("Execute", "DoThing", ""),
 		},
 	}
 
@@ -409,8 +444,8 @@ func TestMigrateRoles_conditionReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RoleGrants() error = %v", err)
 	}
-	want := map[accesstypes.Permission]map[accesstypes.Resource]string{
-		"Read": {"Widgets": "owner = subject", "Widgets.name": "owner = subject"},
+	want := map[accesstypes.Permission]map[accesstypes.Resource][]string{
+		"Read": {"Widgets": {"owner = subject"}, "Widgets.name": {"owner = subject"}},
 	}
 	if diff := cmp.Diff(want, grants); diff != "" {
 		t.Errorf("RoleGrants() after first migration mismatch (-want +got):\n%s", diff)
@@ -421,8 +456,8 @@ func TestMigrateRoles_conditionReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RoleGrants() error = %v", err)
 	}
-	want = map[accesstypes.Permission]map[accesstypes.Resource]string{
-		"Read": {"Widgets": "price < 10", "Widgets.name": "price < 10"},
+	want = map[accesstypes.Permission]map[accesstypes.Resource][]string{
+		"Read": {"Widgets": {"price < 10"}, "Widgets.name": {"price < 10"}},
 	}
 	if diff := cmp.Diff(want, grants); diff != "" {
 		t.Errorf("RoleGrants() after condition change mismatch (-want +got):\n%s", diff)
@@ -433,10 +468,60 @@ func TestMigrateRoles_conditionReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RoleGrants() error = %v", err)
 	}
-	want = map[accesstypes.Permission]map[accesstypes.Resource]string{
-		"Read": {"Widgets": "", "Widgets.name": ""},
+	want = map[accesstypes.Permission]map[accesstypes.Resource][]string{
+		"Read": {"Widgets": {""}, "Widgets.name": {""}},
 	}
 	if diff := cmp.Diff(want, grants); diff != "" {
 		t.Errorf("RoleGrants() after dropping the condition mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestMigrateRoles_twoConditionsOnOneResource pins the stored shape of a role
+// holding two conditional grants on one resource: the base resource holds one
+// row per condition, each field holds only its own grant's condition, and
+// collapsing back to one grant removes exactly the other grant's rows.
+func TestMigrateRoles_twoConditionsOnOneResource(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	manager := newUserManager(newStoreManager(newFakeStore()))
+	scope := accesstypes.DomainScope("tenant1")
+
+	migrate := func(grants ...Grant) {
+		t.Helper()
+		config := &RoleConfig{Roles: ScopedRoles{Domain: []*Role{{
+			Name:        "Dispatcher",
+			Permissions: map[accesstypes.Permission][]Grant{"Read": grants},
+		}}}}
+		if err := MigrateRoles(ctx, manager, grammarCollection{}, config, "tenant1"); err != nil {
+			t.Fatalf("MigrateRoles() error = %v", err)
+		}
+	}
+
+	migrate(
+		Grant{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: "price < 10"},
+		Grant{Resource: "Widgets", Fields: []accesstypes.Tag{"price"}, Condition: "owner = subject"},
+	)
+	grants, err := manager.RoleGrants(ctx, scope, "Dispatcher")
+	if err != nil {
+		t.Fatalf("RoleGrants() error = %v", err)
+	}
+	want := map[accesstypes.Permission]map[accesstypes.Resource][]string{
+		"Read": {"Widgets": {"owner = subject", "price < 10"}, "Widgets.name": {"price < 10"}, "Widgets.price": {"owner = subject"}},
+	}
+	if diff := cmp.Diff(want, grants); diff != "" {
+		t.Errorf("RoleGrants() with two conditions mismatch (-want +got):\n%s", diff)
+	}
+
+	migrate(Grant{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: "price < 10"})
+	grants, err = manager.RoleGrants(ctx, scope, "Dispatcher")
+	if err != nil {
+		t.Fatalf("RoleGrants() error = %v", err)
+	}
+	want = map[accesstypes.Permission]map[accesstypes.Resource][]string{
+		"Read": {"Widgets": {"price < 10"}, "Widgets.name": {"price < 10"}},
+	}
+	if diff := cmp.Diff(want, grants); diff != "" {
+		t.Errorf("RoleGrants() after collapsing to one grant mismatch (-want +got):\n%s", diff)
 	}
 }

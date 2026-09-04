@@ -149,13 +149,15 @@ func runGrants(t *testing.T, store access.Store) {
 		t.Fatal("InsertGrant() with absent role must fail (parent enforcement), got nil")
 	}
 
-	// Condition is opaque expression text, stored NULL when empty and read
-	// back verbatim otherwise; the store never interprets it.
+	// Condition is opaque expression text and part of the row's identity: the
+	// same (permission, resource, field) holds one row per condition, "" being
+	// the unconditional row. The store never interprets the text.
 	grants := []policy.RoleGrant{
 		{Perm: readPerm, Resource: employees, Field: ""},
 		{Perm: readPerm, Resource: employees, Field: "*"},
 		{Perm: readPerm, Resource: employees, Field: "name"},
 		{Perm: readPerm, Resource: employees, Field: "salary", Condition: "owner = @subject"},
+		{Perm: readPerm, Resource: employees, Field: "salary", Condition: "region = 'west'"},
 		{Perm: "Update", Resource: widgets, Field: ""},
 	}
 	for _, g := range grants {
@@ -166,18 +168,8 @@ func runGrants(t *testing.T, store access.Store) {
 	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "", ""); err != nil {
 		t.Fatalf("InsertGrant() re-insert must be a no-op, got error = %v", err)
 	}
-	// Condition is an attribute, not identity — but not silently mutable:
-	// re-inserting with the SAME condition is the idempotent no-op, while a
-	// DIFFERING condition must fail loudly (a condition changes only by
-	// delete + re-insert; the stored text must be untouched by the attempt).
 	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "salary", "owner = @subject"); err != nil {
-		t.Fatalf("InsertGrant() re-insert with same condition must be a no-op, got error = %v", err)
-	}
-	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err == nil {
-		t.Fatal("InsertGrant() re-insert with different condition must fail, got nil")
-	}
-	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "name", "region = 'west'"); err == nil {
-		t.Fatal("InsertGrant() adding a condition to an existing unconditional grant must fail, got nil")
+		t.Fatalf("InsertGrant() re-insert with the same condition must be a no-op, got error = %v", err)
 	}
 
 	got, err := store.ListRoleGrants(ctx, tenant1, editor)
@@ -185,21 +177,46 @@ func runGrants(t *testing.T, store access.Store) {
 		t.Fatalf("ListRoleGrants() error = %v", err)
 	}
 	if diff := cmp.Diff(grants, got); diff != "" {
-		t.Errorf("ListRoleGrants() must be sorted (-want +got):\n%s", diff)
+		t.Errorf("ListRoleGrants() must be sorted with one row per condition (-want +got):\n%s", diff)
 	}
 
-	if err := store.DeleteGrant(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
+	// DeleteGrant addresses exactly one row: the other condition on the same
+	// (permission, resource, field) survives.
+	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err != nil {
 		t.Fatalf("DeleteGrant() error = %v", err)
 	}
-	if err := store.DeleteGrant(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
+	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err != nil {
 		t.Fatalf("DeleteGrant() of absent row must be a no-op, got error = %v", err)
 	}
 	got, err = store.ListRoleGrants(ctx, tenant1, editor)
 	if err != nil {
 		t.Fatalf("ListRoleGrants() error = %v", err)
 	}
-	if diff := cmp.Diff(grants[:4], got); diff != "" {
-		t.Errorf("ListRoleGrants() after delete (-want +got):\n%s", diff)
+	want := append(append([]policy.RoleGrant{}, grants[:4]...), grants[5])
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ListRoleGrants() after deleting one condition's row (-want +got):\n%s", diff)
+	}
+
+	// DeleteGrants removes every condition's row for the (permission,
+	// resource, field), and only those.
+	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
+	if err := store.DeleteGrants(ctx, tenant1, editor, readPerm, employees, "salary"); err != nil {
+		t.Fatalf("DeleteGrants() error = %v", err)
+	}
+	if err := store.DeleteGrants(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
+		t.Fatalf("DeleteGrants() error = %v", err)
+	}
+	if err := store.DeleteGrants(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
+		t.Fatalf("DeleteGrants() of absent rows must be a no-op, got error = %v", err)
+	}
+	got, err = store.ListRoleGrants(ctx, tenant1, editor)
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
+	if diff := cmp.Diff(grants[:3], got); diff != "" {
+		t.Errorf("ListRoleGrants() after DeleteGrants (-want +got):\n%s", diff)
 	}
 }
 

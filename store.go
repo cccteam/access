@@ -63,15 +63,15 @@ type Store interface {
 	// resource "" (with field "") is a scope-wide grant — the permission held
 	// with no resource attachment; real resource names are validated non-empty
 	// above this seam, so "" is structurally unreachable from data.
-	// condition is the grant's condition as opaque expression text, persisted
-	// NULL when "" (unconditional); it is an attribute of the grant, never
-	// part of its identity, so DeleteGrant addresses rows without it.
-	// Re-inserting an existing grant with the same condition is a no-op; a
-	// DIFFERING condition is an error — a condition changes only by delete +
-	// re-insert, so a writer that reconciles by grant identity alone fails
-	// loudly instead of silently keeping stale policy (tripwire until
-	// MigrateRoles gains condition-aware reconciliation).
+	// condition is the grant's condition as opaque expression text, "" when
+	// unconditional, and is part of the row's identity: one (role,
+	// permission, resource, field) holds one row per condition, so a role may
+	// grant the same permission on one resource under several conditions.
+	// InsertGrant is idempotent per row. DeleteGrant removes exactly one row;
+	// DeleteGrants removes every condition's row for the (permission,
+	// resource, field).
 	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
-	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
+	DeleteGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
 	ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error)
 }

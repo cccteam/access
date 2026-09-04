@@ -340,9 +340,26 @@ func (u *userManager) DeleteRolePermissionResources(
 	}
 
 	for _, resource := range resources {
-		if err := u.store.removeGrant(ctx, scope, role, permission, resource); err != nil {
+		if err := u.store.removeGrants(ctx, scope, role, permission, resource); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// DeleteRoleGrant removes one grant: permission on resource under condition
+// ("" is the unconditional grant). Other conditions on the resource stay.
+func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := u.requireRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+		return err
+	}
+
+	if err := u.store.removeGrant(ctx, scope, role, permission, resource, condition); err != nil {
+		return err
 	}
 
 	return nil
@@ -382,9 +399,10 @@ func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Sco
 	return permissions, nil
 }
 
-// RoleGrants returns the role's resource grants in scope with each grant's
-// condition text ("" is unconditional), keyed by permission.
-func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource]string, error) {
+// RoleGrants returns the role's resource grants in scope, keyed by permission
+// and resource, with the conditions each resource is granted under (sorted;
+// "" is the unconditional grant).
+func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 

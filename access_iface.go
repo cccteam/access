@@ -152,8 +152,15 @@ type UserManager interface {
 	// by condition ("" is unconditional). Errors if role doesn't exist.
 	AddRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
-	// DeleteRolePermissionResources removes resource-specific permissions from role in scope. Errors if role doesn't exist.
+	// DeleteRolePermissionResources removes every grant of permission on the
+	// resources from role in scope, whatever their conditions. Errors if role
+	// doesn't exist.
 	DeleteRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error
+
+	// DeleteRoleGrant removes one grant: permission on resource under
+	// condition ("" is the unconditional grant); other conditions on the
+	// resource stay. Errors if role doesn't exist.
+	DeleteRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
 	// DeleteAllRolePermissions removes all permissions from role in scope,
 	// scope-wide and resource-specific alike.
@@ -166,8 +173,9 @@ type UserManager interface {
 	// is granted (scope-wide, on resources, or both). Errors if role doesn't exist.
 	RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 
-	// RoleGrants returns the role's resource grants in scope with each grant's
-	// condition text ("" is unconditional), keyed by permission. Scope-wide
-	// grants are not included. Errors if role doesn't exist.
-	RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource]string, error)
+	// RoleGrants returns the role's resource grants in scope, keyed by
+	// permission and resource, with the conditions each resource is granted
+	// under (sorted; "" is the unconditional grant). Scope-wide grants are not
+	// included. Errors if role doesn't exist.
+	RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
 }
