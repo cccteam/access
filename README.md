@@ -176,9 +176,12 @@ policy snapshot; `Decisions.DeniedResources()` lists what was denied — empty
 means everything passed. One permission per call; batch as many resources as
 you like. `CheckUser` returns the Decision for a permission held scope-wide.
 A grant may carry a condition — opaque expression text on its store row
-(`Condition`, NULL = unconditional) — and a resource covered only by
-conditional grants answers `Conditional`; any unconditional cover answers
-`Granted` outright. Grouping is the engine's job: within one
+(`Condition`, empty = unconditional, and part of the row's identity) — and a
+resource covered only by conditional grants answers `Conditional`; any
+unconditional cover answers `Granted` outright. A role may hold several grants
+on one resource for one permission, each under its own condition, stored as
+one row per condition, so the engine sees them exactly as it would from
+separate roles. Grouping is the engine's job: within one
 `CheckUserResources` call, a Conditional decision's
 `ConditionGroup.Resources` lists every checked resource sharing that
 covering-grant set, the same group appearing in each member's Decision —

@@ -323,6 +323,71 @@ func Test_snapshot_decideUserResources_conditions(t *testing.T) {
 	}
 }
 
+// Test_snapshot_decideUserResources_oneRoleTwoConditions pins that one role
+// holding two conditional grants on one resource (one stored row per
+// condition) decides exactly as the same two conditions arriving through two
+// roles: the endpoint's any-of set covers both, and each field carries only
+// the conditions of the grants that named it.
+func Test_snapshot_decideUserResources_oneRoleTwoConditions(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "notes", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state IN ('new', 'approved')"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "Dispatcher"},
+		},
+	})
+
+	tests := []struct {
+		name      string
+		resources []accesstypes.Resource
+		want      []resourceDecision
+	}{
+		{
+			name:      "the endpoint carries both conditions",
+			resources: []accesstypes.Resource{"loans"},
+			want:      []resourceDecision{{conditions: []string{"state = 'new'", "state IN ('new', 'approved')"}}},
+		},
+		{
+			name:      "each field carries only its own grant's condition",
+			resources: []accesstypes.Resource{"loans.notes", "loans.phone"},
+			want:      []resourceDecision{{conditions: []string{"state = 'new'"}}, {conditions: []string{"state IN ('new', 'approved')"}}},
+		},
+		{
+			name:      "a field both grants name carries both",
+			resources: []accesstypes.Resource{"loans.owner"},
+			want:      []resourceDecision{{conditions: []string{"state = 'new'", "state IN ('new', 'approved')"}}},
+		},
+		{
+			name:      "a field neither grant names stays denied",
+			resources: []accesstypes.Resource{"loans.term"},
+			want:      []resourceDecision{{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := snap.decideUserResources("dana", tenant1Scope, "Update", tt.resources...)
+			for i := range got {
+				if len(got[i].exprs) != len(got[i].conditions) {
+					t.Errorf("decision %d carries %d compiled trees for %d conditions", i, len(got[i].exprs), len(got[i].conditions))
+				}
+				got[i].exprs = nil
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(resourceDecision{})); diff != "" {
+				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // rbacScopeWide, rbacMissing and rbacAllowed are the pre-ABAC unconditional
 // evaluation rules, kept verbatim as the oracle for the decision path: with
 // no conditions in the store, decide must grant exactly where they grant.

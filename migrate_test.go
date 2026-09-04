@@ -19,28 +19,34 @@ func Test_diffGrants(t *testing.T) {
 		want    grantSet
 	}{
 		{
-			name:    "matching pairs drop out",
-			source:  grantSet{"List": {"Widgets": "", "Widgets.name": ""}},
-			exclude: grantSet{"List": {"Widgets": ""}},
-			want:    grantSet{"List": {"Widgets.name": ""}},
+			name:    "matching rows drop out",
+			source:  rows("List", "Widgets", "", "List", "Widgets.name", ""),
+			exclude: rows("List", "Widgets", ""),
+			want:    rows("List", "Widgets.name", ""),
 		},
 		{
 			name:    "a changed condition is not a match",
-			source:  grantSet{"Read": {"Widgets": "owner = subject"}},
-			exclude: grantSet{"Read": {"Widgets": ""}},
-			want:    grantSet{"Read": {"Widgets": "owner = subject"}},
+			source:  rows("Read", "Widgets", "owner = subject"),
+			exclude: rows("Read", "Widgets", ""),
+			want:    rows("Read", "Widgets", "owner = subject"),
+		},
+		{
+			name:    "one of two conditions on a resource drops out",
+			source:  rows("Read", "Widgets", "owner = subject", "Read", "Widgets", "price < 10"),
+			exclude: rows("Read", "Widgets", "price < 10"),
+			want:    rows("Read", "Widgets", "owner = subject"),
 		},
 		{
 			name:    "complete overlap yields nothing",
-			source:  grantSet{"Read": {"Widgets": "owner = subject"}},
-			exclude: grantSet{"Read": {"Widgets": "owner = subject"}},
+			source:  rows("Read", "Widgets", "owner = subject"),
+			exclude: rows("Read", "Widgets", "owner = subject"),
 			want:    grantSet{},
 		},
 		{
 			name:    "no overlap keeps everything",
-			source:  grantSet{"Read": {"Widgets": ""}},
-			exclude: grantSet{"List": {"Widgets": ""}},
-			want:    grantSet{"Read": {"Widgets": ""}},
+			source:  rows("Read", "Widgets", ""),
+			exclude: rows("List", "Widgets", ""),
+			want:    rows("Read", "Widgets", ""),
 		},
 	}
 	for _, tt := range tests {
@@ -51,6 +57,21 @@ func Test_diffGrants(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rows builds a grantSet from (permission, resource, condition) triples.
+func rows(triples ...string) grantSet {
+	if len(triples)%3 != 0 {
+		panic("rows takes (permission, resource, condition) triples")
+	}
+	set := make(grantSet)
+	for len(triples) >= 3 {
+		perm, res, condition := triples[0], triples[1], triples[2]
+		set.add(accesstypes.Permission(perm), accesstypes.Resource(res), condition)
+		triples = triples[3:]
+	}
+
+	return set
 }
 
 // emptyCollection is a minimal PermissionCollection for migration tests.

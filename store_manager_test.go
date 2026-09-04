@@ -105,7 +105,7 @@ func Test_storeManager_grants(t *testing.T) {
 				t.Errorf("onPolicyChange fired %d times, want 2 (addRole + addGrant)", notified)
 			}
 
-			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant); err != nil {
+			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant, ""); err != nil {
 				t.Fatalf("removeGrant() error = %v", err)
 			}
 			if len(store.grants) != 0 {

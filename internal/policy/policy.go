@@ -44,11 +44,12 @@ type Subject struct {
 //   - Field == "*" grants all fields by implication (compiles to an all-flag,
 //     never materialized bits, so newly generated fields are covered).
 //   - otherwise it grants the single named field.
-//   - Condition == "" is an unconditional grant (a NULL store column);
-//     otherwise it is the grant's condition as opaque expression text. The
-//     records carry the text verbatim — nothing below the snapshot compiler
-//     interprets it, and the compiler only interns it (the expression
-//     language is undesigned).
+//   - Condition == "" is an unconditional grant; otherwise it is the grant's
+//     condition as opaque expression text. The condition is part of the
+//     stored row's identity, so one (subject, permission, resource, field)
+//     may carry several grants, one per condition. The records carry the
+//     text verbatim — nothing below the snapshot compiler interprets it, and
+//     the compiler only interns it.
 type Grant struct {
 	Scope     accesstypes.Scope
 	Subject   Subject

@@ -77,6 +77,13 @@ type Role struct {
 // rows, all carrying the same condition — the construction invariant the
 // check seams and the read gate lean on: a conditional base decision's
 // payload is always exactly the union its field decisions deliver.
+//
+// A role may carry several grants on one resource for one permission, each
+// with a different condition: the condition is part of a stored row's
+// identity, so each grant's rows stand beside the others' and the engine sees
+// them exactly as it would had they arrived through separate roles (any
+// unconditional cover settles a decision as Granted). Two grants with the
+// same condition are one grant written twice and are rejected.
 type Grant struct {
 	// Resource is the base resource name. A dotted field resource is legal
 	// only as a bare mechanical grant (no Fields, no Condition) — fields
@@ -181,15 +188,42 @@ func validateRoleNames(roles ScopedRoles) error {
 	return check(roles.Domain, "domain")
 }
 
-// grantSet is one permission scope's desired grants: for each permission,
-// each stored resource row with its condition text ("" = unconditional).
-type grantSet map[accesstypes.Permission]map[accesstypes.Resource]string
+// grantSet is one permission scope's desired grant rows: for each permission
+// and stored resource, the set of conditions it is granted under ("" = the
+// unconditional row). Each (permission, resource, condition) triple is one
+// stored row.
+type grantSet map[accesstypes.Permission]map[accesstypes.Resource]map[string]struct{}
 
+// add records one stored row.
 func (s grantSet) add(perm accesstypes.Permission, res accesstypes.Resource, condition string) {
 	if s[perm] == nil {
-		s[perm] = make(map[accesstypes.Resource]string)
+		s[perm] = make(map[accesstypes.Resource]map[string]struct{})
 	}
-	s[perm][res] = condition
+	if s[perm][res] == nil {
+		s[perm][res] = make(map[string]struct{})
+	}
+	s[perm][res][condition] = struct{}{}
+}
+
+// has reports whether the row is in the set.
+func (s grantSet) has(perm accesstypes.Permission, res accesstypes.Resource, condition string) bool {
+	_, ok := s[perm][res][condition]
+
+	return ok
+}
+
+// grantSetFrom converts a role's listed grants into a set.
+func grantSetFrom(listed map[accesstypes.Permission]map[accesstypes.Resource][]string) grantSet {
+	set := make(grantSet)
+	for perm, resources := range listed {
+		for res, conditions := range resources {
+			for _, c := range conditions {
+				set.add(perm, res, c)
+			}
+		}
+	}
+
+	return set
 }
 
 func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, globalRoles, domainRoles []*Role, scopes []accesstypes.Scope) error {
@@ -242,27 +276,33 @@ func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Sc
 		fmt.Printf("Added role %q to scope %s\n", role, scope)
 	}
 
-	existing, err := client.RoleGrants(ctx, scope, role)
+	listed, err := client.RoleGrants(ctx, scope, role)
 	if err != nil {
 		return errors.Wrapf(err, "role %q to scope %s", role, scope)
 	}
+	existing := grantSetFrom(listed)
 
-	// A grant whose condition changed appears in both sets: removed
-	// first, then re-added with the new condition.
+	// A row is identified by its condition too, so a grant whose condition
+	// changed is one row removed and another added.
 	removals := diffGrants(existing, desired)
 	for _, perm := range sortedPermissions(removals) {
-		resources := sortedResources(removals[perm])
-		if err := client.DeleteRolePermissionResources(ctx, scope, role, perm, resources...); err != nil {
-			return errors.Wrapf(err, "removing %s grants from role %s", perm, role)
+		for _, res := range sortedResources(removals[perm]) {
+			for _, condition := range sortedConditions(removals[perm][res]) {
+				if err := client.DeleteRoleGrant(ctx, scope, role, perm, res, condition); err != nil {
+					return errors.Wrapf(err, "removing %s on %s from role %s", perm, res, role)
+				}
+			}
 		}
-		fmt.Printf("Removed %s on %v from role %s in scope %s\n", perm, resources, role, scope)
+		fmt.Printf("Removed %s on %v from role %s in scope %s\n", perm, sortedResources(removals[perm]), role, scope)
 	}
 
 	additions := diffGrants(desired, existing)
 	for _, perm := range sortedPermissions(additions) {
 		for _, res := range sortedResources(additions[perm]) {
-			if err := client.AddRoleGrant(ctx, scope, role, perm, res, additions[perm][res]); err != nil {
-				return errors.Wrapf(err, "adding %s on %s to role %s", perm, res, role)
+			for _, condition := range sortedConditions(additions[perm][res]) {
+				if err := client.AddRoleGrant(ctx, scope, role, perm, res, condition); err != nil {
+					return errors.Wrapf(err, "adding %s on %s to role %s", perm, res, role)
+				}
 			}
 		}
 		fmt.Printf("Added %s on %v to role %s in scope %s\n", perm, sortedResources(additions[perm]), role, scope)
@@ -292,20 +332,20 @@ func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared acc
 func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.PermissionScope) (grantSet, error) {
 	storePermissions := store.List()
 	desired := make(grantSet)
-	seen := make(map[accesstypes.Permission]map[accesstypes.Resource]struct{})
+	seen := make(authoredGrants)
 
 	for perm, grants := range r.Permissions {
 		for _, grant := range grants {
 			if strings.ContainsRune(string(grant.Resource), '.') && (len(grant.Fields) > 0 || grant.Condition != "") {
 				return nil, errors.Newf("role %s: grant on %s: a dotted field resource takes no Fields or Condition — name the base resource and put fields in Fields", r.Name, grant.Resource)
 			}
-			if seen[perm] == nil {
-				seen[perm] = make(map[accesstypes.Resource]struct{})
+			if seen.note(perm, grant.Resource, grant.Condition) {
+				if grant.Condition == "" {
+					return nil, errors.Newf("role %s: two unconditional %s grants on %s — merge their field sets into one grant", r.Name, perm, grant.Resource)
+				}
+
+				return nil, errors.Newf("role %s: two %s grants on %s carry the same condition %q — merge their field sets into one grant; a further grant on a resource is for a different condition", r.Name, perm, grant.Resource, grant.Condition)
 			}
-			if _, dup := seen[perm][grant.Resource]; dup {
-				return nil, errors.Newf("role %s: two %s grants on %s — a role grants one permission on a resource exactly once; different condition and field-set combinations are separate roles", r.Name, perm, grant.Resource)
-			}
-			seen[perm][grant.Resource] = struct{}{}
 
 			if grant.Condition != "" {
 				if err := validateGrantCondition(store, r.Name, perm, grant); err != nil {
@@ -334,6 +374,26 @@ func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.
 	}
 
 	return desired, nil
+}
+
+// authoredGrants tracks the (permission, resource, condition) triples a role's
+// grants have claimed, so a condition written twice on one resource is caught.
+type authoredGrants map[accesstypes.Permission]map[accesstypes.Resource]map[string]struct{}
+
+// note records the triple and reports whether it was already present.
+func (a authoredGrants) note(perm accesstypes.Permission, res accesstypes.Resource, condition string) bool {
+	if a[perm] == nil {
+		a[perm] = make(map[accesstypes.Resource]map[string]struct{})
+	}
+	if a[perm][res] == nil {
+		a[perm][res] = make(map[string]struct{})
+	}
+	if _, dup := a[perm][res][condition]; dup {
+		return true
+	}
+	a[perm][res][condition] = struct{}{}
+
+	return false
 }
 
 // removeUnusedRoles deletes every role a scope partition holds that its
@@ -368,18 +428,19 @@ func removeUnusedRoles(ctx context.Context, scopes []accesstypes.Scope, client U
 	return nil
 }
 
-// diffGrants returns the grants present in source whose (resource, condition)
-// pair is absent from exclude — a grant with a changed condition counts as
-// absent, so it lands in both the removal and addition halves of a
-// reconciliation.
+// diffGrants returns the rows present in source and absent from exclude. A
+// row is a (permission, resource, condition) triple, so a grant with a changed
+// condition lands in both the removal and addition halves of a reconciliation.
 func diffGrants(source, exclude grantSet) grantSet {
 	out := make(grantSet)
 	for perm, resources := range source {
-		for res, condition := range resources {
-			if other, ok := exclude[perm][res]; ok && other == condition {
-				continue
+		for res, conditions := range resources {
+			for condition := range conditions {
+				if exclude.has(perm, res, condition) {
+					continue
+				}
+				out.add(perm, res, condition)
 			}
-			out.add(perm, res, condition)
 		}
 	}
 
@@ -396,7 +457,7 @@ func sortedPermissions(s grantSet) []accesstypes.Permission {
 	return perms
 }
 
-func sortedResources(m map[accesstypes.Resource]string) []accesstypes.Resource {
+func sortedResources(m map[accesstypes.Resource]map[string]struct{}) []accesstypes.Resource {
 	resources := make([]accesstypes.Resource, 0, len(m))
 	for res := range m {
 		resources = append(resources, res)
@@ -404,6 +465,16 @@ func sortedResources(m map[accesstypes.Resource]string) []accesstypes.Resource {
 	slices.Sort(resources)
 
 	return resources
+}
+
+func sortedConditions(m map[string]struct{}) []string {
+	conditions := make([]string, 0, len(m))
+	for c := range m {
+		conditions = append(conditions, c)
+	}
+	slices.Sort(conditions)
+
+	return conditions
 }
 
 // adminGrants grants the scope's Administrator every permission registered at
