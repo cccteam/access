@@ -163,6 +163,9 @@ func environmentFacts(env accesstypes.Environment) condition.Facts {
 	if now, ok := env.Now(); ok {
 		facts = facts.WithNow(now)
 	}
+	if zone, ok := env.Zone(); ok {
+		facts = facts.WithZone(zone)
+	}
 
 	return facts
 }

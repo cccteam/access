@@ -228,8 +228,19 @@ func TestValidateGrantCondition(t *testing.T) {
 		{name: "old-vs-new comparison on update", perm: "Update", condition: "new.price <= price"},
 		{name: "old-vs-new beside a state guard", perm: "Update", condition: "owner = subject AND new.price <= price"},
 		{name: "literal list on a number attribute", perm: "Read", condition: "price IN (1, 2, 3)"},
+		{name: "time-of-day window in a named zone", perm: "Read", condition: "timeOfDay(now, 'America/Denver') >= '06:00' AND timeOfDay(now, 'America/Denver') < '13:30'"},
+		{name: "time-of-day window in the local zone", perm: "Read", condition: "owner = subject AND timeOfDay(now, local) < '18:00'"},
+		{name: "day-of-week membership", perm: "Update", condition: "dayOfWeek(now, 'UTC') IN ('mon', 'tue', 'wed', 'thu', 'fri')"},
+		{name: "day-of-week equality in the local zone", perm: "Read", condition: "dayOfWeek(now, local) != 'sun'"},
 
 		{name: "unparseable condition", perm: "Read", condition: "owner = = subject", wantErr: "expected an operand"},
+		{name: "unknown temporal zone", perm: "Read", condition: "timeOfDay(now, 'Mars/Olympus_Mons') < '13:30'", wantErr: "not a timezone name"},
+		{name: "malformed time-of-day literal", perm: "Read", condition: "timeOfDay(now, 'UTC') < '25:99'", wantErr: "not a 24-hour HH:MM"},
+		{name: "time-of-day against a bare number", perm: "Read", condition: "timeOfDay(now, 'UTC') < 630", wantErr: "quoted literal"},
+		{name: "day-of-week against a non-day", perm: "Read", condition: "dayOfWeek(now, 'UTC') = 'saturday'", wantErr: "not a day name"},
+		{name: "day-of-week has no ordering", perm: "Read", condition: "dayOfWeek(now, 'UTC') < 'fri'", wantErr: "supports =, != and [NOT] IN"},
+		{name: "day list with a non-day member", perm: "Read", condition: "dayOfWeek(now, 'UTC') IN ('mon', 'caturday')", wantErr: "not a day name"},
+		{name: "unknown zone in a day list", perm: "Read", condition: "dayOfWeek(now, 'Mars/Olympus_Mons') IN ('mon')", wantErr: "not a timezone name"},
 		{name: "unknown attribute", perm: "Read", condition: "ghost = subject", wantErr: "not an attribute"},
 		{name: "unknown subject set", perm: "Read", condition: "owner IN subject.ghosts", wantErr: "not a declared subject set"},
 		{name: "unknown subject value", perm: "Read", condition: "price <= subject.ghostLimit", wantErr: "not a declared subject value"},
@@ -285,6 +296,13 @@ func TestValidateGrantCondition_executeIsDecodeTime(t *testing.T) {
 	rowFree := Grant{Resource: "DoThing", Condition: "now < '2027-01-01T00:00:00Z'"}
 	if err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", rowFree); err != nil {
 		t.Fatalf("validateGrantCondition(row-free) error = %v, want nil", err)
+	}
+
+	// Temporal terms are environment facts — row-free by classification — so
+	// a working-hours window is legal even where no row exists.
+	temporal := Grant{Resource: "DoThing", Condition: "timeOfDay(now, local) < '18:00' AND dayOfWeek(now, local) NOT IN ('sat', 'sun')"}
+	if err := validateGrantCondition(grammarCollection{}, "Tester", "Execute", temporal); err != nil {
+		t.Fatalf("validateGrantCondition(temporal) error = %v, want nil", err)
 	}
 }
 
