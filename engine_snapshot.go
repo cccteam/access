@@ -222,40 +222,94 @@ func (s *snapshotEngine) tryReload(ctx context.Context) {
 	}
 }
 
-func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+func (s *snapshotEngine) checkUser(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
-		return false, err
+		return resourceDecision{}, err
 	}
 
 	return snap.checkUser(user, scope, perm), nil
 }
 
-func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (s *snapshotEngine) checkUserResources(ctx context.Context, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]resourceDecision, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return snap.checkUserResources(user, scope, perm, resources...), nil
+	return snap.decideUserResources(user, scope, perm, resources...), nil
 }
 
-func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (bool, error) {
+func (s *snapshotEngine) userDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return snap.userDigest(scope, user), nil
+}
+
+func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	return snap.checkRole(role, scope, perm), nil
+	return snap.userHasGrants(scope, user), nil
 }
 
-func (s *snapshotEngine) checkRoleResources(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]accesstypes.Resource, error) {
+func (s *snapshotEngine) userDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return snap.checkRoleResources(role, scope, perm, resources...), nil
+	return snap.userDomains(user), nil
+}
+
+func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return resourceDecision{}, err
+	}
+
+	return snap.checkRole(role, scope, perm), nil
+}
+
+func (s *snapshotEngine) checkRoleResources(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) ([]resourceDecision, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return snap.decideRoleResources(role, scope, perm, resources...), nil
+}
+
+func (s *snapshotEngine) roleDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return snap.roleDigest(scope, role), nil
+}
+
+func (s *snapshotEngine) roleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return snap.roleHasGrants(scope, role), nil
+}
+
+func (s *snapshotEngine) roleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return snap.roleDomains(role), nil
 }
 
 // peek returns the current snapshot without triggering loads. Nil until the

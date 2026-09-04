@@ -25,16 +25,19 @@ type fakeMembership struct {
 }
 
 type fakeGrant struct {
-	scope    accesstypes.Scope
-	role     accesstypes.Role
-	perm     accesstypes.Permission
-	resource string
-	field    string
+	scope     accesstypes.Scope
+	role      accesstypes.Role
+	perm      accesstypes.Permission
+	resource  string
+	field     string
+	condition string
 }
 
 // fakeStore is an in-memory Store honoring the documented contract: idempotent
 // inserts, no-op deletes of absent rows, FK-style enforcement of the role
 // parent, member-blocked cascade-granted role deletes, and sorted listings.
+// A grant's condition is part of the grant row's identity, matching the
+// stores' contract.
 type fakeStore struct {
 	mu          sync.Mutex
 	roles       map[fakeRoleKey]bool
@@ -71,11 +74,12 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	records := &policy.Records{}
 	for g := range f.grants {
 		records.Grants = append(records.Grants, policy.Grant{
-			Scope:    g.scope,
-			Subject:  policy.Subject{Kind: policy.SubjectRole, Name: string(g.role)},
-			Perm:     g.perm,
-			Resource: g.resource,
-			Field:    g.field,
+			Scope:     g.scope,
+			Subject:   policy.Subject{Kind: policy.SubjectRole, Name: string(g.role)},
+			Perm:      g.perm,
+			Resource:  g.resource,
+			Field:     g.field,
+			Condition: g.condition,
 		})
 	}
 	for m := range f.memberships {
@@ -210,7 +214,7 @@ func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.Scope, role 
 	return f.roles[fakeRoleKey{scope, role}], nil
 }
 
-func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -219,18 +223,33 @@ func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role
 	if !f.roles[fakeRoleKey{scope, role}] {
 		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
-	f.grants[fakeGrant{scope, role, perm, resource, field}] = true
+	f.grants[fakeGrant{scope, role, perm, resource, field, condition}] = true
 
 	return nil
 }
 
-func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	delete(f.grants, fakeGrant{scope, role, perm, resource, field})
+	delete(f.grants, fakeGrant{scope, role, perm, resource, field, condition})
+
+	return nil
+}
+
+func (f *fakeStore) DeleteGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return f.failWith
+	}
+	for g := range f.grants {
+		if g.scope == scope && g.role == role && g.perm == perm && g.resource == resource && g.field == field {
+			delete(f.grants, g)
+		}
+	}
 
 	return nil
 }
@@ -244,7 +263,7 @@ func (f *fakeStore) ListRoleGrants(_ context.Context, scope accesstypes.Scope, r
 	grants := make([]policy.RoleGrant, 0)
 	for g := range f.grants {
 		if g.scope == scope && g.role == role {
-			grants = append(grants, policy.RoleGrant{Perm: g.perm, Resource: g.resource, Field: g.field})
+			grants = append(grants, policy.RoleGrant{Perm: g.perm, Resource: g.resource, Field: g.field, Condition: g.condition})
 		}
 	}
 	slices.SortFunc(grants, func(a, b policy.RoleGrant) int {
@@ -254,8 +273,11 @@ func (f *fakeStore) ListRoleGrants(_ context.Context, scope accesstypes.Scope, r
 		if c := strings.Compare(a.Resource, b.Resource); c != 0 {
 			return c
 		}
+		if c := strings.Compare(a.Field, b.Field); c != 0 {
+			return c
+		}
 
-		return strings.Compare(a.Field, b.Field)
+		return strings.Compare(a.Condition, b.Condition)
 	})
 
 	return grants, nil

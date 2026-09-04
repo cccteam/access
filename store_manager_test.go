@@ -87,7 +87,7 @@ func Test_storeManager_grants(t *testing.T) {
 				t.Fatalf("addRole() error = %v", err)
 			}
 
-			err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant)
+			err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant, "")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("addGrant() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -98,14 +98,14 @@ func Test_storeManager_grants(t *testing.T) {
 
 				return
 			}
-			if !store.grants[tt.wantStored] {
+			if _, ok := store.grants[tt.wantStored]; !ok {
 				t.Errorf("addGrant(%q) stored %v, want %v", tt.grant, store.grants, tt.wantStored)
 			}
 			if notified != 2 {
 				t.Errorf("onPolicyChange fired %d times, want 2 (addRole + addGrant)", notified)
 			}
 
-			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant); err != nil {
+			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant, ""); err != nil {
 				t.Fatalf("removeGrant() error = %v", err)
 			}
 			if len(store.grants) != 0 {
@@ -128,11 +128,11 @@ func Test_storeManager_roleGrants_reassembly(t *testing.T) {
 		t.Fatalf("addRole() error = %v", err)
 	}
 	for _, resource := range []accesstypes.Resource{"employees", "employees.name", "employees.*", "widgets"} {
-		if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", resource); err != nil {
+		if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", resource, ""); err != nil {
 			t.Fatalf("addGrant(%q) error = %v", resource, err)
 		}
 	}
-	if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Update", "employees"); err != nil {
+	if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Update", "employees", ""); err != nil {
 		t.Fatalf("addGrant() error = %v", err)
 	}
 
@@ -303,7 +303,7 @@ func mustAddRole(t *testing.T, m *storeManager, scope accesstypes.Scope, role ac
 
 func mustAddGrant(t *testing.T, m *storeManager, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) {
 	t.Helper()
-	if err := m.addGrant(context.Background(), tenant1Scope, role, perm, resource); err != nil {
+	if err := m.addGrant(context.Background(), tenant1Scope, role, perm, resource, ""); err != nil {
 		t.Fatalf("addGrant(%q, %q, %q) error = %v", role, perm, resource, err)
 	}
 }
@@ -325,7 +325,7 @@ func Test_storeManager_scopeWideGrants(t *testing.T) {
 	if err := manager.addScopeWideGrant(ctx, globalScope, "Admin", "Export"); err != nil {
 		t.Fatalf("addScopeWideGrant() error = %v", err)
 	}
-	if err := manager.addGrant(ctx, globalScope, "Admin", "Read", "employees"); err != nil {
+	if err := manager.addGrant(ctx, globalScope, "Admin", "Read", "employees", ""); err != nil {
 		t.Fatalf("addGrant() error = %v", err)
 	}
 

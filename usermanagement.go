@@ -300,9 +300,29 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, scope acce
 			return httpio.NewBadRequestMessage("resource cannot be empty string")
 		}
 
-		if err := u.store.addGrant(ctx, scope, role, permission, resource); err != nil {
+		if err := u.store.addGrant(ctx, scope, role, permission, resource, ""); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// AddRoleGrant grants permission on one resource to role in scope, limited by
+// condition ("" is unconditional).
+func (u *userManager) AddRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := u.requireRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+		return err
+	}
+	if resource == "" {
+		return httpio.NewBadRequestMessage("resource cannot be empty string")
+	}
+
+	if err := u.store.addGrant(ctx, scope, role, permission, resource, condition); err != nil {
+		return err
 	}
 
 	return nil
@@ -320,9 +340,26 @@ func (u *userManager) DeleteRolePermissionResources(
 	}
 
 	for _, resource := range resources {
-		if err := u.store.removeGrant(ctx, scope, role, permission, resource); err != nil {
+		if err := u.store.removeGrants(ctx, scope, role, permission, resource); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// DeleteRoleGrant removes one grant: permission on resource under condition
+// ("" is the unconditional grant). Other conditions on the resource stay.
+func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := u.requireRole(ctx, scope, role, "Permissions cannot be removed from a role that doesn't exist"); err != nil {
+		return err
+	}
+
+	if err := u.store.removeGrant(ctx, scope, role, permission, resource, condition); err != nil {
+		return err
 	}
 
 	return nil
@@ -360,6 +397,29 @@ func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Sco
 	}
 
 	return permissions, nil
+}
+
+// RoleGrants returns the role's resource grants in scope, keyed by permission
+// and resource, with the conditions each resource is granted under (sorted;
+// "" is the unconditional grant).
+func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	roleFound, err := u.RoleExists(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+	if !roleFound {
+		return nil, httpio.NewNotFoundMessagef("role %s doesn't exist", role)
+	}
+
+	grants, err := u.store.roleGrantConditions(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+
+	return grants, nil
 }
 
 // RoleExists reports whether role exists in scope.

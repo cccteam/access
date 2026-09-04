@@ -145,12 +145,12 @@ func (m *storeManager) roleUsers(ctx context.Context, scope accesstypes.Scope, r
 	return users, nil
 }
 
-func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
+func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
 	}
-	if err := m.store.InsertGrant(ctx, scope, role, perm, base, field); err != nil {
+	if err := m.store.InsertGrant(ctx, scope, role, perm, base, field, condition); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): %q on %q for role %q", perm, resource, role)
 	}
 	m.notifyPolicyChange()
@@ -158,13 +158,30 @@ func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, ro
 	return nil
 }
 
-func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
+// removeGrant removes exactly one grant row: the resource's row under the
+// given condition ("" = the unconditional row).
+func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
 	}
-	if err := m.store.DeleteGrant(ctx, scope, role, perm, base, field); err != nil {
+	if err := m.store.DeleteGrant(ctx, scope, role, perm, base, field, condition); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteGrant(): %q on %q for role %q", perm, resource, role)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+// removeGrants removes every grant row on the resource, whatever its
+// condition.
+func (m *storeManager) removeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
+	base, field, err := splitGrantResource(resource)
+	if err != nil {
+		return err
+	}
+	if err := m.store.DeleteGrants(ctx, scope, role, perm, base, field); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteGrants(): %q on %q for role %q", perm, resource, role)
 	}
 	m.notifyPolicyChange()
 
@@ -175,7 +192,7 @@ func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope,
 // row carries empty resource and field columns, a spot real resources can
 // never occupy (their names are validated non-empty in splitGrantResource).
 func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
-	if err := m.store.InsertGrant(ctx, scope, role, perm, "", ""); err != nil {
+	if err := m.store.InsertGrant(ctx, scope, role, perm, "", "", ""); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): scope-wide %q for role %q", perm, role)
 	}
 	m.notifyPolicyChange()
@@ -184,7 +201,7 @@ func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.
 }
 
 func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
-	if err := m.store.DeleteGrant(ctx, scope, role, perm, "", ""); err != nil {
+	if err := m.store.DeleteGrant(ctx, scope, role, perm, "", "", ""); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteGrant(): scope-wide %q for role %q", perm, role)
 	}
 	m.notifyPolicyChange()
@@ -210,6 +227,36 @@ func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.Scope, 
 	}
 
 	return permissions, nil
+}
+
+// roleGrantConditions returns the role's resource grants with the conditions
+// each resource is granted under (sorted; "" is the unconditional grant),
+// keyed by permission; scope-wide grants are structural (no resource) and not
+// included.
+func (m *storeManager) roleGrantConditions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+	grants, err := m.store.ListRoleGrants(ctx, scope, role)
+	if err != nil {
+		return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
+	}
+
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string)
+	for _, g := range grants {
+		if g.Resource == "" {
+			continue
+		}
+		if out[g.Perm] == nil {
+			out[g.Perm] = make(map[accesstypes.Resource][]string)
+		}
+		res := joinResourceField(g.Resource, g.Field)
+		out[g.Perm][res] = append(out[g.Perm][res], g.Condition)
+	}
+	for _, resources := range out {
+		for _, conditions := range resources {
+			slices.Sort(conditions)
+		}
+	}
+
+	return out, nil
 }
 
 // splitGrantResource splits a declared resource into its stored (base, field)

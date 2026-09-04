@@ -50,6 +50,16 @@ func Test_Records_Hash(t *testing.T) {
 			wantSameHash: false,
 		},
 		{
+			name: "added grant condition changes the hash",
+			variant: func() *Records {
+				grants := slices.Clone(base.Grants)
+				grants[2].Condition = "owner = @subject"
+
+				return &Records{Grants: grants, Memberships: base.Memberships}
+			},
+			wantSameHash: false,
+		},
+		{
 			name: "removed membership changes the hash",
 			variant: func() *Records {
 				return &Records{Grants: base.Grants, Memberships: base.Memberships[:1]}
