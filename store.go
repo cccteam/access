@@ -71,6 +71,13 @@ type Store interface {
 	// DeleteGrants removes every condition's row for the (permission,
 	// resource, field).
 	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
+	// InsertGrants adds the role's grant rows as one write per store round
+	// trip instead of one per row: rows already present are left as they are
+	// and the rest are inserted, so the call is idempotent like InsertGrant and
+	// an overlap with existing rows is not an error. A row repeated in the
+	// list is written once; an empty list is a no-op. Same parent-row
+	// requirement as InsertGrant.
+	InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error
 	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
 	DeleteGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
 	ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error)

@@ -296,15 +296,24 @@ func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Sc
 		fmt.Printf("Removed %s on %v from role %s in scope %s\n", perm, sortedResources(removals[perm]), role, scope)
 	}
 
+	// Additions go to the store as one write per role: a policy of a few
+	// hundred grants across several domains would otherwise cost one commit
+	// each at every deploy.
 	additions := diffGrants(desired, existing)
+	var rows []GrantRow
 	for _, perm := range sortedPermissions(additions) {
 		for _, res := range sortedResources(additions[perm]) {
 			for _, condition := range sortedConditions(additions[perm][res]) {
-				if err := client.AddRoleGrant(ctx, scope, role, perm, res, condition); err != nil {
-					return errors.Wrapf(err, "adding %s on %s to role %s", perm, res, role)
-				}
+				rows = append(rows, GrantRow{Permission: perm, Resource: res, Condition: condition})
 			}
 		}
+	}
+	if len(rows) > 0 {
+		if err := client.AddRoleGrants(ctx, scope, role, rows...); err != nil {
+			return errors.Wrapf(err, "adding %d grants to role %s", len(rows), role)
+		}
+	}
+	for _, perm := range sortedPermissions(additions) {
 		fmt.Printf("Added %s on %v to role %s in scope %s\n", perm, sortedResources(additions[perm]), role, scope)
 	}
 

@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/access"
@@ -391,6 +392,66 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role a
 		[]any{global, domain, string(role), string(perm), resource, field, condition, spanner.CommitTimestamp})
 
 	return s.insertIgnoreExists(ctx, m, "insert grant")
+}
+
+// insertGrantsChunk bounds the rows one InsertGrants transaction carries, well
+// inside Spanner's per-commit mutation limit at this table's width.
+const insertGrantsChunk = 1000
+
+// InsertGrants adds the role's grant rows in chunks, each one read-write
+// transaction: the rows already present are read back by key and only the
+// missing ones are inserted, so present rows keep their UpdatedAt and the
+// call is idempotent like InsertGrant. The (scope, role) parent row must exist.
+func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error {
+	global, domain := policy.ScopeColumns(scope)
+	columns := []string{colIsGlobal, colDomain, colRole, colPermission, colResource, colField, colCondition, colUpdatedAt}
+	keyColumns := []string{colPermission, colResource, colField, colCondition}
+
+	for chunk := range slices.Chunk(grants, insertGrantsChunk) {
+		_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			keys := make([]spanner.KeySet, 0, len(chunk))
+			for _, g := range chunk {
+				keys = append(keys, spanner.Key{global, domain, string(role), string(g.Perm), g.Resource, g.Field, g.Condition})
+			}
+
+			present := make(map[policy.RoleGrant]struct{}, len(chunk))
+			err := txn.Read(ctx, s.names.roleGrants, spanner.KeySets(keys...), keyColumns).Do(func(row *spanner.Row) error {
+				var perm, resource, field, condition string
+				if err := row.Columns(&perm, &resource, &field, &condition); err != nil {
+					return errors.Wrap(err, "spanner.Row.Columns()")
+				}
+				present[policy.RoleGrant{Perm: accesstypes.Permission(perm), Resource: resource, Field: field, Condition: condition}] = struct{}{}
+
+				return nil
+			})
+			if err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Read() role grants")
+			}
+
+			mutations := make([]*spanner.Mutation, 0, len(chunk))
+			for _, g := range chunk {
+				if _, skip := present[g]; skip {
+					continue
+				}
+				present[g] = struct{}{}
+				mutations = append(mutations, spanner.Insert(s.names.roleGrants, columns,
+					[]any{global, domain, string(role), string(g.Perm), g.Resource, g.Field, g.Condition, spanner.CommitTimestamp}))
+			}
+			if len(mutations) == 0 {
+				return nil
+			}
+			if err := txn.BufferWrite(mutations); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+			}
+
+			return nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() insert grants")
+		}
+	}
+
+	return nil
 }
 
 // DeleteGrant removes one grant row; removing an absent grant is a no-op.

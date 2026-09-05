@@ -152,6 +152,11 @@ type UserManager interface {
 	// by condition ("" is unconditional). Errors if role doesn't exist.
 	AddRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error
 
+	// AddRoleGrants writes the grants to role in scope as one store write
+	// rather than one per grant; grants the role already holds are left as
+	// they are. Errors if role doesn't exist or a grant names no resource.
+	AddRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants ...GrantRow) error
+
 	// DeleteRolePermissionResources removes every grant of permission on the
 	// resources from role in scope, whatever their conditions. Errors if role
 	// doesn't exist.

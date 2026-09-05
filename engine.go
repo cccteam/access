@@ -87,6 +87,7 @@ type policyStore interface {
 	// Grants. A scope-wide grant attaches a permission to no resource; it is a
 	// separate write, never a distinguished resource value.
 	addGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error
+	addGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, rows []GrantRow) error
 	removeGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error
 	removeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error
 	addScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error

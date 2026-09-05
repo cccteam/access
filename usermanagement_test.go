@@ -518,3 +518,58 @@ func Test_userManager_storeErrorsPropagate(t *testing.T) {
 		t.Error("UserRoles() expected error, got nil")
 	}
 }
+
+// Test_userManager_AddRoleGrants pins the management surface of the bulk write:
+// the role must exist, every row must name a resource, and the rows reach the
+// store together.
+func Test_userManager_AddRoleGrants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		role       accesstypes.Role
+		rows       []GrantRow
+		wantErr    bool
+		wantStored []fakeGrant
+	}{
+		{
+			name: "rows land on an existing role",
+			role: "Viewer",
+			rows: []GrantRow{{Permission: "Read", Resource: "widgets"}, {Permission: "Read", Resource: "widgets.name", Condition: "region = 'west'"}},
+			wantStored: []fakeGrant{
+				{scope: tenant1Scope, role: "Viewer", perm: "Read", resource: "widgets"},
+				{scope: tenant1Scope, role: "Viewer", perm: "Read", resource: "widgets", field: "name", condition: "region = 'west'"},
+			},
+		},
+		{name: "a missing role is refused", role: "Ghost", rows: []GrantRow{{Permission: "Read", Resource: "widgets"}}, wantErr: true},
+		{name: "an empty resource is refused", role: "Viewer", rows: []GrantRow{{Permission: "Read", Resource: "widgets"}, {Permission: "Read"}}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			m, store := seededManager(t)
+			writesBefore := store.batchWrites
+
+			err := m.AddRoleGrants(ctx, tenant1Scope, tt.role, tt.rows...)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("AddRoleGrants() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if store.batchWrites != writesBefore {
+					t.Errorf("AddRoleGrants() wrote on a refused call")
+				}
+
+				return
+			}
+			if store.batchWrites != writesBefore+1 {
+				t.Errorf("InsertGrants called %d times, want 1", store.batchWrites-writesBefore)
+			}
+			for _, want := range tt.wantStored {
+				if _, ok := store.grants[want]; !ok {
+					t.Errorf("AddRoleGrants() did not store %v", want)
+				}
+			}
+		})
+	}
+}

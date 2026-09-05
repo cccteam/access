@@ -260,3 +260,48 @@ func Test_validateRoleNames(t *testing.T) {
 		})
 	}
 }
+
+// Test_MigrateRoles_writesEachRoleOnce pins that reconciliation adds a role's
+// missing grants as one store write per role and scope, not one per grant row,
+// and that a role already at its desired state writes nothing.
+func Test_MigrateRoles_writesEachRoleOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := newFakeStore()
+	manager := newUserManager(newStoreManager(store))
+
+	config := &RoleConfig{Roles: ScopedRoles{
+		Global: []*Role{{
+			Name:        "VendorManager",
+			Permissions: map[accesstypes.Permission][]Grant{"Execute": {{Resource: "DoThing"}}},
+		}},
+		Domain: []*Role{{
+			Name: "Reader",
+			Permissions: map[accesstypes.Permission][]Grant{
+				"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name", "price"}}},
+			},
+		}},
+	}}
+
+	// Every scope also reconciles the built-in Administrator role, so a scope
+	// holds two roles: the authored one and Administrator.
+	tests := []struct {
+		name       string
+		domains    []accesstypes.Domain
+		wantWrites int
+	}{
+		{name: "first run: one write per role per scope", domains: []accesstypes.Domain{"tenant1", "tenant2"}, wantWrites: 6},
+		{name: "second run: nothing to add, nothing written", domains: []accesstypes.Domain{"tenant1", "tenant2"}, wantWrites: 0},
+		{name: "a new domain: one write per role in it", domains: []accesstypes.Domain{"tenant1", "tenant2", "tenant3"}, wantWrites: 2},
+	}
+	for _, tt := range tests {
+		before := store.batchWrites
+		if err := MigrateRoles(ctx, manager, grammarCollection{}, config, tt.domains...); err != nil {
+			t.Fatalf("%s: MigrateRoles() error = %v", tt.name, err)
+		}
+		if got := store.batchWrites - before; got != tt.wantWrites {
+			t.Errorf("%s: InsertGrants called %d times, want %d", tt.name, got, tt.wantWrites)
+		}
+	}
+}

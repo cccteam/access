@@ -32,10 +32,17 @@ const (
 	alice = accesstypes.User("alice")
 	bob   = accesstypes.User("bob")
 
-	readPerm = accesstypes.Permission("Read")
+	readPerm   = accesstypes.Permission("Read")
+	updatePerm = accesstypes.Permission("Update")
 
 	employees = "employees"
 	widgets   = "widgets"
+
+	nameField      = "name"
+	priceField     = "price"
+	salaryField    = "salary"
+	ownerCondition = "owner = @subject"
+	priceCondition = "price < 100"
 )
 
 // Run exercises the full access.Store contract against an empty, ready store.
@@ -155,10 +162,10 @@ func runGrants(t *testing.T, store access.Store) {
 	grants := []policy.RoleGrant{
 		{Perm: readPerm, Resource: employees, Field: ""},
 		{Perm: readPerm, Resource: employees, Field: "*"},
-		{Perm: readPerm, Resource: employees, Field: "name"},
-		{Perm: readPerm, Resource: employees, Field: "salary", Condition: "owner = @subject"},
-		{Perm: readPerm, Resource: employees, Field: "salary", Condition: "region = 'west'"},
-		{Perm: "Update", Resource: widgets, Field: ""},
+		{Perm: readPerm, Resource: employees, Field: nameField},
+		{Perm: readPerm, Resource: employees, Field: salaryField, Condition: ownerCondition},
+		{Perm: readPerm, Resource: employees, Field: salaryField, Condition: "region = 'west'"},
+		{Perm: updatePerm, Resource: widgets, Field: ""},
 	}
 	for _, g := range grants {
 		if err := store.InsertGrant(ctx, tenant1, editor, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
@@ -168,7 +175,7 @@ func runGrants(t *testing.T, store access.Store) {
 	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "", ""); err != nil {
 		t.Fatalf("InsertGrant() re-insert must be a no-op, got error = %v", err)
 	}
-	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "salary", "owner = @subject"); err != nil {
+	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, salaryField, ownerCondition); err != nil {
 		t.Fatalf("InsertGrant() re-insert with the same condition must be a no-op, got error = %v", err)
 	}
 
@@ -180,12 +187,14 @@ func runGrants(t *testing.T, store access.Store) {
 		t.Errorf("ListRoleGrants() must be sorted with one row per condition (-want +got):\n%s", diff)
 	}
 
+	runInsertGrants(t, store, grants)
+
 	// DeleteGrant addresses exactly one row: the other condition on the same
 	// (permission, resource, field) survives.
-	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err != nil {
+	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, salaryField, "region = 'west'"); err != nil {
 		t.Fatalf("DeleteGrant() error = %v", err)
 	}
-	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err != nil {
+	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, salaryField, "region = 'west'"); err != nil {
 		t.Fatalf("DeleteGrant() of absent row must be a no-op, got error = %v", err)
 	}
 	got, err = store.ListRoleGrants(ctx, tenant1, editor)
@@ -199,10 +208,10 @@ func runGrants(t *testing.T, store access.Store) {
 
 	// DeleteGrants removes every condition's row for the (permission,
 	// resource, field), and only those.
-	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "salary", "region = 'west'"); err != nil {
+	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, salaryField, "region = 'west'"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.DeleteGrants(ctx, tenant1, editor, readPerm, employees, "salary"); err != nil {
+	if err := store.DeleteGrants(ctx, tenant1, editor, readPerm, employees, salaryField); err != nil {
 		t.Fatalf("DeleteGrants() error = %v", err)
 	}
 	if err := store.DeleteGrants(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
@@ -217,6 +226,49 @@ func runGrants(t *testing.T, store access.Store) {
 	}
 	if diff := cmp.Diff(grants[:3], got); diff != "" {
 		t.Errorf("ListRoleGrants() after DeleteGrants (-want +got):\n%s", diff)
+	}
+}
+
+// runInsertGrants holds InsertGrants to InsertGrant's contract as one write: an
+// absent role is refused, rows already present are left alone, a repeated row
+// is written once, and an empty list is a no-op. The list afterwards is the
+// union; the rows it added are removed again so the phases after it see the
+// grants they expect.
+func runInsertGrants(t *testing.T, store access.Store, grants []policy.RoleGrant) {
+	t.Helper()
+	ctx := t.Context()
+
+	if err := store.InsertGrants(ctx, tenant1, "Ghost", []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); err == nil {
+		t.Fatal("InsertGrants() with absent role must fail (parent enforcement), got nil")
+	}
+	batch := []policy.RoleGrant{
+		{Perm: readPerm, Resource: employees, Field: ""},
+		{Perm: readPerm, Resource: employees, Field: salaryField, Condition: ownerCondition},
+		{Perm: updatePerm, Resource: widgets, Field: nameField},
+		{Perm: updatePerm, Resource: widgets, Field: nameField},
+		{Perm: updatePerm, Resource: widgets, Field: priceField, Condition: priceCondition},
+	}
+	if err := store.InsertGrants(ctx, tenant1, editor, batch); err != nil {
+		t.Fatalf("InsertGrants() over present and absent rows error = %v", err)
+	}
+	if err := store.InsertGrants(ctx, tenant1, editor, nil); err != nil {
+		t.Fatalf("InsertGrants() with no rows must be a no-op, got error = %v", err)
+	}
+	wantAfterBatch := append(slices.Clone(grants),
+		policy.RoleGrant{Perm: updatePerm, Resource: widgets, Field: nameField},
+		policy.RoleGrant{Perm: updatePerm, Resource: widgets, Field: priceField, Condition: priceCondition},
+	)
+	got, err := store.ListRoleGrants(ctx, tenant1, editor)
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
+	if diff := cmp.Diff(wantAfterBatch, got); diff != "" {
+		t.Errorf("ListRoleGrants() after InsertGrants (-want +got):\n%s", diff)
+	}
+	for _, g := range []policy.RoleGrant{{Perm: updatePerm, Resource: widgets, Field: nameField}, {Perm: updatePerm, Resource: widgets, Field: priceField, Condition: priceCondition}} {
+		if err := store.DeleteGrant(ctx, tenant1, editor, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
+			t.Fatalf("DeleteGrant(%v) error = %v", g, err)
+		}
 	}
 }
 
@@ -321,7 +373,7 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	want := &policy.Records{
 		Grants: []policy.Grant{
 			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: "List", Resource: widgets, Field: "*"},
-			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: readPerm, Resource: widgets, Field: "name", Condition: "owner = @subject"},
+			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: readPerm, Resource: widgets, Field: nameField, Condition: ownerCondition},
 			{Scope: globalScope, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(admin)}, Perm: "Export", Resource: "", Field: ""},
 		},
 		Memberships: []policy.Membership{

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
 )
@@ -152,6 +153,29 @@ func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, ro
 	}
 	if err := m.store.InsertGrant(ctx, scope, role, perm, base, field, condition); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): %q on %q for role %q", perm, resource, role)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+// addGrants persists the rows as one store write and signals one policy
+// change; no rows is a no-op.
+func (m *storeManager) addGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, rows []GrantRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	grants := make([]policy.RoleGrant, 0, len(rows))
+	for _, row := range rows {
+		base, field, err := splitGrantResource(row.Resource)
+		if err != nil {
+			return err
+		}
+		grants = append(grants, policy.RoleGrant{Perm: row.Permission, Resource: base, Field: field, Condition: row.Condition})
+	}
+	if err := m.store.InsertGrants(ctx, scope, role, grants); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertGrants(): %d grants for role %q", len(grants), role)
 	}
 	m.notifyPolicyChange()
 

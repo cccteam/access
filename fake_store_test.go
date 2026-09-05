@@ -43,6 +43,9 @@ type fakeStore struct {
 	roles       map[fakeRoleKey]bool
 	memberships map[fakeMembership]bool
 	grants      map[fakeGrant]bool
+	// batchWrites counts InsertGrants calls, so tests can pin that a bulk
+	// write reached the store as one call.
+	batchWrites int
 
 	// failWith, when set, makes every method return this error.
 	failWith error
@@ -224,6 +227,23 @@ func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role
 		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
 	f.grants[fakeGrant{scope, role, perm, resource, field, condition}] = true
+
+	return nil
+}
+
+func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.batchWrites++
+	if f.failWith != nil {
+		return f.failWith
+	}
+	if !f.roles[fakeRoleKey{scope, role}] {
+		return errors.Newf("role %q does not exist in scope %q", role, scope)
+	}
+	for _, g := range grants {
+		f.grants[fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition}] = true
+	}
 
 	return nil
 }

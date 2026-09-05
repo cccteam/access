@@ -374,6 +374,35 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role a
 	return nil
 }
 
+// InsertGrants adds the role's grant rows in one batched round trip; each row's
+// insert ignores a conflict, so present rows are untouched and the call is
+// idempotent like InsertGrant. The (scope, role) parent row must exist.
+func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error {
+	if len(grants) == 0 {
+		return nil
+	}
+
+	global, domain := policy.ScopeColumns(scope)
+	batch := &pgx.Batch{}
+	for _, g := range grants {
+		batch.Queue(s.sqlInsertGrant, global, domain, role, g.Perm, g.Resource, g.Field, g.Condition)
+	}
+
+	results := s.pool.SendBatch(ctx, batch)
+	for range grants {
+		if _, err := results.Exec(); err != nil {
+			_ = results.Close()
+
+			return errors.Wrap(err, "pgx.BatchResults.Exec() insert grant")
+		}
+	}
+	if err := results.Close(); err != nil {
+		return errors.Wrap(err, "pgx.BatchResults.Close() insert grants")
+	}
+
+	return nil
+}
+
 // DeleteGrant removes one grant row; removing an absent grant is a no-op.
 func (s *Store) DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	global, domain := policy.ScopeColumns(scope)

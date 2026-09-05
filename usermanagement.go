@@ -295,14 +295,36 @@ func (u *userManager) AddRolePermissionResources(ctx context.Context, scope acce
 		return err
 	}
 
+	rows := make([]GrantRow, 0, len(resources))
 	for _, resource := range resources {
-		if resource == "" {
+		rows = append(rows, GrantRow{Permission: permission, Resource: resource})
+	}
+
+	return u.addGrantRows(ctx, scope, role, rows)
+}
+
+// AddRoleGrants writes the grants to role in scope as one store write.
+func (u *userManager) AddRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants ...GrantRow) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := u.requireRole(ctx, scope, role, "Permissions cannot be added to a role that doesn't exist"); err != nil {
+		return err
+	}
+
+	return u.addGrantRows(ctx, scope, role, grants)
+}
+
+// addGrantRows validates the rows and hands them to the store as one write.
+func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, rows []GrantRow) error {
+	for _, row := range rows {
+		if row.Resource == "" {
 			return httpio.NewBadRequestMessage("resource cannot be empty string")
 		}
+	}
 
-		if err := u.store.addGrant(ctx, scope, role, permission, resource, ""); err != nil {
-			return err
-		}
+	if err := u.store.addGrants(ctx, scope, role, rows); err != nil {
+		return err
 	}
 
 	return nil
