@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.12](https://github.com/cccteam/access/compare/v0.9.11...v0.9.12) (2026-09-08)
+
+
+### Features
+
+* add policy change signaling, heartbeat reload, and engine-equivalence deploy gate ([#200](https://github.com/cccteam/access/issues/200)) ([1ec7b09](https://github.com/cccteam/access/commit/1ec7b092204148d3db3f5ead0ec358ea5e3d3d0d))
+* bump grpc dep to v1.83.2 to fix vuln ([#209](https://github.com/cccteam/access/issues/209)) ([5d3e8a7](https://github.com/cccteam/access/commit/5d3e8a7c90d3bef7fe510f5d1616fe47dd1b01a5))
+* swap permission checks to compiled snapshot evaluator over casbin_rule ([#199](https://github.com/cccteam/access/issues/199)) ([17e9e80](https://github.com/cccteam/access/commit/17e9e80a92fe7c547054abe890855c4a0ab0f408))
+* upgrade `moby/go-archive` dep to fix vuln ([#204](https://github.com/cccteam/access/issues/204)) ([e2bcf2f](https://github.com/cccteam/access/commit/e2bcf2f13ac2c4ccc1aa003436e598642031ca20))
+
+
+### Code Refactoring
+
+* introduce engine seam behind access checks and user management ([#192](https://github.com/cccteam/access/issues/192)) ([0e19eec](https://github.com/cccteam/access/commit/0e19eec887b47c297beb0fdcc0c3316002eb8c32))
+
 ## [0.9.11](https://github.com/cccteam/access/compare/v0.9.10...v0.9.11) (2026-08-18)
 
 
