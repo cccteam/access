@@ -359,6 +359,26 @@ func migrateRoles(ctx context.Context, client *access.Client, store *resource.Ge
 
 **Note**: Safe to run multiple times — applies changes only when state differs from configuration, and a rollback that re-runs an older release's migrate job converges the store back to that release's defaults. Modifies input config by appending the Administrator role.
 
+### Several Sites, One Policy Store
+
+A deployment whose sites each generate their own collection over one schema shares one
+policy store: a login is one identity and a role is one set of powers across the
+application. `UnionCollection` presents the sites' collections as one registry for
+`MigrateRoles`: the registries merge, the subject namespace is the union of the sites'
+declarations, and every other question about a resource is answered by the first
+collection registering it. A resource several sites serve must be declared identically
+in each; `UnionCollection` refuses collections that disagree on a shared resource's
+permissions (fields included), scope, immutability, computed marking, or method target.
+
+```go
+store, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
+if err != nil {
+    return err
+}
+
+return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig, tenants...)
+```
+
 ### JSON Configuration
 
 ```json
