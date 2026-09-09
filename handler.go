@@ -9,16 +9,12 @@ import (
 // Handlers provides HTTP handlers for managing user roles.
 type Handlers interface {
 	AddRole() http.HandlerFunc
-	AddRolePermissions() http.HandlerFunc
 	AddRoleUsers() http.HandlerFunc
 	DeleteRole() http.HandlerFunc
-	DeleteRolePermissions() http.HandlerFunc
 	DeleteRoleUsers() http.HandlerFunc
 	RolePermissions() http.HandlerFunc
 	Roles() http.HandlerFunc
 	RoleUsers() http.HandlerFunc
-	User() http.HandlerFunc
-	Users() http.HandlerFunc
 }
 
 // LogHandler wraps handlers with logging. Converts error-returning handler to http.HandlerFunc.
