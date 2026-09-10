@@ -2,6 +2,7 @@ package policy
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cccteam/ccc/accesstypes"
@@ -120,17 +121,54 @@ func Test_ScopeColumns_roundTrip(t *testing.T) {
 		{name: "global", scope: accesstypes.GlobalScope(), wantGlobal: true},
 		{name: "tenant", scope: accesstypes.DomainScope("tenant1"), wantDomain: "tenant1"},
 		{name: "tenant named global", scope: accesstypes.DomainScope("global"), wantDomain: "global"},
+		{name: "zero scope is the zero domain's tenant scope", scope: accesstypes.Scope{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			global, domain := ScopeColumns(tt.scope)
-			if global != tt.wantGlobal || domain != tt.wantDomain {
-				t.Errorf("ScopeColumns() = (%v, %q), want (%v, %q)", global, domain, tt.wantGlobal, tt.wantDomain)
+			// Every constructible scope belongs to the default axis, stored as "".
+			global, axis, domain := ScopeColumns(tt.scope)
+			if global != tt.wantGlobal || axis != "" || domain != tt.wantDomain {
+				t.Errorf("ScopeColumns() = (%v, %q, %q), want (%v, %q, %q)", global, axis, domain, tt.wantGlobal, "", tt.wantDomain)
 			}
-			if got := ScopeFromColumns(global, domain); got != tt.scope {
+			got, err := ScopeFromColumns(global, axis, domain)
+			if err != nil {
+				t.Fatalf("ScopeFromColumns() error = %v", err)
+			}
+			if got != tt.scope {
 				t.Errorf("ScopeFromColumns() = %v, want %v", got, tt.scope)
+			}
+		})
+	}
+}
+
+// Test_ScopeFromColumns_refusesNamedAxis pins the fail-closed posture: a stored
+// row under an axis this build cannot name is refused rather than folded into
+// the default axis, whatever its other columns say.
+func Test_ScopeFromColumns_refusesNamedAxis(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		global bool
+		axis   string
+		domain string
+	}{
+		{name: "tenant row under a named axis", axis: "region", domain: "tenant1"},
+		{name: "global row under a named axis", global: true, axis: "region"},
+		{name: "named axis with an empty domain", axis: "region"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ScopeFromColumns(tt.global, tt.axis, tt.domain)
+			if err == nil {
+				t.Fatalf("ScopeFromColumns(%v, %q, %q) = %v, want an error", tt.global, tt.axis, tt.domain, got)
+			}
+			if !strings.Contains(err.Error(), tt.axis) {
+				t.Errorf("ScopeFromColumns() error = %q, want it to name the axis %q", err, tt.axis)
 			}
 		})
 	}

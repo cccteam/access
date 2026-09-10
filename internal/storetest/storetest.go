@@ -408,8 +408,8 @@ func sortRecords(r *policy.Records) {
 		return 0
 	}
 	compareScopes := func(a, b accesstypes.Scope) int {
-		ag, ad := policy.ScopeColumns(a)
-		bg, bd := policy.ScopeColumns(b)
+		ag, ax, ad := policy.ScopeColumns(a)
+		bg, bx, bd := policy.ScopeColumns(b)
 		gi := func(g bool) int {
 			if g {
 				return 1
@@ -418,7 +418,7 @@ func sortRecords(r *policy.Records) {
 			return 0
 		}
 
-		return cmpChain(gi(ag)-gi(bg), strings.Compare(ad, bd))
+		return cmpChain(gi(ag)-gi(bg), strings.Compare(ax, bx), strings.Compare(ad, bd))
 	}
 
 	slices.SortFunc(r.Grants, func(a, b policy.Grant) int {

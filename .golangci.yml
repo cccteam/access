@@ -138,6 +138,14 @@ linters:
           - gocognit
         path: migrate\.go
         text: bootstrapRoles
+      # The normalized policy records (policy.Grant at 128 bytes, policy.Membership
+      # at 80) sit on gocritic's copy-size thresholds since Scope carries its axis.
+      # The snapshot compiler ranges over them by value once per policy load, and
+      # slices.SortFunc requires value-typed comparators, so the copies stay.
+      - linters:
+          - gocritic
+        path: (internal/policy/policy|snapshot)\.go
+        text: (rangeValCopy|hugeParam)
       - linters:
           - gomoddirectives
         path: go\.mod

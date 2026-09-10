@@ -9,8 +9,8 @@ import (
 
 // Store is the persistence seam for policy data: three typed tables (roles,
 // user-role memberships, role grants) partitioned by scope — the global
-// partition or one tenant domain, persisted as the structural column pair
-// (IsGlobal, Domain) — plus one normalized read feeding the snapshot
+// partition or one tenant domain, persisted as the structural column triple
+// (IsGlobal, Axis, Domain) — plus one normalized read feeding the snapshot
 // compiler. Implementations are thin —
 // each method is one SQL statement against one store's tables; everything
 // smarter (validation, resource/field splitting, change signaling, snapshot
@@ -29,6 +29,10 @@ import (
 // domains, users, and resources belongs to the callers that write them.
 // Scope is stored structurally: the global partition is a column flag, never
 // a distinguished domain value, so any domain string is ordinary tenant data.
+// The axis column names the axis a domain belongs to and is the empty string
+// for the default axis — the only axis a Scope can name today, so every row
+// carries "" and a later axis declaration changes no stored row. A row under
+// any other axis fails the policy read rather than folding into the default.
 //
 // Contracts every implementation provides:
 //   - Inserts are idempotent: re-inserting an existing row is a no-op, not an

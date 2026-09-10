@@ -6,9 +6,10 @@
 //
 // Each Store owns three tables named {Prefix}{Store}{Roles|UserRoles|
 // RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants.
-// Rows are partitioned by scope, persisted as the structural column pair
-// ("IsGlobal", "Domain"): the global partition is a flag, never a
-// distinguished domain value.
+// Rows are partitioned by scope, persisted as the structural column triple
+// ("IsGlobal", "Axis", "Domain"): the global partition is a flag, never a
+// distinguished domain value, and the axis is the name of the axis the domain
+// belongs to — "" for the default axis, which is every scope today.
 // Separate tables per store make cross-store leakage structurally impossible:
 // there is no store-key WHERE clause to forget. DDL returns the tables'
 // canonical schema rendered with the configured names; apps copy it into a
@@ -139,24 +140,24 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		pool:  pool,
 		names: names,
 
-		sqlInsertRole:     fmt.Sprintf(`insert into %s ("IsGlobal", "Domain", "Role") values ($1, $2, $3) on conflict do nothing`, names.roles),
-		sqlDeleteRole:     fmt.Sprintf(`delete from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3`, names.roles),
-		sqlRoleExists:     fmt.Sprintf(`select exists(select 1 from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3)`, names.roles),
-		sqlListRoles:      fmt.Sprintf(`select "Role" from %s where "IsGlobal" = $1 and "Domain" = $2 order by "Role"`, names.roles),
-		sqlInsertUserRole: fmt.Sprintf(`insert into %s ("IsGlobal", "Domain", "Role", "User") values ($1, $2, $3, $4) on conflict do nothing`, names.userRoles),
-		sqlDeleteUserRole: fmt.Sprintf(`delete from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 and "User" = $4`, names.userRoles),
-		sqlListUserRoles:  fmt.Sprintf(`select "Role" from %s where "IsGlobal" = $1 and "Domain" = $2 and "User" = $3 order by "Role"`, names.userRoles),
-		sqlListRoleUsers:  fmt.Sprintf(`select "User" from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 order by "User"`, names.userRoles),
+		sqlInsertRole:     fmt.Sprintf(`insert into %s ("IsGlobal", "Axis", "Domain", "Role") values ($1, $2, $3, $4) on conflict do nothing`, names.roles),
+		sqlDeleteRole:     fmt.Sprintf(`delete from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4`, names.roles),
+		sqlRoleExists:     fmt.Sprintf(`select exists(select 1 from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4)`, names.roles),
+		sqlListRoles:      fmt.Sprintf(`select "Role" from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 order by "Role"`, names.roles),
+		sqlInsertUserRole: fmt.Sprintf(`insert into %s ("IsGlobal", "Axis", "Domain", "Role", "User") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.userRoles),
+		sqlDeleteUserRole: fmt.Sprintf(`delete from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "User" = $5`, names.userRoles),
+		sqlListUserRoles:  fmt.Sprintf(`select "Role" from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "User" = $4 order by "Role"`, names.userRoles),
+		sqlListRoleUsers:  fmt.Sprintf(`select "User" from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 order by "User"`, names.userRoles),
 		sqlInsertGrant: fmt.Sprintf(
-			`insert into %s ("IsGlobal", "Domain", "Role", "Permission", "Resource", "Field", "Condition") values ($1, $2, $3, $4, $5, $6, $7) on conflict do nothing`, names.roleGrants),
+			`insert into %s ("IsGlobal", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition") values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict do nothing`, names.roleGrants),
 		sqlDeleteGrant: fmt.Sprintf(
-			`delete from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 and "Permission" = $4 and "Resource" = $5 and "Field" = $6 and "Condition" = $7`, names.roleGrants),
+			`delete from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "Permission" = $5 and "Resource" = $6 and "Field" = $7 and "Condition" = $8`, names.roleGrants),
 		sqlDeleteGrants: fmt.Sprintf(
-			`delete from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 and "Permission" = $4 and "Resource" = $5 and "Field" = $6`, names.roleGrants),
+			`delete from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "Permission" = $5 and "Resource" = $6 and "Field" = $7`, names.roleGrants),
 		sqlListRoleGrants: fmt.Sprintf(
-			`select "Permission", "Resource", "Field", "Condition" from %s where "IsGlobal" = $1 and "Domain" = $2 and "Role" = $3 order by "Permission", "Resource", "Field", "Condition"`, names.roleGrants),
-		sqlReadGrants:      fmt.Sprintf(`select "IsGlobal", "Domain", "Role", "Permission", "Resource", "Field", "Condition" from %s`, names.roleGrants),
-		sqlReadMemberships: fmt.Sprintf(`select "IsGlobal", "Domain", "User", "Role" from %s`, names.userRoles),
+			`select "Permission", "Resource", "Field", "Condition" from %s where "IsGlobal" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 order by "Permission", "Resource", "Field", "Condition"`, names.roleGrants),
+		sqlReadGrants:      fmt.Sprintf(`select "IsGlobal", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition" from %s`, names.roleGrants),
+		sqlReadMemberships: fmt.Sprintf(`select "IsGlobal", "Axis", "Domain", "User", "Role" from %s`, names.userRoles),
 	}, nil
 }
 
@@ -171,23 +172,26 @@ func (s *Store) DDL() []string {
 	return []string{
 		fmt.Sprintf(`CREATE TABLE %s (
   "IsGlobal" BOOLEAN NOT NULL,
+  "Axis" TEXT NOT NULL,
   "Domain" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
   "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY ("IsGlobal", "Domain", "Role")
+  PRIMARY KEY ("IsGlobal", "Axis", "Domain", "Role")
 )`, n.roles),
 		fmt.Sprintf(`CREATE TABLE %s (
   "IsGlobal" BOOLEAN NOT NULL,
+  "Axis" TEXT NOT NULL,
   "Domain" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
   "User" TEXT NOT NULL,
   "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY ("IsGlobal", "Domain", "Role", "User"),
-  FOREIGN KEY ("IsGlobal", "Domain", "Role") REFERENCES %s ("IsGlobal", "Domain", "Role")
+  PRIMARY KEY ("IsGlobal", "Axis", "Domain", "Role", "User"),
+  FOREIGN KEY ("IsGlobal", "Axis", "Domain", "Role") REFERENCES %s ("IsGlobal", "Axis", "Domain", "Role")
 )`, n.userRoles, n.roles),
-		fmt.Sprintf(`CREATE INDEX %s ON %s ("IsGlobal", "Domain", "User")`, quote(n.rawUserIndex), n.userRoles),
+		fmt.Sprintf(`CREATE INDEX %s ON %s ("IsGlobal", "Axis", "Domain", "User")`, quote(n.rawUserIndex), n.userRoles),
 		fmt.Sprintf(`CREATE TABLE %s (
   "IsGlobal" BOOLEAN NOT NULL,
+  "Axis" TEXT NOT NULL,
   "Domain" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
   "Permission" TEXT NOT NULL,
@@ -195,8 +199,8 @@ func (s *Store) DDL() []string {
   "Field" TEXT NOT NULL,
   "Condition" TEXT NOT NULL,
   "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY ("IsGlobal", "Domain", "Role", "Permission", "Resource", "Field", "Condition"),
-  FOREIGN KEY ("IsGlobal", "Domain", "Role") REFERENCES %s ("IsGlobal", "Domain", "Role") ON DELETE CASCADE
+  PRIMARY KEY ("IsGlobal", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition"),
+  FOREIGN KEY ("IsGlobal", "Axis", "Domain", "Role") REFERENCES %s ("IsGlobal", "Axis", "Domain", "Role") ON DELETE CASCADE
 )`, n.roleGrants, n.roles),
 	}
 }
@@ -219,11 +223,15 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	records.Grants, err = pgx.CollectRows(grantRows, func(row pgx.CollectableRow) (policy.Grant, error) {
 		var g policy.Grant
 		var global bool
-		var domain, role string
-		if err := row.Scan(&global, &domain, &role, &g.Perm, &g.Resource, &g.Field, &g.Condition); err != nil {
+		var axis, domain, role string
+		if err := row.Scan(&global, &axis, &domain, &role, &g.Perm, &g.Resource, &g.Field, &g.Condition); err != nil {
 			return policy.Grant{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
 		}
-		g.Scope = policy.ScopeFromColumns(global, domain)
+		scope, err := policy.ScopeFromColumns(global, axis, domain)
+		if err != nil {
+			return policy.Grant{}, errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		g.Scope = scope
 		g.Subject = policy.Subject{Kind: policy.SubjectRole, Name: role}
 
 		return g, nil
@@ -239,11 +247,15 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	records.Memberships, err = pgx.CollectRows(memberRows, func(row pgx.CollectableRow) (policy.Membership, error) {
 		var m policy.Membership
 		var global bool
-		var domain, user string
-		if err := row.Scan(&global, &domain, &user, &m.Role); err != nil {
+		var axis, domain, user string
+		if err := row.Scan(&global, &axis, &domain, &user, &m.Role); err != nil {
 			return policy.Membership{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
 		}
-		m.Scope = policy.ScopeFromColumns(global, domain)
+		scope, err := policy.ScopeFromColumns(global, axis, domain)
+		if err != nil {
+			return policy.Membership{}, errors.Wrap(err, "policy.ScopeFromColumns()")
+		}
+		m.Scope = scope
 		m.Member = policy.Subject{Kind: policy.SubjectUser, Name: user}
 
 		return m, nil
@@ -262,8 +274,8 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 // InsertUserRole adds one user-role membership; adding an existing membership
 // is a no-op. The (scope, role) parent row must exist.
 func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
-	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertUserRole, global, domain, role, user); err != nil {
+	global, axis, domain := policy.ScopeColumns(scope)
+	if _, err := s.pool.Exec(ctx, s.sqlInsertUserRole, global, axis, domain, role, user); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() insert user role")
 	}
 
@@ -273,8 +285,8 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.Scope, use
 // DeleteUserRole removes one user-role membership; removing an absent
 // membership is a no-op.
 func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
-	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlDeleteUserRole, global, domain, role, user); err != nil {
+	global, axis, domain := policy.ScopeColumns(scope)
+	if _, err := s.pool.Exec(ctx, s.sqlDeleteUserRole, global, axis, domain, role, user); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() delete user role")
 	}
 
@@ -283,8 +295,8 @@ func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.Scope, use
 
 // ListUserRoles returns the user's roles in scope, sorted.
 func (s *Store) ListUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error) {
-	global, domain := policy.ScopeColumns(scope)
-	rows, err := s.pool.Query(ctx, s.sqlListUserRoles, global, domain, user)
+	global, axis, domain := policy.ScopeColumns(scope)
+	rows, err := s.pool.Query(ctx, s.sqlListUserRoles, global, axis, domain, user)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgxpool.Pool.Query() user roles")
 	}
@@ -298,8 +310,8 @@ func (s *Store) ListUserRoles(ctx context.Context, scope accesstypes.Scope, user
 
 // ListRoleUsers returns the role's members in scope, sorted.
 func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
-	global, domain := policy.ScopeColumns(scope)
-	rows, err := s.pool.Query(ctx, s.sqlListRoleUsers, global, domain, role)
+	global, axis, domain := policy.ScopeColumns(scope)
+	rows, err := s.pool.Query(ctx, s.sqlListRoleUsers, global, axis, domain, role)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgxpool.Pool.Query() role users")
 	}
@@ -314,8 +326,8 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.Scope, role
 // InsertRole creates the (scope, role) row; re-inserting an existing role is
 // a no-op.
 func (s *Store) InsertRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
-	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertRole, global, domain, role); err != nil {
+	global, axis, domain := policy.ScopeColumns(scope)
+	if _, err := s.pool.Exec(ctx, s.sqlInsertRole, global, axis, domain, role); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() insert role")
 	}
 
@@ -324,8 +336,8 @@ func (s *Store) InsertRole(ctx context.Context, scope accesstypes.Scope, role ac
 
 // ListRoles returns the scope's roles, sorted.
 func (s *Store) ListRoles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
-	global, domain := policy.ScopeColumns(scope)
-	rows, err := s.pool.Query(ctx, s.sqlListRoles, global, domain)
+	global, axis, domain := policy.ScopeColumns(scope)
+	rows, err := s.pool.Query(ctx, s.sqlListRoles, global, axis, domain)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgxpool.Pool.Query() roles")
 	}
@@ -341,8 +353,8 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.Scope) ([]acces
 // database; memberships block the delete through the userRoles foreign key
 // (NO ACTION), so a role with members refuses deletion.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
-	global, domain := policy.ScopeColumns(scope)
-	tag, err := s.pool.Exec(ctx, s.sqlDeleteRole, global, domain, role)
+	global, axis, domain := policy.ScopeColumns(scope)
+	tag, err := s.pool.Exec(ctx, s.sqlDeleteRole, global, axis, domain, role)
 	if err != nil {
 		return false, errors.Wrap(err, "pgxpool.Pool.Exec() delete role")
 	}
@@ -352,9 +364,9 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.Scope, role ac
 
 // RoleExists reports whether the (scope, role) row exists.
 func (s *Store) RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
-	global, domain := policy.ScopeColumns(scope)
+	global, axis, domain := policy.ScopeColumns(scope)
 	var exists bool
-	if err := s.pool.QueryRow(ctx, s.sqlRoleExists, global, domain, role).Scan(&exists); err != nil {
+	if err := s.pool.QueryRow(ctx, s.sqlRoleExists, global, axis, domain, role).Scan(&exists); err != nil {
 		return false, errors.Wrap(err, "pgxpool.Pool.QueryRow() role exists")
 	}
 
@@ -366,8 +378,8 @@ func (s *Store) RoleExists(ctx context.Context, scope accesstypes.Scope, role ac
 // different condition on the same (permission, resource, field) is a second
 // row. The (scope, role) parent row must exist.
 func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
-	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertGrant, global, domain, role, perm, resource, field, condition); err != nil {
+	global, axis, domain := policy.ScopeColumns(scope)
+	if _, err := s.pool.Exec(ctx, s.sqlInsertGrant, global, axis, domain, role, perm, resource, field, condition); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() insert grant")
 	}
 
@@ -382,10 +394,10 @@ func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role 
 		return nil
 	}
 
-	global, domain := policy.ScopeColumns(scope)
+	global, axis, domain := policy.ScopeColumns(scope)
 	batch := &pgx.Batch{}
 	for _, g := range grants {
-		batch.Queue(s.sqlInsertGrant, global, domain, role, g.Perm, g.Resource, g.Field, g.Condition)
+		batch.Queue(s.sqlInsertGrant, global, axis, domain, role, g.Perm, g.Resource, g.Field, g.Condition)
 	}
 
 	results := s.pool.SendBatch(ctx, batch)
@@ -405,8 +417,8 @@ func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role 
 
 // DeleteGrant removes one grant row; removing an absent grant is a no-op.
 func (s *Store) DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
-	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlDeleteGrant, global, domain, role, perm, resource, field, condition); err != nil {
+	global, axis, domain := policy.ScopeColumns(scope)
+	if _, err := s.pool.Exec(ctx, s.sqlDeleteGrant, global, axis, domain, role, perm, resource, field, condition); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() delete grant")
 	}
 
@@ -416,8 +428,8 @@ func (s *Store) DeleteGrant(ctx context.Context, scope accesstypes.Scope, role a
 // DeleteGrants removes every condition's row for the (permission, resource,
 // field); removing absent rows is a no-op.
 func (s *Store) DeleteGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
-	global, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlDeleteGrants, global, domain, role, perm, resource, field); err != nil {
+	global, axis, domain := policy.ScopeColumns(scope)
+	if _, err := s.pool.Exec(ctx, s.sqlDeleteGrants, global, axis, domain, role, perm, resource, field); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() delete grants")
 	}
 
@@ -426,8 +438,8 @@ func (s *Store) DeleteGrants(ctx context.Context, scope accesstypes.Scope, role 
 
 // ListRoleGrants returns the role's grant rows in scope, sorted.
 func (s *Store) ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error) {
-	global, domain := policy.ScopeColumns(scope)
-	rows, err := s.pool.Query(ctx, s.sqlListRoleGrants, global, domain, role)
+	global, axis, domain := policy.ScopeColumns(scope)
+	rows, err := s.pool.Query(ctx, s.sqlListRoleGrants, global, axis, domain, role)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgxpool.Pool.Query() role grants")
 	}
