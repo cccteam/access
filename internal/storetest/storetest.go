@@ -32,9 +32,17 @@ const (
 	alice = accesstypes.User("alice")
 	bob   = accesstypes.User("bob")
 
-	readPerm = accesstypes.Permission("Read")
+	readPerm   = accesstypes.Permission("Read")
+	updatePerm = accesstypes.Permission("Update")
 
 	employees = "employees"
+	widgets   = "widgets"
+
+	nameField      = "name"
+	priceField     = "price"
+	salaryField    = "salary"
+	ownerCondition = "owner = @subject"
+	priceCondition = "price < 100"
 )
 
 // Run exercises the full access.Store contract against an empty, ready store.
@@ -144,23 +152,31 @@ func runGrants(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
-	if err := store.InsertGrant(ctx, tenant1, "Ghost", readPerm, employees, ""); err == nil {
+	if err := store.InsertGrant(ctx, tenant1, "Ghost", readPerm, employees, "", ""); err == nil {
 		t.Fatal("InsertGrant() with absent role must fail (parent enforcement), got nil")
 	}
 
+	// Condition is opaque expression text and part of the row's identity: the
+	// same (permission, resource, field) holds one row per condition, "" being
+	// the unconditional row. The store never interprets the text.
 	grants := []policy.RoleGrant{
 		{Perm: readPerm, Resource: employees, Field: ""},
 		{Perm: readPerm, Resource: employees, Field: "*"},
-		{Perm: readPerm, Resource: employees, Field: "name"},
-		{Perm: "Update", Resource: "widgets", Field: ""},
+		{Perm: readPerm, Resource: employees, Field: nameField},
+		{Perm: readPerm, Resource: employees, Field: salaryField, Condition: ownerCondition},
+		{Perm: readPerm, Resource: employees, Field: salaryField, Condition: "region = 'west'"},
+		{Perm: updatePerm, Resource: widgets, Field: ""},
 	}
 	for _, g := range grants {
-		if err := store.InsertGrant(ctx, tenant1, editor, g.Perm, g.Resource, g.Field); err != nil {
+		if err := store.InsertGrant(ctx, tenant1, editor, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
 			t.Fatalf("InsertGrant(%v) error = %v", g, err)
 		}
 	}
-	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, ""); err != nil {
+	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, "", ""); err != nil {
 		t.Fatalf("InsertGrant() re-insert must be a no-op, got error = %v", err)
+	}
+	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, salaryField, ownerCondition); err != nil {
+		t.Fatalf("InsertGrant() re-insert with the same condition must be a no-op, got error = %v", err)
 	}
 
 	got, err := store.ListRoleGrants(ctx, tenant1, editor)
@@ -168,21 +184,91 @@ func runGrants(t *testing.T, store access.Store) {
 		t.Fatalf("ListRoleGrants() error = %v", err)
 	}
 	if diff := cmp.Diff(grants, got); diff != "" {
-		t.Errorf("ListRoleGrants() must be sorted (-want +got):\n%s", diff)
+		t.Errorf("ListRoleGrants() must be sorted with one row per condition (-want +got):\n%s", diff)
 	}
 
-	if err := store.DeleteGrant(ctx, tenant1, editor, "Update", "widgets", ""); err != nil {
+	runInsertGrants(t, store, grants)
+
+	// DeleteGrant addresses exactly one row: the other condition on the same
+	// (permission, resource, field) survives.
+	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, salaryField, "region = 'west'"); err != nil {
 		t.Fatalf("DeleteGrant() error = %v", err)
 	}
-	if err := store.DeleteGrant(ctx, tenant1, editor, "Update", "widgets", ""); err != nil {
+	if err := store.DeleteGrant(ctx, tenant1, editor, readPerm, employees, salaryField, "region = 'west'"); err != nil {
 		t.Fatalf("DeleteGrant() of absent row must be a no-op, got error = %v", err)
 	}
 	got, err = store.ListRoleGrants(ctx, tenant1, editor)
 	if err != nil {
 		t.Fatalf("ListRoleGrants() error = %v", err)
 	}
+	want := append(append([]policy.RoleGrant{}, grants[:4]...), grants[5])
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ListRoleGrants() after deleting one condition's row (-want +got):\n%s", diff)
+	}
+
+	// DeleteGrants removes every condition's row for the (permission,
+	// resource, field), and only those.
+	if err := store.InsertGrant(ctx, tenant1, editor, readPerm, employees, salaryField, "region = 'west'"); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
+	if err := store.DeleteGrants(ctx, tenant1, editor, readPerm, employees, salaryField); err != nil {
+		t.Fatalf("DeleteGrants() error = %v", err)
+	}
+	if err := store.DeleteGrants(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
+		t.Fatalf("DeleteGrants() error = %v", err)
+	}
+	if err := store.DeleteGrants(ctx, tenant1, editor, "Update", widgets, ""); err != nil {
+		t.Fatalf("DeleteGrants() of absent rows must be a no-op, got error = %v", err)
+	}
+	got, err = store.ListRoleGrants(ctx, tenant1, editor)
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
 	if diff := cmp.Diff(grants[:3], got); diff != "" {
-		t.Errorf("ListRoleGrants() after delete (-want +got):\n%s", diff)
+		t.Errorf("ListRoleGrants() after DeleteGrants (-want +got):\n%s", diff)
+	}
+}
+
+// runInsertGrants holds InsertGrants to InsertGrant's contract as one write: an
+// absent role is refused, rows already present are left alone, a repeated row
+// is written once, and an empty list is a no-op. The list afterwards is the
+// union; the rows it added are removed again so the phases after it see the
+// grants they expect.
+func runInsertGrants(t *testing.T, store access.Store, grants []policy.RoleGrant) {
+	t.Helper()
+	ctx := t.Context()
+
+	if err := store.InsertGrants(ctx, tenant1, "Ghost", []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); err == nil {
+		t.Fatal("InsertGrants() with absent role must fail (parent enforcement), got nil")
+	}
+	batch := []policy.RoleGrant{
+		{Perm: readPerm, Resource: employees, Field: ""},
+		{Perm: readPerm, Resource: employees, Field: salaryField, Condition: ownerCondition},
+		{Perm: updatePerm, Resource: widgets, Field: nameField},
+		{Perm: updatePerm, Resource: widgets, Field: nameField},
+		{Perm: updatePerm, Resource: widgets, Field: priceField, Condition: priceCondition},
+	}
+	if err := store.InsertGrants(ctx, tenant1, editor, batch); err != nil {
+		t.Fatalf("InsertGrants() over present and absent rows error = %v", err)
+	}
+	if err := store.InsertGrants(ctx, tenant1, editor, nil); err != nil {
+		t.Fatalf("InsertGrants() with no rows must be a no-op, got error = %v", err)
+	}
+	wantAfterBatch := append(slices.Clone(grants),
+		policy.RoleGrant{Perm: updatePerm, Resource: widgets, Field: nameField},
+		policy.RoleGrant{Perm: updatePerm, Resource: widgets, Field: priceField, Condition: priceCondition},
+	)
+	got, err := store.ListRoleGrants(ctx, tenant1, editor)
+	if err != nil {
+		t.Fatalf("ListRoleGrants() error = %v", err)
+	}
+	if diff := cmp.Diff(wantAfterBatch, got); diff != "" {
+		t.Errorf("ListRoleGrants() after InsertGrants (-want +got):\n%s", diff)
+	}
+	for _, g := range []policy.RoleGrant{{Perm: updatePerm, Resource: widgets, Field: nameField}, {Perm: updatePerm, Resource: widgets, Field: priceField, Condition: priceCondition}} {
+		if err := store.DeleteGrant(ctx, tenant1, editor, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
+			t.Fatalf("DeleteGrant(%v) error = %v", g, err)
+		}
 	}
 }
 
@@ -216,7 +302,7 @@ func runGlobalScope(t *testing.T, store access.Store) {
 
 	// A scope-wide grant is stored as an empty resource+field row — a spot no
 	// real resource can occupy — and lists back exactly that way.
-	if err := store.InsertGrant(ctx, globalScope, admin, "Export", "", ""); err != nil {
+	if err := store.InsertGrant(ctx, globalScope, admin, "Export", "", "", ""); err != nil {
 		t.Fatalf("InsertGrant(scope-wide) error = %v", err)
 	}
 	grants, err := store.ListRoleGrants(ctx, globalScope, admin)
@@ -270,8 +356,12 @@ func runReadPolicy(t *testing.T, store access.Store) {
 
 	// State accumulated above: roles tenant1/{Admin,Viewer}, tenant2/Editor,
 	// global/Admin with a scope-wide Export grant; membership alice->Viewer in
-	// tenant1. Add one grant to a surviving role so the read covers grants too.
-	if err := store.InsertGrant(ctx, tenant1, viewer, "List", "widgets", "*"); err != nil {
+	// tenant1. Add grants to a surviving role so the read covers grants too,
+	// one of them conditional.
+	if err := store.InsertGrant(ctx, tenant1, viewer, "List", widgets, "*", ""); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
+	if err := store.InsertGrant(ctx, tenant1, viewer, readPerm, widgets, "name", "owner = @subject"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 
@@ -282,7 +372,8 @@ func runReadPolicy(t *testing.T, store access.Store) {
 
 	want := &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: "List", Resource: widgets, Field: "*"},
+			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: readPerm, Resource: widgets, Field: nameField, Condition: ownerCondition},
 			{Scope: globalScope, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(admin)}, Perm: "Export", Resource: "", Field: ""},
 		},
 		Memberships: []policy.Membership{
@@ -317,8 +408,8 @@ func sortRecords(r *policy.Records) {
 		return 0
 	}
 	compareScopes := func(a, b accesstypes.Scope) int {
-		ag, ad := policy.ScopeColumns(a)
-		bg, bd := policy.ScopeColumns(b)
+		ag, ax, ad := policy.ScopeColumns(a)
+		bg, bx, bd := policy.ScopeColumns(b)
 		gi := func(g bool) int {
 			if g {
 				return 1
@@ -327,7 +418,7 @@ func sortRecords(r *policy.Records) {
 			return 0
 		}
 
-		return cmpChain(gi(ag)-gi(bg), strings.Compare(ad, bd))
+		return cmpChain(gi(ag)-gi(bg), strings.Compare(ax, bx), strings.Compare(ad, bd))
 	}
 
 	slices.SortFunc(r.Grants, func(a, b policy.Grant) int {

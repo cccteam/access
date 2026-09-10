@@ -87,7 +87,7 @@ func Test_storeManager_grants(t *testing.T) {
 				t.Fatalf("addRole() error = %v", err)
 			}
 
-			err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant)
+			err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant, "")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("addGrant() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -98,14 +98,14 @@ func Test_storeManager_grants(t *testing.T) {
 
 				return
 			}
-			if !store.grants[tt.wantStored] {
+			if _, ok := store.grants[tt.wantStored]; !ok {
 				t.Errorf("addGrant(%q) stored %v, want %v", tt.grant, store.grants, tt.wantStored)
 			}
 			if notified != 2 {
 				t.Errorf("onPolicyChange fired %d times, want 2 (addRole + addGrant)", notified)
 			}
 
-			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant); err != nil {
+			if err := manager.removeGrant(ctx, tenant1Scope, "Editor", "Read", tt.grant, ""); err != nil {
 				t.Fatalf("removeGrant() error = %v", err)
 			}
 			if len(store.grants) != 0 {
@@ -128,11 +128,11 @@ func Test_storeManager_roleGrants_reassembly(t *testing.T) {
 		t.Fatalf("addRole() error = %v", err)
 	}
 	for _, resource := range []accesstypes.Resource{"employees", "employees.name", "employees.*", "widgets"} {
-		if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", resource); err != nil {
+		if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Read", resource, ""); err != nil {
 			t.Fatalf("addGrant(%q) error = %v", resource, err)
 		}
 	}
-	if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Update", "employees"); err != nil {
+	if err := manager.addGrant(ctx, tenant1Scope, "Editor", "Update", "employees", ""); err != nil {
 		t.Fatalf("addGrant() error = %v", err)
 	}
 
@@ -303,7 +303,7 @@ func mustAddRole(t *testing.T, m *storeManager, scope accesstypes.Scope, role ac
 
 func mustAddGrant(t *testing.T, m *storeManager, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) {
 	t.Helper()
-	if err := m.addGrant(context.Background(), tenant1Scope, role, perm, resource); err != nil {
+	if err := m.addGrant(context.Background(), tenant1Scope, role, perm, resource, ""); err != nil {
 		t.Fatalf("addGrant(%q, %q, %q) error = %v", role, perm, resource, err)
 	}
 }
@@ -325,7 +325,7 @@ func Test_storeManager_scopeWideGrants(t *testing.T) {
 	if err := manager.addScopeWideGrant(ctx, globalScope, "Admin", "Export"); err != nil {
 		t.Fatalf("addScopeWideGrant() error = %v", err)
 	}
-	if err := manager.addGrant(ctx, globalScope, "Admin", "Read", "employees"); err != nil {
+	if err := manager.addGrant(ctx, globalScope, "Admin", "Read", "employees", ""); err != nil {
 		t.Fatalf("addGrant() error = %v", err)
 	}
 
@@ -365,5 +365,90 @@ func Test_storeManager_scopeWideGrants(t *testing.T) {
 	}
 	if got["Export"].ScopeWide {
 		t.Error("scope-wide grant survived removeScopeWideGrant()")
+	}
+}
+
+// Test_storeManager_addGrants pins the bulk write: every row reaches the store
+// split into its columns in one InsertGrants call with one policy signal, a bad
+// row rejects the whole batch before any write, and no rows is a no-op.
+func Test_storeManager_addGrants(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		rows         []GrantRow
+		wantStored   []fakeGrant
+		wantWrites   int
+		wantNotified int
+		wantErr      bool
+	}{
+		{
+			name: "rows of every shape land in one write",
+			rows: []GrantRow{
+				{Permission: "Read", Resource: "employees"},
+				{Permission: "Read", Resource: "employees.name"},
+				{Permission: "Read", Resource: "employees.*"},
+				{Permission: "Update", Resource: "employees.salary", Condition: "owner = subject"},
+			},
+			wantStored: []fakeGrant{
+				{scope: tenant1Scope, role: "Editor", perm: "Read", resource: "employees", field: ""},
+				{scope: tenant1Scope, role: "Editor", perm: "Read", resource: "employees", field: "name"},
+				{scope: tenant1Scope, role: "Editor", perm: "Read", resource: "employees", field: "*"},
+				{scope: tenant1Scope, role: "Editor", perm: "Update", resource: "employees", field: "salary", condition: "owner = subject"},
+			},
+			wantWrites:   1,
+			wantNotified: 1,
+		},
+		{
+			name:         "no rows is a no-op",
+			rows:         nil,
+			wantWrites:   0,
+			wantNotified: 0,
+		},
+		{
+			name:       "one bad row rejects the batch before any write",
+			rows:       []GrantRow{{Permission: "Read", Resource: "employees"}, {Permission: "Read", Resource: "a.b.c"}},
+			wantWrites: 0,
+			wantErr:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := newFakeStore()
+			manager := newStoreManager(store)
+			if err := manager.addRole(ctx, tenant1Scope, "Editor"); err != nil {
+				t.Fatalf("addRole() error = %v", err)
+			}
+			notified := 0
+			manager.onPolicyChange = func() { notified++ }
+
+			err := manager.addGrants(ctx, tenant1Scope, "Editor", tt.rows)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("addGrants() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if store.batchWrites != tt.wantWrites {
+				t.Errorf("InsertGrants called %d times, want %d", store.batchWrites, tt.wantWrites)
+			}
+			if notified != tt.wantNotified {
+				t.Errorf("onPolicyChange fired %d times, want %d", notified, tt.wantNotified)
+			}
+			if tt.wantErr {
+				if len(store.grants) != 0 {
+					t.Errorf("addGrants() stored %v on a rejected batch, want none", store.grants)
+				}
+
+				return
+			}
+			for _, want := range tt.wantStored {
+				if _, ok := store.grants[want]; !ok {
+					t.Errorf("addGrants() did not store %v; stored %v", want, store.grants)
+				}
+			}
+			if len(store.grants) != len(tt.wantStored) {
+				t.Errorf("addGrants() stored %d rows, want %d", len(store.grants), len(tt.wantStored))
+			}
+		})
 	}
 }

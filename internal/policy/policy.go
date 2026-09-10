@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/go-playground/errors/v5"
 )
 
 // SubjectKind discriminates who a grant or membership row refers to.
@@ -44,12 +45,19 @@ type Subject struct {
 //   - Field == "*" grants all fields by implication (compiles to an all-flag,
 //     never materialized bits, so newly generated fields are covered).
 //   - otherwise it grants the single named field.
+//   - Condition == "" is an unconditional grant; otherwise it is the grant's
+//     condition as opaque expression text. The condition is part of the
+//     stored row's identity, so one (subject, permission, resource, field)
+//     may carry several grants, one per condition. The records carry the
+//     text verbatim — nothing below the snapshot compiler interprets it, and
+//     the compiler only interns it.
 type Grant struct {
-	Scope    accesstypes.Scope
-	Subject  Subject
-	Perm     accesstypes.Permission
-	Resource string // bare base resource name; "" = scope-wide
-	Field    string
+	Scope     accesstypes.Scope
+	Subject   Subject
+	Perm      accesstypes.Permission
+	Resource  string // bare base resource name; "" = scope-wide
+	Field     string
+	Condition string // opaque expression text; "" = unconditional
 }
 
 // Membership is one normalized role membership. Member is usually a user; a
@@ -70,9 +78,10 @@ type Records struct {
 // RoleGrant is one stored grant row scoped to an already-known (domain, role):
 // the shape a store returns for role-grant listings.
 type RoleGrant struct {
-	Perm     accesstypes.Permission
-	Resource string // bare base resource name
-	Field    string // '' endpoint · '*' all fields · field name
+	Perm      accesstypes.Permission
+	Resource  string // bare base resource name
+	Field     string // '' endpoint · '*' all fields · field name
+	Condition string // opaque expression text; "" = unconditional
 }
 
 // Hash returns a canonical content hash of the records: independent of row
@@ -94,6 +103,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashString(h, string(g.Perm))
 		hashString(h, g.Resource)
 		hashString(h, g.Field)
+		hashString(h, g.Condition)
 	}
 	for _, m := range memberships {
 		hashString(h, "m")
@@ -106,7 +116,6 @@ func (r *Records) Hash() [sha256.Size]byte {
 	return [sha256.Size]byte(h.Sum(nil))
 }
 
-//nolint:gocritic // slices.SortFunc requires value-typed comparators
 func compareGrants(a, b Grant) int {
 	return cmpChain(
 		compareScopes(a.Scope, b.Scope),
@@ -115,6 +124,7 @@ func compareGrants(a, b Grant) int {
 		strings.Compare(string(a.Perm), string(b.Perm)),
 		strings.Compare(a.Resource, b.Resource),
 		strings.Compare(a.Field, b.Field),
+		strings.Compare(a.Condition, b.Condition),
 	)
 }
 
@@ -128,10 +138,10 @@ func compareMemberships(a, b Membership) int {
 }
 
 func compareScopes(a, b accesstypes.Scope) int {
-	ag, ad := ScopeColumns(a)
-	bg, bd := ScopeColumns(b)
+	ag, ax, ad := ScopeColumns(a)
+	bg, bx, bd := ScopeColumns(b)
 
-	return cmpChain(boolCompare(ag, bg), strings.Compare(ad, bd))
+	return cmpChain(boolCompare(ag, bg), strings.Compare(ax, bx), strings.Compare(ad, bd))
 }
 
 func boolCompare(a, b bool) int {
@@ -145,25 +155,34 @@ func boolCompare(a, b bool) int {
 	}
 }
 
-// ScopeColumns decomposes a Scope into the structural column pair the stores
-// persist: (global, domain), with domain "" when global. ScopeFromColumns is
-// its inverse.
-func ScopeColumns(s accesstypes.Scope) (global bool, domain string) {
+// ScopeColumns decomposes a Scope into the structural column triple the
+// stores persist: (global, axis, domain). The axis is the name of the axis the
+// domain belongs to, "" for the default axis; a global scope carries "" in
+// both axis and domain, the flag alone marking the partition. ScopeFromColumns
+// is its inverse.
+func ScopeColumns(s accesstypes.Scope) (global bool, axis, domain string) {
 	if s.IsGlobal() {
-		return true, ""
+		return true, "", ""
 	}
 	d, _ := s.Domain()
 
-	return false, string(d)
+	return false, s.Axis(), string(d)
 }
 
-// ScopeFromColumns reassembles a Scope from its stored column pair.
-func ScopeFromColumns(global bool, domain string) accesstypes.Scope {
+// ScopeFromColumns reassembles a Scope from its stored column triple. Only
+// the default axis ("") can be reassembled: no constructor for a named axis
+// exists yet, and a row under another axis must never fold into the default
+// one — that would apply its grants to tenants they were not written for — so
+// such a row is refused and the read fails closed.
+func ScopeFromColumns(global bool, axis, domain string) (accesstypes.Scope, error) {
+	if axis != "" {
+		return accesstypes.Scope{}, errors.Newf("row belongs to axis %q, and no axis other than the default is declared", axis)
+	}
 	if global {
-		return accesstypes.GlobalScope()
+		return accesstypes.GlobalScope(), nil
 	}
 
-	return accesstypes.DomainScope(accesstypes.Domain(domain))
+	return accesstypes.DomainScope(accesstypes.Domain(domain)), nil
 }
 
 // cmpChain returns the first non-zero comparison result.
@@ -190,13 +209,14 @@ func hashByte(h hash.Hash, b byte) {
 	h.Write([]byte{b})
 }
 
-// hashScope writes a scope's structural pair (global flag, domain).
+// hashScope writes a scope's structural triple (global flag, axis, domain).
 func hashScope(h hash.Hash, s accesstypes.Scope) {
-	global, domain := ScopeColumns(s)
+	global, axis, domain := ScopeColumns(s)
 	var b byte
 	if global {
 		b = 1
 	}
 	hashByte(h, b)
+	hashString(h, axis)
 	hashString(h, domain)
 }

@@ -9,8 +9,8 @@ import (
 
 // Store is the persistence seam for policy data: three typed tables (roles,
 // user-role memberships, role grants) partitioned by scope — the global
-// partition or one tenant domain, persisted as the structural column pair
-// (IsGlobal, Domain) — plus one normalized read feeding the snapshot
+// partition or one tenant domain, persisted as the structural column triple
+// (IsGlobal, Axis, Domain) — plus one normalized read feeding the snapshot
 // compiler. Implementations are thin —
 // each method is one SQL statement against one store's tables; everything
 // smarter (validation, resource/field splitting, change signaling, snapshot
@@ -29,6 +29,10 @@ import (
 // domains, users, and resources belongs to the callers that write them.
 // Scope is stored structurally: the global partition is a column flag, never
 // a distinguished domain value, so any domain string is ordinary tenant data.
+// The axis column names the axis a domain belongs to and is the empty string
+// for the default axis — the only axis a Scope can name today, so every row
+// carries "" and a later axis declaration changes no stored row. A row under
+// any other axis fails the policy read rather than folding into the default.
 //
 // Contracts every implementation provides:
 //   - Inserts are idempotent: re-inserting an existing row is a no-op, not an
@@ -63,7 +67,22 @@ type Store interface {
 	// resource "" (with field "") is a scope-wide grant — the permission held
 	// with no resource attachment; real resource names are validated non-empty
 	// above this seam, so "" is structurally unreachable from data.
-	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
-	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
+	// condition is the grant's condition as opaque expression text, "" when
+	// unconditional, and is part of the row's identity: one (role,
+	// permission, resource, field) holds one row per condition, so a role may
+	// grant the same permission on one resource under several conditions.
+	// InsertGrant is idempotent per row. DeleteGrant removes exactly one row;
+	// DeleteGrants removes every condition's row for the (permission,
+	// resource, field).
+	InsertGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
+	// InsertGrants adds the role's grant rows as one write per store round
+	// trip instead of one per row: rows already present are left as they are
+	// and the rest are inserted, so the call is idempotent like InsertGrant and
+	// an overlap with existing rows is not an error. A row repeated in the
+	// list is written once; an empty list is a no-op. Same parent-row
+	// requirement as InsertGrant.
+	InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error
+	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
+	DeleteGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
 	ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error)
 }

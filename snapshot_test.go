@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/accesstypes/condition"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 )
@@ -61,7 +63,29 @@ func Test_splitResourceField(t *testing.T) {
 	}
 }
 
-func Test_snapshot_checkUserResources(t *testing.T) {
+// missingFromDecisions derives the legacy missing list from per-resource
+// decisions: every resource whose decision is denied, in input order. The
+// fixtures here carry no conditions, so it also asserts nothing came back
+// conditional.
+func missingFromDecisions(t *testing.T, resources []accesstypes.Resource, decisions []resourceDecision) []accesstypes.Resource {
+	t.Helper()
+	if len(decisions) != len(resources) {
+		t.Fatalf("got %d decisions for %d resources", len(decisions), len(resources))
+	}
+	missing := make([]accesstypes.Resource, 0)
+	for i, d := range decisions {
+		if len(d.conditions) > 0 {
+			t.Fatalf("decision %d = conditional %v, want unconditional decisions from a condition-free store", i, d.conditions)
+		}
+		if !d.granted {
+			missing = append(missing, resources[i])
+		}
+	}
+
+	return missing
+}
+
+func Test_snapshot_decideUserResources(t *testing.T) {
 	t.Parallel()
 
 	snap := compileSnapshot(t, &policy.Records{
@@ -165,9 +189,579 @@ func Test_snapshot_checkUserResources(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotMissing := snap.checkUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			decisions := snap.decideUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			gotMissing := missingFromDecisions(t, tt.args.resources, decisions)
 			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("snapshot.checkUserResources() mismatch (-want +got):\n%s", diff)
+				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_decideUserResources_conditions pins conditional coverage: a
+// resource covered only by conditional grants decides Conditional carrying
+// the covering grants' condition texts (OR semantics, canonically ordered,
+// deduplicated); any unconditional cover settles the decision as Granted; no
+// cover at all stays Denied. The texts are opaque — nothing here parses or
+// evaluates them.
+func Test_snapshot_decideUserResources_conditions(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("ServicingAgent"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
+			{Scope: tenant1Scope, Subject: roleSubject("Owner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("CoOwner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "*"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "title", Condition: "unpublished = false"},
+			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "DraftEditor"},
+			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "ServicingAgent"},
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: userSubject("frank"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: userSubject("frank"), Role: "Chief"},
+			{Scope: tenant1Scope, Member: userSubject("gina"), Role: "Owner"},
+			{Scope: tenant1Scope, Member: userSubject("gina"), Role: "CoOwner"},
+			{Scope: tenant1Scope, Member: userSubject("carol"), Role: "Editor"},
+		},
+	})
+
+	type args struct {
+		user      accesstypes.User
+		scope     accesstypes.Scope
+		perm      accesstypes.Permission
+		resources []accesstypes.Resource
+	}
+	tests := []struct {
+		name string
+		args args
+		want []resourceDecision
+	}{
+		{
+			name: "conditional covering set combines across roles in text order",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.phone"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'", "state IN ('new', 'approved')"}}},
+		},
+		{
+			name: "conditional wildcard covers unknown fields by implication",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.term"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'"}}},
+		},
+		{
+			name: "conditional wildcard does not cover the endpoint",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "wildcard check answers from wildcard coverage only",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.*"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'"}}},
+		},
+		{
+			name: "conditional endpoint grant",
+			args: args{user: "erin", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{conditions: []string{"region = subject"}}},
+		},
+		{
+			name: "any unconditional cover settles as granted across roles",
+			args: args{user: "frank", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{granted: true}},
+		},
+		{
+			name: "identical condition texts deduplicate",
+			args: args{user: "gina", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"notes.body"}},
+			want: []resourceDecision{{conditions: []string{"owner = subject"}}},
+		},
+		{
+			name: "direct user grant carries its condition",
+			args: args{user: "hank", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"notes.body"}},
+			want: []resourceDecision{{conditions: []string{"owner = subject"}}},
+		},
+		{
+			name: "unconditional wildcard settles a conditionally granted field",
+			args: args{user: "carol", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"docs.title", "docs.other"}},
+			want: []resourceDecision{{granted: true}, {granted: true}},
+		},
+		{
+			name: "conditional grants stay inside their scope",
+			args: args{user: "dana", scope: tenant2Scope, perm: "Update", resources: []accesstypes.Resource{"loans.phone"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "uncovered resource stays denied",
+			args: args{user: "erin", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"employees"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "unknown permission fails closed",
+			args: args{user: "dana", scope: tenant1Scope, perm: "Fly", resources: []accesstypes.Resource{"loans.phone"}},
+			want: []resourceDecision{{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := snap.decideUserResources(tt.args.user, tt.args.scope, tt.args.perm, tt.args.resources...)
+			// The compiled trees ride beside the texts, always parallel;
+			// their content is the condition package's own contract, so this
+			// pin asserts the pairing and compares the texts.
+			for i := range got {
+				if len(got[i].exprs) != len(got[i].conditions) {
+					t.Errorf("decision %d carries %d compiled trees for %d conditions", i, len(got[i].exprs), len(got[i].conditions))
+				}
+				got[i].exprs = nil
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(resourceDecision{})); diff != "" {
+				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_decideUserResources_oneRoleTwoConditions pins that one role
+// holding two conditional grants on one resource (one stored row per
+// condition) decides exactly as the same two conditions arriving through two
+// roles: the endpoint's any-of set covers both, and each field carries only
+// the conditions of the grants that named it.
+func Test_snapshot_decideUserResources_oneRoleTwoConditions(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "notes", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state IN ('new', 'approved')"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "Dispatcher"},
+		},
+	})
+
+	tests := []struct {
+		name      string
+		resources []accesstypes.Resource
+		want      []resourceDecision
+	}{
+		{
+			name:      "the endpoint carries both conditions",
+			resources: []accesstypes.Resource{"loans"},
+			want:      []resourceDecision{{conditions: []string{"state = 'new'", "state IN ('new', 'approved')"}}},
+		},
+		{
+			name:      "each field carries only its own grant's condition",
+			resources: []accesstypes.Resource{"loans.notes", "loans.phone"},
+			want:      []resourceDecision{{conditions: []string{"state = 'new'"}}, {conditions: []string{"state IN ('new', 'approved')"}}},
+		},
+		{
+			name:      "a field both grants name carries both",
+			resources: []accesstypes.Resource{"loans.owner"},
+			want:      []resourceDecision{{conditions: []string{"state = 'new'", "state IN ('new', 'approved')"}}},
+		},
+		{
+			name:      "a field neither grant names stays denied",
+			resources: []accesstypes.Resource{"loans.term"},
+			want:      []resourceDecision{{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := snap.decideUserResources("dana", tenant1Scope, "Update", tt.resources...)
+			for i := range got {
+				if len(got[i].exprs) != len(got[i].conditions) {
+					t.Errorf("decision %d carries %d compiled trees for %d conditions", i, len(got[i].exprs), len(got[i].conditions))
+				}
+				got[i].exprs = nil
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(resourceDecision{})); diff != "" {
+				t.Errorf("snapshot.decideUserResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// rbacScopeWide, rbacMissing and rbacAllowed are the pre-ABAC unconditional
+// evaluation rules, kept verbatim as the oracle for the decision path: with
+// no conditions in the store, decide must grant exactly where they grant.
+// They are functions of a grant map, like every engine primitive, so the same
+// oracle judges users and roles.
+func rbacScopeWide(s *snapshot, grants grantMap, perm accesstypes.Permission) bool {
+	if grants == nil {
+		return false
+	}
+	permID, ok := s.perms[perm]
+	if !ok {
+		return false
+	}
+	resID, ok := s.resources[""]
+	if !ok {
+		return false
+	}
+	fs := grants[packGrantKey(permID, resID)]
+
+	return fs != nil && fs.endpoint
+}
+
+func rbacMissing(s *snapshot, grants grantMap, perm accesstypes.Permission, resources []accesstypes.Resource) []accesstypes.Resource {
+	missing := make([]accesstypes.Resource, 0)
+	permID, permKnown := s.perms[perm]
+	for _, resource := range resources {
+		if !permKnown || !rbacAllowed(s, grants, permID, resource) {
+			missing = append(missing, resource)
+		}
+	}
+
+	return missing
+}
+
+func rbacAllowed(s *snapshot, grants grantMap, permID uint16, resource accesstypes.Resource) bool {
+	if grants == nil {
+		return false
+	}
+
+	base, field := splitResourceField(string(resource))
+	resID, ok := s.resources[base]
+	if !ok {
+		return false
+	}
+
+	fs := grants[packGrantKey(permID, resID)]
+	if fs == nil {
+		return false
+	}
+
+	switch field {
+	case "":
+		return fs.endpoint
+	case "*":
+		return fs.all
+	default:
+		if fs.all {
+			// Implication: an all-fields grant covers fields unknown to the
+			// snapshot, including ones generated after the grant was written.
+			return true
+		}
+		i, ok := s.fields[resID][field]
+
+		return ok && fs.bit(i)
+	}
+}
+
+// Test_snapshot_zeroConditionsMatchesRBAC pins the "no conditions ⇒ pure
+// RBAC" invariant: over a full sweep of a condition-free store, the decision
+// path grants exactly where the pre-ABAC unconditional rules (the rbac*
+// oracle above) grant — for users and roles alike, scope-wide and per
+// resource — and nothing is ever Conditional.
+func Test_snapshot_zeroConditionsMatchesRBAC(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "List"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: tenant2Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "*"},
+			{Scope: tenant1Scope, Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: tenant2Scope, Member: userSubject("dana"), Role: "Editor"},
+		},
+	})
+
+	users := []accesstypes.User{"erin", "dana", "stranger"}
+	roles := []accesstypes.Role{"Editor", "Auditor", "Chief", "Ghost"}
+	scopes := []accesstypes.Scope{tenant1Scope, tenant2Scope, accesstypes.GlobalScope()}
+	perms := []accesstypes.Permission{"Read", "List", "Fly"}
+	resources := []accesstypes.Resource{
+		"employees", "employees.name", "employees.salary", "employees.*",
+		"documents", "documents.title", "documents.*",
+		"widgets", "budgets", "spaceships", "spaceships.crew",
+	}
+
+	// matchesOracle compares one subject's scope-wide and per-resource
+	// decisions with the oracle over the same grant map.
+	matchesOracle := func(subject string, grants grantMap, scope accesstypes.Scope, perm accesstypes.Permission, scopeWide resourceDecision, decisions []resourceDecision) {
+		t.Helper()
+		if want := rbacScopeWide(snap, grants, perm); scopeWide.granted != want || len(scopeWide.conditions) != 0 {
+			t.Errorf("scope-wide decision for %s in %s on %s = granted %v with conditions %v, want granted %v unconditional", subject, scope, perm, scopeWide.granted, scopeWide.conditions, want)
+		}
+		missing := rbacMissing(snap, grants, perm, resources)
+		for i, resource := range resources {
+			wantGranted := !slices.Contains(missing, resource)
+			if decisions[i].granted != wantGranted {
+				t.Errorf("decide(%s, %s, %s, %s).granted = %v, want %v", subject, scope, perm, resource, decisions[i].granted, wantGranted)
+			}
+			if len(decisions[i].conditions) != 0 {
+				t.Errorf("decide(%s, %s, %s, %s) = conditional %v, want unconditional from a condition-free store", subject, scope, perm, resource, decisions[i].conditions)
+			}
+		}
+	}
+
+	for _, scope := range scopes {
+		for _, perm := range perms {
+			for _, user := range users {
+				matchesOracle(string(user), snap.userGrants(scope, user), scope, perm,
+					snap.checkUser(user, scope, perm), snap.decideUserResources(user, scope, perm, resources...))
+			}
+			for _, role := range roles {
+				matchesOracle(string(role), snap.roleGrants(scope, role), scope, perm,
+					snap.checkRole(role, scope, perm), snap.decideRoleResources(role, scope, perm, resources...))
+			}
+		}
+	}
+}
+
+// Test_newSnapshot_conditionValidation pins the load-time condition rules:
+// every condition text must compile, and a scope-wide grant may carry only a
+// row-free condition — a binding-name attribute or new. reference has no row
+// to see there and fails the load. Schema validation (binding names against
+// the Collection) is MigrateRoles' job, not the snapshot's.
+func Test_newSnapshot_conditionValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		grant   policy.Grant
+		wantErr bool
+	}{
+		{
+			name:    "row-referencing condition on a scope-wide grant fails the load",
+			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "state = 'new'"},
+			wantErr: true,
+		},
+		{
+			name:    "row-referencing condition on a global scope-wide grant fails the load",
+			grant:   policy.Grant{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Admin"), Perm: "Export", Resource: "", Condition: "state = 'new'"},
+			wantErr: true,
+		},
+		{
+			name:  "row-free condition on a scope-wide grant compiles",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
+		},
+		{
+			name:    "malformed condition text fails the load",
+			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets", Condition: "state = "},
+			wantErr: true,
+		},
+		{
+			name:  "unconditional scope-wide grant compiles",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: ""},
+		},
+		{
+			name:  "conditional resource grant compiles",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets", Condition: "state = 'new'"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newSnapshot(&policy.Records{Grants: []policy.Grant{tt.grant}}, time.Now())
+			if (err != nil) != tt.wantErr {
+				t.Errorf("newSnapshot() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Test_newDecisions pins the translation to the public Decisions, including
+// fact folding and the shared-group emission: each distinct covering set's
+// any-of combination folds once — TRUE settles its members Granted, FALSE
+// settles them Denied, anything left is Conditional — and resources sharing
+// a covering condition set get ONE ConditionGroup listing every member
+// (first-appearance input order, deduplicated), the same group value
+// reachable from each member's Decision, its payload the folded any-of
+// expression. The group key is the covering set (grant identity), never the
+// folded text.
+func Test_newDecisions(t *testing.T) {
+	t.Parallel()
+
+	instant := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// dec builds an engine decision covered by the given condition texts,
+	// compiled exactly as the snapshot load compiles them.
+	dec := func(texts ...string) resourceDecision {
+		exprs := make([]condition.Expr, len(texts))
+		for i, text := range texts {
+			expr, err := condition.Parse(text)
+			if err != nil {
+				t.Fatalf("condition.Parse(%q) error = %v", text, err)
+			}
+			exprs[i] = expr
+		}
+
+		return resourceDecision{conditions: texts, exprs: exprs}
+	}
+	// payload builds the Condition a group is expected to carry.
+	payload := func(source string) accesstypes.Condition {
+		c, err := accesstypes.NewCondition(source)
+		if err != nil {
+			t.Fatalf("accesstypes.NewCondition(%q) error = %v", source, err)
+		}
+
+		return c
+	}
+
+	sharedGroup := accesstypes.ConditionGroup{
+		Resources: []accesstypes.Resource{"loans.phone", "loans.term"},
+		Condition: payload("state = 'new'"),
+	}
+
+	tests := []struct {
+		name      string
+		resources []accesstypes.Resource
+		decisions []resourceDecision
+		facts     condition.Facts
+		want      accesstypes.Decisions
+		wantErr   bool
+	}{
+		{
+			name:      "granted",
+			resources: []accesstypes.Resource{"employees.name"},
+			decisions: []resourceDecision{{granted: true}},
+			want:      accesstypes.Decisions{"employees.name": accesstypes.Granted()},
+		},
+		{
+			name:      "denied",
+			resources: []accesstypes.Resource{"employees.name"},
+			decisions: []resourceDecision{{}},
+			want:      accesstypes.Decisions{"employees.name": accesstypes.Denied()},
+		},
+		{
+			name:      "lone conditional carries one group naming the resource",
+			resources: []accesstypes.Resource{"employees.name"},
+			decisions: []resourceDecision{dec("owner = subject")},
+			want: accesstypes.Decisions{
+				"employees.name": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"employees.name"},
+					Condition: payload("owner = subject"),
+				}),
+			},
+		},
+		{
+			name:      "identical covering sets share one group in each member's decision",
+			resources: []accesstypes.Resource{"loans.phone", "loans.term"},
+			decisions: []resourceDecision{
+				dec("state = 'new'"),
+				dec("state = 'new'"),
+			},
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(sharedGroup),
+				"loans.term":  accesstypes.Conditional(sharedGroup),
+			},
+		},
+		{
+			name:      "distinct covering sets get distinct groups with any-of payloads",
+			resources: []accesstypes.Resource{"loans.phone", "loans.notes"},
+			decisions: []resourceDecision{
+				dec("crew IN subject.crews", "state = 'open'"),
+				dec("crew IN subject.crews"),
+			},
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.phone"},
+					Condition: payload("crew IN subject.crews OR state = 'open'"),
+				}),
+				"loans.notes": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.notes"},
+					Condition: payload("crew IN subject.crews"),
+				}),
+			},
+		},
+		{
+			name:      "grouping never absorbs granted or denied members",
+			resources: []accesstypes.Resource{"loans", "loans.phone", "loans.term", "secrets"},
+			decisions: []resourceDecision{
+				{granted: true},
+				dec("state = 'new'"),
+				dec("state = 'new'"),
+				{},
+			},
+			want: accesstypes.Decisions{
+				"loans":       accesstypes.Granted(),
+				"loans.phone": accesstypes.Conditional(sharedGroup),
+				"loans.term":  accesstypes.Conditional(sharedGroup),
+				"secrets":     accesstypes.Denied(),
+			},
+		},
+		{
+			name:      "duplicate checked resource appears once in its group",
+			resources: []accesstypes.Resource{"loans.phone", "loans.phone"},
+			decisions: []resourceDecision{
+				dec("state = 'new'"),
+				dec("state = 'new'"),
+			},
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.phone"},
+					Condition: payload("state = 'new'"),
+				}),
+			},
+		},
+		{
+			name:      "environment window folding TRUE settles the member granted",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("now < '2027-06-01T00:00:00Z'")},
+			facts:     condition.NewFacts().WithNow(instant),
+			want:      accesstypes.Decisions{"loans.phone": accesstypes.Granted()},
+		},
+		{
+			name:      "environment window folding FALSE settles the member denied",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("now < '2027-01-01T00:00:00Z'")},
+			facts:     condition.NewFacts().WithNow(instant),
+			want:      accesstypes.Decisions{"loans.phone": accesstypes.Denied()},
+		},
+		{
+			name:      "folded window leaves only the data condition in the payload",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("crew IN subject.crews AND now < '2027-06-01T00:00:00Z'")},
+			facts:     condition.NewFacts().WithNow(instant),
+			want: accesstypes.Decisions{
+				"loans.phone": accesstypes.Conditional(accesstypes.ConditionGroup{
+					Resources: []accesstypes.Resource{"loans.phone"},
+					Condition: payload("crew IN subject.crews"),
+				}),
+			},
+		},
+		{
+			name:      "condition referencing an absent environment attribute is a check error",
+			resources: []accesstypes.Resource{"loans.phone"},
+			decisions: []resourceDecision{dec("now < '2027-06-01T00:00:00Z'")},
+			wantErr:   true,
+		},
+		{
+			name:      "empty batch",
+			resources: []accesstypes.Resource{},
+			decisions: []resourceDecision{},
+			want:      accesstypes.Decisions{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := newDecisions(tt.resources, tt.decisions, tt.facts)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("newDecisions() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(accesstypes.Decision{}, accesstypes.Condition{})); diff != "" {
+				t.Errorf("newDecisions() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -203,14 +797,18 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 		check func() bool
 		want  bool
 	}{
-		{name: "user holds scope-wide perm through role", check: func() bool { return snap.checkUser("alice", globalScope, "Export") }, want: true},
-		{name: "role holds its scope-wide perm", check: func() bool { return snap.checkRole("Admin", globalScope, "Export") }, want: true},
-		{name: "resource grant does not satisfy a scope-wide check", check: func() bool { return snap.checkUser("alice", globalScope, "Read") }},
-		{name: "scope-wide grant is partitioned by scope", check: func() bool { return snap.checkUser("alice", tenant1Scope, "Export") }},
-		{name: "tenant scope-wide grant works in its scope", check: func() bool { return snap.checkUser("carol", tenant1Scope, "Approve") }, want: true},
-		{name: "a tenant named global is not the global scope", check: func() bool { return snap.checkUser("alice", accesstypes.DomainScope("global"), "Export") }},
-		{name: "unknown perm fails closed", check: func() bool { return snap.checkUser("alice", globalScope, "Fly") }},
-		{name: "unknown user fails closed", check: func() bool { return snap.checkUser("stranger", globalScope, "Export") }},
+		{name: "user holds scope-wide perm through role", check: func() bool { return snap.checkUser("alice", globalScope, "Export").granted }, want: true},
+		{name: "role holds its scope-wide perm", check: func() bool { return snap.checkRole("Admin", globalScope, "Export").granted }, want: true},
+		{name: "resource grant does not satisfy a scope-wide check", check: func() bool { return snap.checkUser("alice", globalScope, "Read").granted }},
+		{name: "resource grant does not satisfy a scope-wide role check", check: func() bool { return snap.checkRole("Admin", globalScope, "Read").granted }},
+		{name: "scope-wide grant is partitioned by scope", check: func() bool { return snap.checkUser("alice", tenant1Scope, "Export").granted }},
+		{name: "role's scope-wide grant is partitioned by scope", check: func() bool { return snap.checkRole("Admin", tenant1Scope, "Export").granted }},
+		{name: "tenant scope-wide grant works in its scope", check: func() bool { return snap.checkUser("carol", tenant1Scope, "Approve").granted }, want: true},
+		{name: "tenant role holds its scope-wide grant", check: func() bool { return snap.checkRole("Chief", tenant1Scope, "Approve").granted }, want: true},
+		{name: "a tenant named global is not the global scope", check: func() bool { return snap.checkUser("alice", accesstypes.DomainScope("global"), "Export").granted }},
+		{name: "unknown perm fails closed", check: func() bool { return snap.checkUser("alice", globalScope, "Fly").granted }},
+		{name: "unknown user fails closed", check: func() bool { return snap.checkUser("stranger", globalScope, "Export").granted }},
+		{name: "unknown role fails closed", check: func() bool { return snap.checkRole("Ghost", globalScope, "Export").granted }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,14 +820,21 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 	}
 
 	// The scope-wide grant does not leak into the resource batch path either:
-	// checking the empty-string resource through checkUserResources is not a
+	// checking the empty-string resource through decideUserResources is not a
 	// public spelling, and real resources stay ungranted.
-	if missing := snap.checkUserResources("alice", globalScope, "Export", "employees"); len(missing) != 1 {
-		t.Errorf("checkUserResources() = %v, want employees missing: scope-wide grants must not satisfy resource checks", missing)
+	if decisions := snap.decideUserResources("alice", globalScope, "Export", "employees"); decisions[0].granted {
+		t.Errorf("decideUserResources() = %v, want employees denied: scope-wide grants must not satisfy resource checks", decisions)
+	}
+	if decisions := snap.decideRoleResources("Admin", globalScope, "Export", "employees"); decisions[0].granted {
+		t.Errorf("decideRoleResources() = %v, want employees denied: scope-wide grants must not satisfy resource checks", decisions)
 	}
 }
 
-func Test_snapshot_checkRoleResources(t *testing.T) {
+// Test_snapshot_decideRoleResources pins the role twin of the resource
+// batch: a role answers from its own and transitively inherited grants, with
+// no member involved; inheritance is one-way, a cycle compiles and denies
+// safely, and an unknown role or wrong scope fails closed.
+func Test_snapshot_decideRoleResources(t *testing.T) {
 	t.Parallel()
 
 	snap := compileSnapshot(t, &policy.Records{
@@ -289,9 +894,92 @@ func Test_snapshot_checkRoleResources(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotMissing := snap.checkRoleResources(tt.args.role, tt.args.scope, tt.args.perm, tt.args.resources...)
+			decisions := snap.decideRoleResources(tt.args.role, tt.args.scope, tt.args.perm, tt.args.resources...)
+			gotMissing := missingFromDecisions(t, tt.args.resources, decisions)
 			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("snapshot.checkRoleResources() mismatch (-want +got):\n%s", diff)
+				t.Errorf("snapshot.decideRoleResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_decideRoleResources_conditions pins that a role's decisions
+// carry conditional coverage exactly as a member's do: a role sees its own
+// and inherited grants only (a member's direct grant never reaches it), an
+// unconditional cover from a parent settles granted, and a subject term rides
+// through unbound — a role has no identity for it; the resource layer binds
+// the session's.
+func Test_snapshot_decideRoleResources_conditions(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
+			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Read", Resource: "reports"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Auditor"},
+			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Chief"},
+			{Scope: tenant1Scope, Member: userSubject("hank"), Role: "Auditor"},
+		},
+	})
+
+	type args struct {
+		role      accesstypes.Role
+		scope     accesstypes.Scope
+		perm      accesstypes.Permission
+		resources []accesstypes.Resource
+	}
+	tests := []struct {
+		name string
+		args args
+		want []resourceDecision
+	}{
+		{
+			name: "own conditional grant carries its condition with the subject unbound; a member's direct grant never reaches the role",
+			args: args{role: "Auditor", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{conditions: []string{"region = subject"}}},
+		},
+		{
+			name: "an inherited unconditional cover settles as granted",
+			args: args{role: "Lead", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{granted: true}},
+		},
+		{
+			name: "conditional wildcard covers unknown fields by implication",
+			args: args{role: "DraftEditor", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans.term"}},
+			want: []resourceDecision{{conditions: []string{"state = 'new'"}}},
+		},
+		{
+			name: "conditional wildcard does not cover the endpoint",
+			args: args{role: "DraftEditor", scope: tenant1Scope, perm: "Update", resources: []accesstypes.Resource{"loans"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "conditional grants stay inside their scope",
+			args: args{role: "Auditor", scope: tenant2Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{}},
+		},
+		{
+			name: "unknown role fails closed",
+			args: args{role: "Ghost", scope: tenant1Scope, perm: "Read", resources: []accesstypes.Resource{"reports"}},
+			want: []resourceDecision{{}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := snap.decideRoleResources(tt.args.role, tt.args.scope, tt.args.perm, tt.args.resources...)
+			for i := range got {
+				if len(got[i].exprs) != len(got[i].conditions) {
+					t.Errorf("decision %d carries %d compiled trees for %d conditions", i, len(got[i].exprs), len(got[i].conditions))
+				}
+				got[i].exprs = nil
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(resourceDecision{})); diff != "" {
+				t.Errorf("snapshot.decideRoleResources() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -311,7 +999,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	store := newFakeStore()
 	for _, err := range []error{
 		store.InsertRole(ctx, tenant1Scope, "Editor"),
-		store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "employees", ""),
+		store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "employees", "", ""),
 		store.InsertUserRole(ctx, tenant1Scope, "erin", "Editor"),
 	} {
 		if err != nil {
@@ -326,7 +1014,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 // store without notifying this instance's engine.
 func grantWidgets(t *testing.T, store *fakeStore) {
 	t.Helper()
-	if err := store.InsertGrant(context.Background(), tenant1Scope, "Editor", "List", "widgets", ""); err != nil {
+	if err := store.InsertGrant(context.Background(), tenant1Scope, "Editor", "List", "widgets", "", ""); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 }
@@ -360,14 +1048,12 @@ func Test_snapshotEngine_checkUserResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		storeDown   bool
-		wantErr     bool
-		wantMissing []accesstypes.Resource
+		name      string
+		storeDown bool
+		wantErr   bool
 	}{
 		{
-			name:        "served from snapshot",
-			wantMissing: []accesstypes.Resource{},
+			name: "served from snapshot",
 		},
 		{
 			name:      "first load failure returns an error",
@@ -384,15 +1070,15 @@ func Test_snapshotEngine_checkUserResources(t *testing.T) {
 			}
 			e := testEngine(t, store, nil)
 
-			gotMissing, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
+			got, err := e.checkUserResources(context.Background(), "erin", tenant1Scope, "Read", "employees")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("checkUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil {
 				return
 			}
-			if diff := cmp.Diff(tt.wantMissing, gotMissing); diff != "" {
-				t.Errorf("checkUser() mismatch (-want +got):\n%s", diff)
+			if len(got) != 1 || !got[0].granted {
+				t.Errorf("checkUserResources() = %v, want employees granted", got)
 			}
 		})
 	}
@@ -446,21 +1132,21 @@ func Test_snapshotEngine_invalidateReloadsOnNextCheck(t *testing.T) {
 	store := engineFakeStore(t)
 	e := testEngine(t, store, nil)
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
-		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the write", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the write", got, err)
 	}
 	settle(e)
 
 	grantWidgets(t, store)
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
-		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want stale answer before invalidate", got, err)
 	}
 
 	e.invalidate()
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 0 {
-		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want widgets granted after invalidate", got, err)
 	}
 }
 
@@ -483,12 +1169,12 @@ func Test_snapshotEngine_reloadFailureServesLastGoodSnapshot(t *testing.T) {
 	store.setFail(errors.New("store down"))
 	e.invalidate()
 
-	missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees")
+	got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees")
 	if err != nil {
 		t.Fatalf("checkUser() error = %v, want stale snapshot served", err)
 	}
-	if len(missing) != 0 {
-		t.Fatalf("checkUser() missing = %v, want none from stale snapshot", missing)
+	if !got[0].granted {
+		t.Fatalf("checkUser() = %v, want granted from stale snapshot", got)
 	}
 }
 
@@ -507,8 +1193,8 @@ func Test_snapshotEngine_closeIsIdempotent(t *testing.T) {
 	if err := e.close(); err != nil {
 		t.Fatalf("second close() error = %v", err)
 	}
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil || len(missing) != 0 {
-		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil || !got[0].granted {
+		t.Fatalf("checkUser() after close = (%v, %v), want served from last snapshot", got, err)
 	}
 }
 
@@ -560,8 +1246,8 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 	opts.signal = sig
 	e := testEngine(t, store, opts)
 
-	if missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || len(missing) != 1 {
-		t.Fatalf("checkUser() = (%v, %v), want widgets missing before the change", missing, err)
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+		t.Fatalf("checkUser() = (%v, %v), want widgets denied before the change", got, err)
 	}
 	settle(e)
 
@@ -577,11 +1263,11 @@ func Test_snapshotEngine_changeSignal(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		missing, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
+		got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
 		if err != nil {
 			t.Fatalf("checkUser() error = %v", err)
 		}
-		if len(missing) == 0 {
+		if got[0].granted {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -712,6 +1398,368 @@ func Test_snapshotEngine_syncReloadDedup(t *testing.T) {
 
 			if extra := store.loads.Load() - baseline; extra > tt.wantMaxLoads {
 				t.Errorf("store loads with checks queued = %d, want at most %d", extra, tt.wantMaxLoads)
+			}
+		})
+	}
+}
+
+// Test_snapshot_userHasGrants pins the visibility question concealed tenancy
+// asks: any grant in the scope — through a role or direct, resource-attached
+// or scope-wide — is a foothold; role membership resolving to no grants, an
+// unknown scope, and grants held only in another scope are not.
+func Test_snapshot_userHasGrants(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainScope("tenant2"), Subject: roleSubject("Chief"), Perm: "Read"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("gale"), Role: "Idler"},
+			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("hana"), Role: "Chief"},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		user  accesstypes.User
+		scope accesstypes.Scope
+		want  bool
+	}{
+		{name: "grant through a role is a foothold", user: "erin", scope: accesstypes.DomainScope("tenant1"), want: true},
+		{name: "direct grant is a foothold", user: "dana", scope: accesstypes.DomainScope("tenant1"), want: true},
+		{name: "scope-wide grant is a foothold", user: "hana", scope: accesstypes.DomainScope("tenant2"), want: true},
+		{name: "membership in a grantless role is not", user: "gale", scope: accesstypes.DomainScope("tenant1"), want: false},
+		{name: "grants in another scope do not carry over", user: "erin", scope: accesstypes.DomainScope("tenant2"), want: false},
+		{name: "unknown scope has no footholds", user: "erin", scope: accesstypes.DomainScope("tenant9"), want: false},
+		{name: "unknown user has no footholds", user: "nobody", scope: accesstypes.DomainScope("tenant1"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := snap.userHasGrants(tt.scope, tt.user); got != tt.want {
+				t.Errorf("userHasGrants(%s, %s) = %v, want %v", tt.scope, tt.user, got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_snapshot_userDigest pins the digest enumeration: structural (nothing
+// folds), fail-closed by absence (denied targets never appear), granted
+// beating conditional, all-fields grants enumerating the known field
+// vocabulary, and scope-wide grants staying outside the digest.
+func Test_snapshot_userDigest(t *testing.T) {
+	t.Parallel()
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			// Editor: unconditional Read on the employees endpoint and its name
+			// field; conditional Update on both.
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Condition: "status = 'open'"},
+			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
+			// Chief: unconditional Update on the field Editor holds only
+			// conditionally, and an all-fields List on widgets.
+			{Scope: tenant1, Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
+			{Scope: tenant1, Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
+			// Auditor is assigned to nobody: its grant only puts "label" into
+			// the widgets field vocabulary the all-fields enumeration lists.
+			{Scope: tenant1, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
+			// Pinger holds only a scope-wide grant: no resource to enumerate.
+			{Scope: tenant1, Subject: roleSubject("Pinger"), Perm: "Ping"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1, Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1, Member: userSubject("casey"), Role: "Editor"},
+			{Scope: tenant1, Member: userSubject("casey"), Role: "Chief"},
+			{Scope: tenant1, Member: userSubject("wren"), Role: "Chief"},
+			{Scope: tenant1, Member: userSubject("gale"), Role: "Pinger"},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		user  accesstypes.User
+		scope accesstypes.Scope
+		want  accesstypes.PermissionDigest
+	}{
+		{
+			name:  "endpoint and field entries with the conditional tri-state",
+			user:  "erin",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+			},
+		},
+		{
+			name:  "an unconditional cover from any role settles the entry granted",
+			user:  "casey",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestGranted},
+				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "an all-fields grant lists the known vocabulary, never the endpoint",
+			user:  "wren",
+			scope: tenant1,
+			want: accesstypes.PermissionDigest{
+				"employees.name": {"Update": accesstypes.DigestGranted},
+				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "a scope-wide grant attaches to no resource and is not enumerated",
+			user:  "gale",
+			scope: tenant1,
+			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			name:  "grants in another scope do not carry over",
+			user:  "erin",
+			scope: accesstypes.DomainScope("tenant2"),
+			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			name:  "an unknown user holds nothing",
+			user:  "nobody",
+			scope: tenant1,
+			want:  accesstypes.PermissionDigest{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snap.userDigest(tt.scope, tt.user)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("userDigest(%s, %s) mismatch (-want +got):\n%s", tt.scope, tt.user, diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_userDomains pins the membership enumeration: every domain
+// where the user holds a foothold — through a role, a scope-wide role grant,
+// or a direct grant — sorted; the global scope is never a domain; a grantless
+// membership, a global-only user, and an unknown user all enumerate to an
+// empty (never nil) list, so the wire payload is always a JSON array.
+func Test_snapshot_userDomains(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: accesstypes.DomainScope("tenant2"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read"},
+			{Scope: accesstypes.DomainScope("tenant3"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Auditor"), Perm: "List", Resource: "reports"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Chief"},
+			{Scope: accesstypes.GlobalScope(), Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("gale"), Role: "Idler"},
+			{Scope: accesstypes.GlobalScope(), Member: userSubject("hana"), Role: "Auditor"},
+		},
+	})
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+		want []accesstypes.Domain
+	}{
+		{name: "role footholds list sorted, global scope excluded", user: "erin", want: []accesstypes.Domain{"tenant1", "tenant2"}},
+		{name: "a direct grant is a foothold", user: "dana", want: []accesstypes.Domain{"tenant3"}},
+		{name: "membership in a grantless role is not", user: "gale", want: []accesstypes.Domain{}},
+		{name: "global-only grants list no domain", user: "hana", want: []accesstypes.Domain{}},
+		{name: "unknown user lists nothing", user: "nobody", want: []accesstypes.Domain{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, snap.userDomains(tt.user)); diff != "" {
+				t.Errorf("userDomains(%s) (-want +got):\n%s", tt.user, diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_roleHasGrants pins the foothold question for a session
+// operating as a role: any grant the role holds in the scope — own or
+// inherited, resource-attached or scope-wide — is a foothold; a role that
+// exists but resolves to no grants, a role known only in another scope, and
+// an unknown role have none.
+func Test_snapshot_roleHasGrants(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant2Scope, Subject: roleSubject("Chief"), Perm: "Read"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Editor"},
+			{Scope: tenant1Scope, Member: userSubject("gale"), Role: "Idler"},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		role  accesstypes.Role
+		scope accesstypes.Scope
+		want  bool
+	}{
+		{name: "own grant is a foothold", role: "Editor", scope: tenant1Scope, want: true},
+		{name: "inherited grant is a foothold", role: "Lead", scope: tenant1Scope, want: true},
+		{name: "scope-wide grant is a foothold", role: "Chief", scope: tenant2Scope, want: true},
+		{name: "a role with members but no grants is not", role: "Idler", scope: tenant1Scope, want: false},
+		{name: "grants in another scope do not carry over", role: "Editor", scope: tenant2Scope, want: false},
+		{name: "unknown scope has no footholds", role: "Editor", scope: accesstypes.DomainScope("tenant9"), want: false},
+		{name: "unknown role has no footholds", role: "Ghost", scope: tenant1Scope, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := snap.roleHasGrants(tt.scope, tt.role); got != tt.want {
+				t.Errorf("roleHasGrants(%s, %s) = %v, want %v", tt.scope, tt.role, got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_snapshot_roleDigest pins the digest for a session operating as a role:
+// the role's own and inherited grants enumerate exactly as a member's would —
+// granted beating conditional, all-fields grants listing the known
+// vocabulary, scope-wide grants outside the digest — and a member's direct
+// grants never appear.
+func Test_snapshot_roleDigest(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
+			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
+			{Scope: tenant1Scope, Subject: roleSubject("Pinger"), Perm: "Ping"},
+			{Scope: tenant1Scope, Subject: userSubject("erin"), Perm: "Delete", Resource: "employees"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Editor"},
+			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Chief"},
+			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Editor"},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		role  accesstypes.Role
+		scope accesstypes.Scope
+		want  accesstypes.PermissionDigest
+	}{
+		{
+			name:  "own grants enumerate with the conditional tri-state; a member's direct grant never appears",
+			role:  "Editor",
+			scope: tenant1Scope,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted},
+				"employees.name": {"Update": accesstypes.DigestConditional},
+			},
+		},
+		{
+			name:  "an inherited unconditional cover settles the entry granted and all-fields lists the known vocabulary",
+			role:  "Lead",
+			scope: tenant1Scope,
+			want: accesstypes.PermissionDigest{
+				"employees":      {"Read": accesstypes.DigestGranted},
+				"employees.name": {"Update": accesstypes.DigestGranted},
+				"widgets.label":  {"List": accesstypes.DigestGranted},
+			},
+		},
+		{
+			name:  "a scope-wide grant attaches to no resource and is not enumerated",
+			role:  "Pinger",
+			scope: tenant1Scope,
+			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			name:  "grants in another scope do not carry over",
+			role:  "Editor",
+			scope: tenant2Scope,
+			want:  accesstypes.PermissionDigest{},
+		},
+		{
+			name:  "an unknown role holds nothing",
+			role:  "Ghost",
+			scope: tenant1Scope,
+			want:  accesstypes.PermissionDigest{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snap.roleDigest(tt.scope, tt.role)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("roleDigest(%s, %s) mismatch (-want +got):\n%s", tt.scope, tt.role, diff)
+			}
+		})
+	}
+}
+
+// Test_snapshot_roleDomains pins the membership enumeration for a session
+// operating as a role: every domain where the role holds a foothold — own,
+// inherited, or scope-wide — sorted; the global scope is never a domain; a
+// grantless role and an unknown role enumerate to an empty (never nil) list.
+func Test_snapshot_roleDomains(t *testing.T) {
+	t.Parallel()
+
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			{Scope: tenant2Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read"},
+			{Scope: accesstypes.DomainScope("tenant3"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Auditor"), Perm: "List", Resource: "reports"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: accesstypes.DomainScope("tenant3"), Member: roleSubject("Lead"), Role: "Chief"},
+			{Scope: tenant1Scope, Member: userSubject("gale"), Role: "Idler"},
+		},
+	})
+
+	tests := []struct {
+		name string
+		role accesstypes.Role
+		want []accesstypes.Domain
+	}{
+		{name: "own footholds list sorted", role: "Editor", want: []accesstypes.Domain{"tenant1", "tenant2"}},
+		{name: "an inherited grant is a foothold", role: "Lead", want: []accesstypes.Domain{"tenant3"}},
+		{name: "global-only grants list no domain", role: "Auditor", want: []accesstypes.Domain{}},
+		{name: "a role with members but no grants lists nothing", role: "Idler", want: []accesstypes.Domain{}},
+		{name: "unknown role lists nothing", role: "Ghost", want: []accesstypes.Domain{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, snap.roleDomains(tt.role)); diff != "" {
+				t.Errorf("roleDomains(%s) (-want +got):\n%s", tt.role, diff)
 			}
 		})
 	}
