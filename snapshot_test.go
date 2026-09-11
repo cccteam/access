@@ -492,35 +492,37 @@ func Test_snapshot_zeroConditionsMatchesRBAC(t *testing.T) {
 		"widgets", "budgets", "spaceships", "spaceships.crew",
 	}
 
-	// matchesOracle compares one subject's scope-wide and per-resource
-	// decisions with the oracle over the same grant map.
-	matchesOracle := func(subject string, grants grantMap, scope accesstypes.Scope, perm accesstypes.Permission, scopeWide resourceDecision, decisions []resourceDecision) {
-		t.Helper()
-		if want := rbacScopeWide(snap, grants, perm); scopeWide.granted != want || len(scopeWide.conditions) != 0 {
-			t.Errorf("scope-wide decision for %s in %s on %s = granted %v with conditions %v, want granted %v unconditional", subject, scope, perm, scopeWide.granted, scopeWide.conditions, want)
-		}
-		missing := rbacMissing(snap, grants, perm, resources)
-		for i, resource := range resources {
-			wantGranted := !slices.Contains(missing, resource)
-			if decisions[i].granted != wantGranted {
-				t.Errorf("decide(%s, %s, %s, %s).granted = %v, want %v", subject, scope, perm, resource, decisions[i].granted, wantGranted)
-			}
-			if len(decisions[i].conditions) != 0 {
-				t.Errorf("decide(%s, %s, %s, %s) = conditional %v, want unconditional from a condition-free store", subject, scope, perm, resource, decisions[i].conditions)
-			}
-		}
-	}
-
 	for _, scope := range scopes {
 		for _, perm := range perms {
 			for _, user := range users {
-				matchesOracle(string(user), snap.userGrants(scope, user), scope, perm,
+				assertMatchesRBACOracle(t, snap, string(user), snap.userGrants(scope, user), scope, perm, resources,
 					snap.checkUser(user, scope, perm), snap.decideUserResources(user, scope, perm, resources...))
 			}
 			for _, role := range roles {
-				matchesOracle(string(role), snap.roleGrants(scope, role), scope, perm,
+				assertMatchesRBACOracle(t, snap, string(role), snap.roleGrants(scope, role), scope, perm, resources,
 					snap.checkRole(role, scope, perm), snap.decideRoleResources(role, scope, perm, resources...))
 			}
+		}
+	}
+}
+
+// assertMatchesRBACOracle compares one subject's scope-wide and per-resource
+// decisions with the rbac oracle over the same grant map: granted exactly
+// where the oracle grants, and never Conditional. Shared by the fixed sweep
+// and its randomized companion (snapshot_property_test.go).
+func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grants grantMap, scope accesstypes.Scope, perm accesstypes.Permission, resources []accesstypes.Resource, scopeWide resourceDecision, decisions []resourceDecision) {
+	t.Helper()
+	if want := rbacScopeWide(snap, grants, perm); scopeWide.granted != want || len(scopeWide.conditions) != 0 {
+		t.Errorf("scope-wide decision for %s in %s on %s = granted %v with conditions %v, want granted %v unconditional", subject, scope, perm, scopeWide.granted, scopeWide.conditions, want)
+	}
+	missing := rbacMissing(snap, grants, perm, resources)
+	for i, resource := range resources {
+		wantGranted := !slices.Contains(missing, resource)
+		if decisions[i].granted != wantGranted {
+			t.Errorf("decide(%s, %s, %s, %s).granted = %v, want %v", subject, scope, perm, resource, decisions[i].granted, wantGranted)
+		}
+		if len(decisions[i].conditions) != 0 {
+			t.Errorf("decide(%s, %s, %s, %s) = conditional %v, want unconditional from a condition-free store", subject, scope, perm, resource, decisions[i].conditions)
 		}
 	}
 }
