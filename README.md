@@ -325,19 +325,23 @@ import (
 
 func migrateRoles(ctx context.Context, client *access.Client, store *resource.GeneratedCollection, tenants []accesstypes.Domain) error {
     roleConfig := &access.RoleConfig{
-        Roles: []*access.Role{
-            {
-                Name: "Editor",
-                Permissions: map[accesstypes.Permission][]accesstypes.Resource{
-                    "Read":   {"documents", "documents.*", "images"},
-                    "Create": {"documents", "images"},
-                    "Update": {"documents"},
+        Roles: access.ScopedRoles{
+            Domain: []*access.Role{
+                {
+                    Name: "Editor",
+                    Permissions: map[accesstypes.Permission][]access.Grant{
+                        accesstypes.List:   {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author"}}},
+                        accesstypes.Read:   {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author", "body"}}},
+                        accesstypes.Create: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "body"}}},
+                        accesstypes.Update: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "body"}, Condition: "author = subject"}},
+                    },
                 },
-            },
-            {
-                Name: "Viewer",
-                Permissions: map[accesstypes.Permission][]accesstypes.Resource{
-                    "Read": {"documents", "images"},
+                {
+                    Name: "Viewer",
+                    Permissions: map[accesstypes.Permission][]access.Grant{
+                        accesstypes.List: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author"}}},
+                        accesstypes.Read: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author", "body"}}},
+                    },
                 },
             },
         },
@@ -354,10 +358,45 @@ func migrateRoles(ctx context.Context, client *access.Client, store *resource.Ge
 - Creates missing roles and adds missing permissions
 - Removes permissions not in configuration
 - Removes roles not in configuration
-- Validates resources and permissions against the resource store
+- Validates resources, permissions, and conditions against the resource store before touching it
 - Prevents update permissions on immutable resources
+- Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List (see Warnings)
 
-**Note**: Safe to run multiple times — applies changes only when state differs from configuration, and a rollback that re-runs an older release's migrate job converges the store back to that release's defaults. Modifies input config by appending the Administrator role.
+**Note**: Safe to run multiple times — applies changes only when state differs from configuration, and a rollback that re-runs an older release's migrate job converges the store back to that release's defaults. The input configuration is not modified.
+
+### Warnings
+
+A Delete, an Update, and an Execute on a method with a `@target` row locate the row first
+and answer NotFound when it is absent, then evaluate the grant's condition and answer
+Forbidden when it fails. A read hides a row its condition does not select behind the same
+NotFound. So a role holding a conditional write on a row it can neither Read nor List
+learns, from the response code alone, that a row exists in its tenant, without changing
+it. `MigrateRoles` provisions such a grant as written and prints one line for it beside
+its Added and Removed lines:
+
+```
+Warning: role Paymaster: Delete on Missions is granted under "state = 'open'" without Read or List on Missions: a Forbidden answer tells the caller a Missions row exists where a read would answer NotFound. Grant Read or List on Missions in this role or in a role assigned with it, or accept the disclosure; a Read whose condition is narrower than this one leaks the same way.
+```
+
+The check is per role. A reader role meant to be assigned alongside the writer role does
+not silence it, because `MigrateRoles` never sees assignments; the line tells the role's
+author which role to change. Unconditional writes are not flagged: they reveal existence
+only by succeeding, which is what the grant permits. The check is a heuristic. Holding
+Read does not close the channel when the Read condition is narrower than the write's.
+
+`ValidateRoles` runs the same validation and returns the warnings as
+`[]access.GrantWarning` with no store client involved, so a project test or a tool gets
+the answer the deploy would:
+
+```go
+warnings, err := access.ValidateRoles(store, roleConfig)
+if err != nil {
+    return err // the refusals MigrateRoles would answer
+}
+for _, w := range warnings {
+    fmt.Println(w)
+}
+```
 
 ### Several Sites, One Policy Store
 
@@ -383,22 +422,27 @@ return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig, tenants
 
 ```json
 {
-  "roles": [
-    {
-      "Name": "Editor",
-      "Permissions": {
-        "Read": ["documents", "images"],
-        "Create": ["documents", "images"],
-        "Update": ["documents", "images"]
+  "roles": {
+    "global": [],
+    "domain": [
+      {
+        "name": "Editor",
+        "permissions": {
+          "List":   [{"resource": "Documents", "fields": ["title", "author"]}],
+          "Read":   [{"resource": "Documents", "fields": ["title", "author", "body"]}],
+          "Create": [{"resource": "Documents", "fields": ["title", "body"]}],
+          "Update": [{"resource": "Documents", "fields": ["title", "body"], "condition": "author = subject"}]
+        }
+      },
+      {
+        "name": "Viewer",
+        "permissions": {
+          "List": [{"resource": "Documents", "fields": ["title", "author"]}],
+          "Read": [{"resource": "Documents", "fields": ["title", "author", "body"]}]
+        }
       }
-    },
-    {
-      "Name": "Viewer",
-      "Permissions": {
-        "Read": ["documents", "images"]
-      }
-    }
-  ]
+    ]
+  }
 }
 ```
 

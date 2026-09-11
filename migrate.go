@@ -127,24 +127,25 @@ func (g Grant) expand() []accesstypes.Resource {
 // global-only applications pass no domains at all. Domains are opaque tenant
 // labels — any string is a legal tenant name, their validity is the caller's
 // business, and a domain not listed here is never reconciled.
+//
+// A configuration MigrateRoles accepts can still open an existence probe: a
+// conditional Delete, Update, or targeted Execute in a role that can neither
+// Read nor List the row it checks (see GrantWarning). Such a grant is
+// provisioned as written and reported as a "Warning:" line beside the Added
+// and Removed lines. ValidateRoles returns the same warnings without a store.
 func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig, domains ...accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := validateRoleNames(roleConfig.Roles); err != nil {
+	// Everything the configuration can get wrong is settled before the store
+	// is touched: an invalid file removes and adds nothing.
+	plan, warnings, err := planRoles(store, roleConfig)
+	if err != nil {
 		return err
 	}
-
-	// The default Administrator role holds every permission its scope
-	// registers — one copy per scope, like any other role.
-	globalRoles := append(slices.Clone(roleConfig.Roles.Global), &Role{
-		Name:        administratorRole,
-		Permissions: adminGrants(store, accesstypes.GlobalPermissionScope),
-	})
-	domainRoles := append(slices.Clone(roleConfig.Roles.Domain), &Role{
-		Name:        administratorRole,
-		Permissions: adminGrants(store, accesstypes.DomainPermissionScope),
-	})
+	for _, w := range warnings {
+		fmt.Printf("Warning: %s\n", w)
+	}
 
 	scopes := make([]accesstypes.Scope, 0, len(domains)+1)
 	scopes = append(scopes, accesstypes.GlobalScope())
@@ -152,11 +153,69 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 		scopes = append(scopes, accesstypes.DomainScope(d))
 	}
 
-	if err := bootstrapRoles(ctx, client, store, globalRoles, domainRoles, scopes); err != nil {
+	if err := bootstrapRoles(ctx, client, plan, scopes); err != nil {
 		return errors.Wrap(err, "bootstrapRoles()")
 	}
 
 	return nil
+}
+
+// ValidateRoles checks a role configuration the way MigrateRoles does before
+// it touches the store — role names, grant grammar, every condition against
+// the collection's vocabulary, each grant at its role's declared scope — and
+// returns the warnings the configuration raises (see GrantWarning), with no
+// store client involved. A project test or a tool gets the answer the deploy
+// would.
+func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]GrantWarning, error) {
+	_, warnings, err := planRoles(store, roleConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return warnings, nil
+}
+
+// rolePlan is a role configuration validated and expanded, ready to
+// reconcile: the roles declared at each scope, Administrator included, beside
+// their expanded grant sets, indexed alike.
+type rolePlan struct {
+	globalRoles  []*Role
+	domainRoles  []*Role
+	globalGrants []grantSet
+	domainGrants []grantSet
+}
+
+// planRoles validates and expands the configuration, returning the plan and
+// the warnings it raises.
+func planRoles(store PermissionCollection, roleConfig *RoleConfig) (*rolePlan, []GrantWarning, error) {
+	if err := validateRoleNames(roleConfig.Roles); err != nil {
+		return nil, nil, err
+	}
+
+	// The default Administrator role holds every permission its scope
+	// registers — one copy per scope, like any other role.
+	plan := &rolePlan{
+		globalRoles: append(slices.Clone(roleConfig.Roles.Global), &Role{
+			Name:        administratorRole,
+			Permissions: adminGrants(store, accesstypes.GlobalPermissionScope),
+		}),
+		domainRoles: append(slices.Clone(roleConfig.Roles.Domain), &Role{
+			Name:        administratorRole,
+			Permissions: adminGrants(store, accesstypes.DomainPermissionScope),
+		}),
+	}
+
+	globalGrants, globalWarnings, err := expandAllRoleGrants(store, plan.globalRoles, accesstypes.GlobalPermissionScope)
+	if err != nil {
+		return nil, nil, err
+	}
+	domainGrants, domainWarnings, err := expandAllRoleGrants(store, plan.domainRoles, accesstypes.DomainPermissionScope)
+	if err != nil {
+		return nil, nil, err
+	}
+	plan.globalGrants, plan.domainGrants = globalGrants, domainGrants
+
+	return plan, append(globalWarnings, domainWarnings...), nil
 }
 
 // validateRoleNames enforces the declaration grammar: every role name is
@@ -212,6 +271,12 @@ func (s grantSet) has(perm accesstypes.Permission, res accesstypes.Resource, con
 	return ok
 }
 
+// reads reports whether the set holds Read or List on the resource under any
+// condition — a path through which the role sees the resource's rows.
+func (s grantSet) reads(res accesstypes.Resource) bool {
+	return len(s[accesstypes.Read][res]) > 0 || len(s[accesstypes.List][res]) > 0
+}
+
 // grantSetFrom converts a role's listed grants into a set.
 func grantSetFrom(listed map[accesstypes.Permission]map[accesstypes.Resource][]string) grantSet {
 	set := make(grantSet)
@@ -226,29 +291,21 @@ func grantSetFrom(listed map[accesstypes.Permission]map[accesstypes.Resource][]s
 	return set
 }
 
-func bootstrapRoles(ctx context.Context, client UserManager, store PermissionCollection, globalRoles, domainRoles []*Role, scopes []accesstypes.Scope) error {
+// bootstrapRoles reconciles the plan into every scope partition: roles a
+// partition holds that the plan does not name are removed, then each planned
+// role is brought to its grant set.
+func bootstrapRoles(ctx context.Context, client UserManager, plan *rolePlan, scopes []accesstypes.Scope) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := removeUnusedRoles(ctx, scopes, client, globalRoles, domainRoles); err != nil {
-		return err
-	}
-
-	// Expansion validates a role's grants against its declared scope, so it
-	// runs once per role, not once per tenant partition.
-	globalGrants, err := expandAllRoleGrants(store, globalRoles, accesstypes.GlobalPermissionScope)
-	if err != nil {
-		return err
-	}
-	domainGrants, err := expandAllRoleGrants(store, domainRoles, accesstypes.DomainPermissionScope)
-	if err != nil {
+	if err := removeUnusedRoles(ctx, scopes, client, plan.globalRoles, plan.domainRoles); err != nil {
 		return err
 	}
 
 	for _, scope := range scopes {
-		roles, grants := domainRoles, domainGrants
+		roles, grants := plan.domainRoles, plan.domainGrants
 		if scope.IsGlobal() {
-			roles, grants = globalRoles, globalGrants
+			roles, grants = plan.globalRoles, plan.globalGrants
 		}
 
 		for i, r := range roles {
@@ -320,18 +377,23 @@ func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Sc
 	return nil
 }
 
-// expandAllRoleGrants expands each role's grants, indexed like the input slice.
-func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared accesstypes.PermissionScope) ([]grantSet, error) {
+// expandAllRoleGrants expands each role's grants, indexed like the input
+// slice, and collects the warnings the expanded roles raise. Expansion
+// validates a role's grants against its declared scope, so it runs once per
+// role, not once per tenant partition.
+func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared accesstypes.PermissionScope) ([]grantSet, []GrantWarning, error) {
 	sets := make([]grantSet, 0, len(roles))
+	var warnings []GrantWarning
 	for _, r := range roles {
 		set, err := expandRoleGrants(store, r, declared)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sets = append(sets, set)
+		warnings = append(warnings, grantWarnings(store, r, declared, set)...)
 	}
 
-	return sets, nil
+	return sets, warnings, nil
 }
 
 // expandRoleGrants validates one role's authored grants against its declared
