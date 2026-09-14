@@ -390,8 +390,8 @@ so a masked cell is `NULL` wherever the query looks at it and nothing about a hi
 leaks through order or match. No index serves that expression: every such page sorts the
 tenant's whole partition. The query drops the `CASE` when the row filter has already
 proven the field's condition on every surviving row, which is the case when every field
-the role lists on the resource is granted under a condition the field's own condition
-spells; it keeps the `CASE` when the role lists another field unconditionally, or under a
+the role lists on the resource is granted under a condition that implies the field's own;
+it keeps the `CASE` when the role lists another field unconditionally, or under a
 condition the field's condition does not cover. `MigrateRoles` warns exactly there, for a
 field the resource orders by (`@order`, so every page pays) or admits as a sort or filter
 key (an indexed or `allow_filter` field, so a page sorted or filtered by it pays), and
@@ -404,9 +404,15 @@ generated collection leaves such a field out of the check.
 Warning: role Archivist: List on Missions.fee is granted under "state = 'completed'", and fee is a sort or filter key of Missions whose masked cells conceal; this role also lists Missions fields under "state IN ('completed', 'failed', 'stood_down')", which the field's condition does not cover, so the row filter does not prove the field's condition and a page this role sorts or filters by fee orders on CASE WHEN <condition> THEN column END, which no index serves: it sorts the tenant's whole partition. Grant fee unconditionally in this role, tag the field masking:"positional" and disclose where its hidden values fall, or accept the cost for a table that never pages at volume.
 ```
 
-The covering test is syntactic: `state = 'completed'` does not cover
-`state IN ('completed', 'failed', 'stood_down')` even though it implies it, so a role whose
-grants differ only that way is warned about until the renderer learns implication.
+The covering test admits implication on one attribute under a closed rule set: a
+condition covers another that spells it the same way, an equality or `IN` list whose
+values all sit inside its own `IN` list, a `!=` or `NOT IN` whose values include all of its
+own, and a conjunction any one of whose terms it covers; every other shape (another
+attribute, a range, a subject set, `1` against `1.0`) must be spelled the same. So the
+archivist's row fields, granted on the closed states, are silent, because her completed
+grant implies them (`state = 'completed'` is one of `state IN ('completed', 'failed',
+'stood_down')`); her fee, granted on completed alone, is the one warning above, because
+the closed-states grant admits rows the fee's condition does not select.
 
 `ValidateRoles` runs the same validation and returns the warnings as `[]access.Warning`
 with no store client involved, so a project test or a tool gets the answer the deploy

@@ -4,8 +4,8 @@ package access
 // raise it (a concealing field the resource orders by or admits as a sort or
 // filter key, whose condition the role's other grants leave standing in the
 // query), which do not (the Veteran's one condition on every field, a
-// positional field, an unconditional key, a key the role is not granted), and
-// what the line says.
+// positional field, an unconditional key, a key the role is not granted, a
+// key whose condition the other grants imply), and what the line says.
 
 import (
 	"strings"
@@ -115,14 +115,49 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 			}}}},
 		},
 		{
-			name:  "the Archivist's narrower money condition leaves the CASE on the default order and on the filter key",
+			name:  "the Archivist's completed grant implies the closed states: the default order is covered, the narrower fee is not",
 			store: concealingCollection{},
 			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {archivistRows, archivistMoney},
 			}}}},
 			want: []Warning{
-				ConcealingKeyWarning{Role: "Archivist", Scope: accesstypes.DomainPermissionScope, Resource: "Missions", Field: "deadline", Conditions: []string{closedStates}, DefaultOrder: true, Uncovered: []string{completed}},
 				ConcealingKeyWarning{Role: "Archivist", Scope: accesstypes.DomainPermissionScope, Resource: "Missions", Field: "fee", Conditions: []string{completed}, Uncovered: []string{closedStates}},
+			},
+		},
+		{
+			name:  "a sibling condition outside the key's IN list is not implied: the default order warns",
+			store: concealingCollection{},
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+				"List": {
+					{Resource: "Missions", Fields: []accesstypes.Tag{"title", "deadline"}, Condition: closedStates},
+					{Resource: "Missions", Fields: []accesstypes.Tag{"hazard"}, Condition: "state = 'open'"},
+				},
+			}}}},
+			want: []Warning{
+				ConcealingKeyWarning{Role: "Clerk", Scope: accesstypes.DomainPermissionScope, Resource: "Missions", Field: "deadline", Conditions: []string{closedStates}, DefaultOrder: true, Uncovered: []string{"state = 'open'"}},
+			},
+		},
+		{
+			name:  "the key's equalities merge into one set that a sibling's IN list implies",
+			store: concealingCollection{},
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+				"List": {
+					{Resource: "Missions", Fields: []accesstypes.Tag{"title"}, Condition: "state IN ('failed', 'stood_down')"},
+					{Resource: "Missions", Fields: []accesstypes.Tag{"deadline"}, Condition: "state = 'failed' OR state = 'stood_down'"},
+				},
+			}}}},
+		},
+		{
+			name:  "a sibling's conjunction implies the key's condition through one conjunct; the conjunction itself is implied by nothing",
+			store: concealingCollection{},
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+				"List": {
+					{Resource: "Missions", Fields: []accesstypes.Tag{"title", "deadline"}, Condition: closedStates},
+					{Resource: "Missions", Fields: []accesstypes.Tag{"fee"}, Condition: "state = 'completed' AND fee > 0"},
+				},
+			}}}},
+			want: []Warning{
+				ConcealingKeyWarning{Role: "Clerk", Scope: accesstypes.DomainPermissionScope, Resource: "Missions", Field: "fee", Conditions: []string{"state = 'completed' AND fee > 0"}, Uncovered: []string{closedStates}},
 			},
 		},
 		{

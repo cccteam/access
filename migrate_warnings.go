@@ -32,8 +32,9 @@ import (
 // No index serves that expression: every page sorts the tenant's whole
 // partition. The renderer drops the CASE when the row filter has already
 // proven the field's condition on every surviving row — when every other
-// field the role lists on the resource is granted under a condition the
-// field's own condition set spells — and keeps it otherwise. A field may
+// field the role lists on the resource is granted under a condition that
+// implies the field's own (spells it, or is an equality inside its IN list:
+// condition.Implies) — and keeps it otherwise. A field may
 // instead declare masking:"positional" at generation time: the cell stays
 // hidden, the query runs on the real column, the index serves the page, and
 // the field's rank is disclosed. The warning fires exactly where the renderer
@@ -159,8 +160,9 @@ type ConcealingKeyWarning struct {
 	// Why the CASE stands. Unconditional: the role lists other fields of the
 	// resource with no condition, so the row filter proves nothing. Uncovered:
 	// the conditions, one disjunct each in canonical text, the role lists other
-	// fields under and the field's own conditions do not spell, so the row
-	// filter admits rows the field's condition does not select.
+	// fields under and the field's own conditions do not imply
+	// (condition.Implies), so the row filter admits rows the field's condition
+	// does not select.
 	Unconditional bool
 	Uncovered     []string
 }
@@ -231,10 +233,11 @@ func disjunctsOf(conditions []string) ([]condition.Expr, error) {
 // concealingKeyWarnings flags, per listed resource the role holds conditional
 // field grants on, each concealing key the role lists under a condition the
 // renderer would keep in the query: the role also lists a field of the
-// resource unconditionally, or under a disjunct the key's condition set does
-// not spell. The covering test is the renderer's own (condition.Covers), so
-// the warning fires exactly where the CASE stays. Default-order fields come
-// first, in declared order, then the sort and filter keys.
+// resource unconditionally, or under a disjunct that does not imply the key's
+// condition set. The covering test is the renderer's own (condition.Uncovered
+// empty is condition.Covers), so the warning fires exactly where the CASE
+// stays. Default-order fields come first, in declared order, then the sort and
+// filter keys.
 func concealingKeyWarnings(store PermissionCollection, role *Role, scope accesstypes.PermissionScope, set grantSet) ([]Warning, error) {
 	var warnings []Warning
 	for _, res := range sortedResources(set[accesstypes.List]) {
@@ -287,7 +290,8 @@ func concealingKeyWarnings(store PermissionCollection, role *Role, scope accesst
 			if err != nil {
 				return nil, errors.Wrapf(err, "role %s: List on %s.%s", role.Name, res, key.tag)
 			}
-			if !unconditional && condition.Covers(own, union) {
+			uncovered := condition.Uncovered(own, union)
+			if !unconditional && len(uncovered) == 0 {
 				continue
 			}
 
@@ -299,7 +303,7 @@ func concealingKeyWarnings(store PermissionCollection, role *Role, scope accesst
 				Conditions:    conditions,
 				DefaultOrder:  key.defaultOrder,
 				Unconditional: unconditional,
-				Uncovered:     uncovered(own, union),
+				Uncovered:     sortedText(uncovered),
 			})
 		}
 	}
@@ -329,18 +333,15 @@ func concealingKeyOrder(order, keys []accesstypes.Tag) []concealingKey {
 	return out
 }
 
-// uncovered lists the row predicate's disjuncts the field's condition set does
-// not spell, in canonical text, sorted.
-func uncovered(own, union []condition.Expr) []string {
-	keys := make(map[string]struct{}, len(own))
-	for _, d := range own {
-		keys[d.String()] = struct{}{}
+// sortedText renders expressions as canonical text, sorted, for a stable
+// message; nil for none.
+func sortedText(exprs []condition.Expr) []string {
+	if len(exprs) == 0 {
+		return nil
 	}
-	var out []string
-	for _, d := range union {
-		if _, ok := keys[d.String()]; !ok {
-			out = append(out, d.String())
-		}
+	out := make([]string, 0, len(exprs))
+	for _, e := range exprs {
+		out = append(out, e.String())
 	}
 	slices.Sort(out)
 
