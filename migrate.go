@@ -54,9 +54,6 @@ type PermissionCollection interface {
 	ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag)
 }
 
-// administratorRole is the default role granted all permissions by MigrateRoles.
-const administratorRole accesstypes.Role = "Administrator"
-
 // RoleConfig contains the roles to migrate, declared by scope.
 type RoleConfig struct {
 	Roles ScopedRoles `json:"roles"`
@@ -126,8 +123,12 @@ func (g Grant) expand() []accesstypes.Resource {
 }
 
 // MigrateRoles applies role configuration across the given tenant domains:
-// adds missing roles, grants, and conditions, removes extras, and includes an
-// Administrator role at each scope carrying every permission registered there.
+// adds missing roles, grants, and conditions, and removes extras. The
+// configuration is the complete statement of the store's roles: nothing is
+// provisioned that it does not declare, and a role it no longer names is
+// deleted. A role a user still holds cannot be deleted, so a stale role fails
+// the migration naming it; remove its memberships, or author it in the
+// configuration. A role declared with no grants is created and holds nothing.
 //
 // Roles are declared at exactly one scope (see ScopedRoles): global roles are
 // reconciled into the global partition only, domain roles into every tenant
@@ -190,8 +191,8 @@ func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warnin
 }
 
 // rolePlan is a role configuration validated and expanded, ready to
-// reconcile: the roles declared at each scope, Administrator included, beside
-// their expanded grant sets, indexed alike.
+// reconcile: the roles declared at each scope beside their expanded grant
+// sets, indexed alike.
 type rolePlan struct {
 	globalRoles  []*Role
 	domainRoles  []*Role
@@ -206,17 +207,11 @@ func planRoles(store PermissionCollection, roleConfig *RoleConfig) (*rolePlan, [
 		return nil, nil, err
 	}
 
-	// The default Administrator role holds every permission its scope
-	// registers — one copy per scope, like any other role.
+	// The plan holds the file's roles alone: the configuration is the
+	// complete statement of the store's roles.
 	plan := &rolePlan{
-		globalRoles: append(slices.Clone(roleConfig.Roles.Global), &Role{
-			Name:        administratorRole,
-			Permissions: adminGrants(store, accesstypes.GlobalPermissionScope),
-		}),
-		domainRoles: append(slices.Clone(roleConfig.Roles.Domain), &Role{
-			Name:        administratorRole,
-			Permissions: adminGrants(store, accesstypes.DomainPermissionScope),
-		}),
+		globalRoles: roleConfig.Roles.Global,
+		domainRoles: roleConfig.Roles.Domain,
 	}
 
 	globalGrants, globalWarnings, err := expandAllRoleGrants(store, plan.globalRoles, accesstypes.GlobalPermissionScope)
@@ -233,15 +228,12 @@ func planRoles(store PermissionCollection, roleConfig *RoleConfig) (*rolePlan, [
 }
 
 // validateRoleNames enforces the declaration grammar: every role name is
-// declared once, at exactly one scope, and Administrator is never authored —
-// it is provisioned automatically at both scopes.
+// declared once, at exactly one scope. Any name is legal; no name is reserved
+// or provisioned outside the configuration.
 func validateRoleNames(roles ScopedRoles) error {
 	seen := make(map[accesstypes.Role]string)
 	check := func(list []*Role, kind string) error {
 		for _, r := range list {
-			if r.Name == administratorRole {
-				return errors.Newf("role %q is provisioned automatically with every permission at each scope; do not declare it", administratorRole)
-			}
 			if prev, taken := seen[r.Name]; taken {
 				if prev == kind {
 					return errors.Newf("role %s is declared twice in the %s roles", r.Name, kind)
@@ -565,24 +557,4 @@ func sortedConditions(m map[string]struct{}) []string {
 	slices.Sort(conditions)
 
 	return conditions
-}
-
-// adminGrants grants the scope's Administrator every permission registered at
-// that scope, unconditionally, withholding update on immutable resources. Each
-// registered resource row becomes its own mechanical grant.
-func adminGrants(store PermissionCollection, scope accesstypes.PermissionScope) map[accesstypes.Permission][]Grant {
-	grants := make(map[accesstypes.Permission][]Grant)
-	for perm, resources := range store.List() {
-		for _, res := range resources {
-			if store.Scope(res) != scope {
-				continue
-			}
-			if perm == accesstypes.Update && store.IsResourceImmutable(scope, res) {
-				continue
-			}
-			grants[perm] = append(grants[perm], Grant{Resource: res})
-		}
-	}
-
-	return grants
 }

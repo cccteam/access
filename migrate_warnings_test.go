@@ -203,7 +203,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 			},
 		},
 		{
-			name: "an empty configuration raises nothing: Administrator holds every grant unconditionally",
+			name: "an empty configuration raises nothing and provisions no role",
 		},
 	}
 	for _, tt := range tests {

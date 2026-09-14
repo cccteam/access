@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func Test_diffGrants(t *testing.T) {
@@ -74,52 +76,26 @@ func rows(triples ...string) grantSet {
 	return set
 }
 
-// emptyCollection is a minimal PermissionCollection for migration tests.
-type emptyCollection struct{}
-
-func (emptyCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
-	return map[accesstypes.Permission][]accesstypes.Resource{}
-}
-
-func (emptyCollection) Scope(accesstypes.Resource) accesstypes.PermissionScope {
-	return accesstypes.DomainPermissionScope
-}
-
-func (emptyCollection) IsResourceImmutable(accesstypes.PermissionScope, accesstypes.Resource) bool {
-	return false
-}
-
-func (emptyCollection) AttributeComparisonType(accesstypes.PermissionScope, accesstypes.Resource, string) (accesstypes.AttributeType, bool) {
-	return "", false
-}
-
-func (emptyCollection) AttributeIsColumn(accesstypes.PermissionScope, accesstypes.Resource, string) bool {
-	return false
-}
-
-func (emptyCollection) DeclaresSubjectSet(string) bool { return false }
-
-func (emptyCollection) DeclaresSubjectValue(string) bool { return false }
-
-func (emptyCollection) IsComputedResource(accesstypes.PermissionScope, accesstypes.Resource) bool {
-	return false
-}
-
-func (emptyCollection) MethodTarget(accesstypes.PermissionScope, accesstypes.Resource) (accesstypes.Resource, bool) {
-	return "", false
-}
-
-func (emptyCollection) ConcealingKeys(accesstypes.PermissionScope, accesstypes.Resource) (order, keys []accesstypes.Tag) {
-	return nil, nil
-}
-
 // Test_MigrateRoles_tenantNamesArePureData pins the structural-scope model:
 // any string is a legal tenant name — including "global" and the retired
 // sentinel spelling "access:global" — and every tenant lands in its own
 // tenant scope, never the global partition, which MigrateRoles adds
-// structurally itself.
+// structurally itself. Each partition holds exactly the roles the file
+// declares for it: the global list in the global scope, the domain list in
+// every tenant scope, and nothing the file does not name.
 func Test_MigrateRoles_tenantNamesArePureData(t *testing.T) {
 	t.Parallel()
+
+	config := &RoleConfig{Roles: ScopedRoles{
+		Global: []*Role{{
+			Name:        "VendorManager",
+			Permissions: map[accesstypes.Permission][]Grant{"Execute": {{Resource: "DoThing"}}},
+		}},
+		Domain: []*Role{{
+			Name:        "Reader",
+			Permissions: map[accesstypes.Permission][]Grant{"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}}},
+		}},
+	}}
 
 	tests := []struct {
 		name    string
@@ -135,25 +111,81 @@ func Test_MigrateRoles_tenantNamesArePureData(t *testing.T) {
 			ctx := t.Context()
 			manager := newUserManager(newStoreManager(newFakeStore()))
 
-			if err := MigrateRoles(ctx, manager, emptyCollection{}, &RoleConfig{}, tt.domains...); err != nil {
+			if err := MigrateRoles(ctx, manager, grammarCollection{}, config, tt.domains...); err != nil {
 				t.Fatalf("MigrateRoles() error = %v", err)
 			}
 
-			// The Administrator role lands in the global scope and in each
-			// tenant's own scope — one row per scope, no folding of
-			// sentinel-shaped tenant names into the global partition.
-			scopes := []accesstypes.Scope{accesstypes.GlobalScope()}
+			// The global role lands in the global scope alone; the domain role
+			// in each tenant's own scope — no folding of sentinel-shaped tenant
+			// names into the global partition, and no role the file does not
+			// name anywhere.
+			want := map[accesstypes.Scope][]accesstypes.Role{accesstypes.GlobalScope(): {"VendorManager"}}
 			for _, d := range tt.domains {
-				scopes = append(scopes, accesstypes.DomainScope(d))
+				want[accesstypes.DomainScope(d)] = []accesstypes.Role{"Reader"}
 			}
-			for _, scope := range scopes {
-				exists, err := manager.RoleExists(ctx, scope, "Administrator")
+			for scope, wantRoles := range want {
+				got, err := manager.Roles(ctx, scope)
 				if err != nil {
-					t.Fatalf("RoleExists(%v) error = %v", scope, err)
+					t.Fatalf("Roles(%v) error = %v", scope, err)
 				}
-				if !exists {
-					t.Errorf("RoleExists(%v) = false, want the Administrator role reconciled into this scope", scope)
+				if diff := cmp.Diff(wantRoles, got); diff != "" {
+					t.Errorf("Roles(%v) mismatch (-want +got):\n%s", scope, diff)
 				}
+			}
+		})
+	}
+}
+
+// Test_MigrateRoles_anyNameIsOrdinary pins that the configuration is the
+// complete statement of the store's roles: no name is reserved or provisioned
+// outside it, and a role declared with no grants is created and holds
+// nothing.
+func Test_MigrateRoles_anyNameIsOrdinary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		role       *Role
+		wantGrants map[accesstypes.Permission]map[accesstypes.Resource][]string
+	}{
+		{
+			name: "a role declared with no grants is created and holds nothing",
+			role: &Role{Name: "Auditor"},
+		},
+		{
+			name: "Administrator is an ordinary name, authored like any other",
+			role: &Role{
+				Name:        "Administrator",
+				Permissions: map[accesstypes.Permission][]Grant{"Execute": {{Resource: "DoThing"}}},
+			},
+			wantGrants: map[accesstypes.Permission]map[accesstypes.Resource][]string{"Execute": {"DoThing": {""}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			manager := newUserManager(newStoreManager(newFakeStore()))
+			global := accesstypes.GlobalScope()
+
+			config := &RoleConfig{Roles: ScopedRoles{Global: []*Role{tt.role}}}
+			if err := MigrateRoles(ctx, manager, grammarCollection{}, config); err != nil {
+				t.Fatalf("MigrateRoles() error = %v", err)
+			}
+
+			gotRoles, err := manager.Roles(ctx, global)
+			if err != nil {
+				t.Fatalf("Roles() error = %v", err)
+			}
+			if diff := cmp.Diff([]accesstypes.Role{tt.role.Name}, gotRoles); diff != "" {
+				t.Errorf("Roles() mismatch (-want +got):\n%s", diff)
+			}
+			gotGrants, err := manager.RoleGrants(ctx, global, tt.role.Name)
+			if err != nil {
+				t.Fatalf("RoleGrants() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantGrants, gotGrants, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("RoleGrants() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -241,9 +273,8 @@ func Test_validateRoleNames(t *testing.T) {
 			wantErr: "exactly one scope",
 		},
 		{
-			name:    "the Administrator role cannot be authored",
-			roles:   ScopedRoles{Global: []*Role{role("Administrator")}},
-			wantErr: "provisioned automatically",
+			name:  "Administrator is an ordinary name and passes",
+			roles: ScopedRoles{Global: []*Role{role("Administrator")}},
 		},
 	}
 	for _, tt := range tests {
@@ -288,16 +319,16 @@ func Test_MigrateRoles_writesEachRoleOnce(t *testing.T) {
 		}},
 	}}
 
-	// Every scope also reconciles the built-in Administrator role, so a scope
-	// holds two roles: the authored one and Administrator.
+	// The global scope holds the one global role, each tenant scope the one
+	// domain role.
 	tests := []struct {
 		name       string
 		domains    []accesstypes.Domain
 		wantWrites int
 	}{
-		{name: "first run: one write per role per scope", domains: []accesstypes.Domain{"tenant1", "tenant2"}, wantWrites: 6},
+		{name: "first run: one write per role per scope", domains: []accesstypes.Domain{"tenant1", "tenant2"}, wantWrites: 3},
 		{name: "second run: nothing to add, nothing written", domains: []accesstypes.Domain{"tenant1", "tenant2"}, wantWrites: 0},
-		{name: "a new domain: one write per role in it", domains: []accesstypes.Domain{"tenant1", "tenant2", "tenant3"}, wantWrites: 2},
+		{name: "a new domain: one write per role in it", domains: []accesstypes.Domain{"tenant1", "tenant2", "tenant3"}, wantWrites: 1},
 	}
 	for _, tt := range tests {
 		before := store.batchWrites

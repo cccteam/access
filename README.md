@@ -302,9 +302,10 @@ http.HandleFunc("/roles/add", handlers.AddRole())
 ## Role Migration
 
 `MigrateRoles` reconciles role and permission configuration across the given
-domains: it creates missing roles and grants, removes extras, and adds an
-"Administrator" role with all permissions. Run it from your migrate job on
-every deploy.
+domains: it creates missing roles and grants and removes extras. The
+configuration is the complete statement of the store's roles: every role a
+login can hold is declared in it, so the warnings below and `ValidateRoles` see
+every grant the store will carry. Run it from your migrate job on every deploy.
 
 The caller states its tenant universe explicitly as plain domain names — any
 string is a legal tenant name; the global scope is always included
@@ -353,11 +354,11 @@ func migrateRoles(ctx context.Context, client *access.Client, store *resource.Ge
 
 ### Behavior
 
-- Automatically adds "Administrator" role with all permissions
 - Applies roles across the global scope plus a tenant scope for every domain passed in
 - Creates missing roles and adds missing permissions
 - Removes permissions not in configuration
-- Removes roles not in configuration
+- Removes roles not in configuration. A role a user still holds cannot be removed, so the migration fails naming it; remove the memberships, or author the role under that name in the configuration
+- Creates a role whose configuration entry has no grants; it holds nothing until a grant is authored
 - Validates resources, permissions, and conditions against the resource store before touching it
 - Prevents update permissions on immutable resources
 - Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List, or a conditional List on a concealing field the resource sorts or filters by (see Warnings)
