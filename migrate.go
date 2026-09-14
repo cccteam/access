@@ -40,6 +40,18 @@ type PermissionCollection interface {
 	// against the target resource's vocabulary; a method without a target
 	// keeps the decode-time row-free rule.
 	MethodTarget(scope accesstypes.PermissionScope, method accesstypes.Resource) (accesstypes.Resource, bool)
+
+	// ConcealingKeys reports the fields of a listed resource that a list
+	// orders or filters on and whose masked cells conceal: order is the
+	// resource's declared default order, keys are the fields a request may
+	// sort or filter by (indexed and allow_filter fields), each less the
+	// fields declared masking:"positional", as wire tags. A conditional
+	// grant on one of these puts the condition into the ORDER BY or the
+	// WHERE, which no index serves (see ConcealingKeyWarning); the
+	// collection decides which fields are positional, so this package never
+	// learns the declaration itself. Both are empty for a resource with no
+	// list.
+	ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag)
 }
 
 // administratorRole is the default role granted all permissions by MigrateRoles.
@@ -128,11 +140,14 @@ func (g Grant) expand() []accesstypes.Resource {
 // labels — any string is a legal tenant name, their validity is the caller's
 // business, and a domain not listed here is never reconciled.
 //
-// A configuration MigrateRoles accepts can still open an existence probe: a
+// A configuration MigrateRoles accepts can still carry a shape worth a word: a
 // conditional Delete, Update, or targeted Execute in a role that can neither
-// Read nor List the row it checks (see GrantWarning). Such a grant is
-// provisioned as written and reported as a "Warning:" line beside the Added
-// and Removed lines. ValidateRoles returns the same warnings without a store.
+// Read nor List the row it checks (GrantWarning), or a conditional List grant
+// on a field the resource sorts or filters by whose masked cells conceal, so
+// this role's pages sort the tenant's partition (ConcealingKeyWarning). Such a
+// grant is provisioned as written and reported as a "Warning:" line beside
+// the Added and Removed lines. ValidateRoles returns the same warnings without
+// a store.
 func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig, domains ...accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -163,10 +178,9 @@ func MigrateRoles(ctx context.Context, client UserManager, store PermissionColle
 // ValidateRoles checks a role configuration the way MigrateRoles does before
 // it touches the store — role names, grant grammar, every condition against
 // the collection's vocabulary, each grant at its role's declared scope — and
-// returns the warnings the configuration raises (see GrantWarning), with no
-// store client involved. A project test or a tool gets the answer the deploy
-// would.
-func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]GrantWarning, error) {
+// returns the warnings the configuration raises (see Warning), with no store
+// client involved. A project test or a tool gets the answer the deploy would.
+func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warning, error) {
 	_, warnings, err := planRoles(store, roleConfig)
 	if err != nil {
 		return nil, err
@@ -187,7 +201,7 @@ type rolePlan struct {
 
 // planRoles validates and expands the configuration, returning the plan and
 // the warnings it raises.
-func planRoles(store PermissionCollection, roleConfig *RoleConfig) (*rolePlan, []GrantWarning, error) {
+func planRoles(store PermissionCollection, roleConfig *RoleConfig) (*rolePlan, []Warning, error) {
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
 		return nil, nil, err
 	}
@@ -381,9 +395,9 @@ func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Sc
 // slice, and collects the warnings the expanded roles raise. Expansion
 // validates a role's grants against its declared scope, so it runs once per
 // role, not once per tenant partition.
-func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared accesstypes.PermissionScope) ([]grantSet, []GrantWarning, error) {
+func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared accesstypes.PermissionScope) ([]grantSet, []Warning, error) {
 	sets := make([]grantSet, 0, len(roles))
-	var warnings []GrantWarning
+	var warnings []Warning
 	for _, r := range roles {
 		set, err := expandRoleGrants(store, r, declared)
 		if err != nil {
@@ -391,6 +405,11 @@ func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared acc
 		}
 		sets = append(sets, set)
 		warnings = append(warnings, grantWarnings(store, r, declared, set)...)
+		concealing, err := concealingKeyWarnings(store, r, declared, set)
+		if err != nil {
+			return nil, nil, err
+		}
+		warnings = append(warnings, concealing...)
 	}
 
 	return sets, warnings, nil

@@ -81,6 +81,10 @@ func (grammarCollection) MethodTarget(accesstypes.PermissionScope, accesstypes.R
 	return "", false
 }
 
+func (grammarCollection) ConcealingKeys(accesstypes.PermissionScope, accesstypes.Resource) (order, keys []accesstypes.Tag) {
+	return nil, nil
+}
+
 // computedGrammarCollection is grammarCollection with Widgets reported as a
 // computed resource, so the decode-time condition rules can be exercised
 // against the same attribute vocabulary.

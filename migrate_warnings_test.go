@@ -84,21 +84,25 @@ func (probeCollection) MethodTarget(_ accesstypes.PermissionScope, method access
 	return "", false
 }
 
+func (probeCollection) ConcealingKeys(accesstypes.PermissionScope, accesstypes.Resource) (order, keys []accesstypes.Tag) {
+	return nil, nil
+}
+
 func TestValidateRoles_grantWarnings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name  string
 		roles ScopedRoles
-		want  []GrantWarning
+		want  []Warning
 	}{
 		{
 			name: "a conditional Delete without Read or List warns",
 			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
 				"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 			}}}},
-			want: []GrantWarning{
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
+			want: []Warning{
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
 			},
 		},
 		{
@@ -126,8 +130,8 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
 				"Update": {{Resource: "Missions", Fields: []accesstypes.Tag{"hazard", "state"}, Condition: "state = 'open'"}},
 			}}}},
-			want: []GrantWarning{
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Update", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
+			want: []Warning{
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Update", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
 			},
 		},
 		{
@@ -138,9 +142,9 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 					{Resource: "Missions", Condition: "hazard < 3"},
 				},
 			}}}},
-			want: []GrantWarning{
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "hazard < 3"},
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
+			want: []Warning{
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "hazard < 3"},
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
 			},
 		},
 		{
@@ -148,8 +152,8 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 			roles: ScopedRoles{Domain: []*Role{{Name: "Cadet", Permissions: map[accesstypes.Permission][]Grant{
 				"Execute": {{Resource: "ClaimMission", Condition: "hazard < 3"}},
 			}}}},
-			want: []GrantWarning{
-				{Role: "Cadet", Scope: accesstypes.DomainPermissionScope, Permission: "Execute", Resource: "ClaimMission", Row: "Missions", Condition: "hazard < 3"},
+			want: []Warning{
+				GrantWarning{Role: "Cadet", Scope: accesstypes.DomainPermissionScope, Permission: "Execute", Resource: "ClaimMission", Row: "Missions", Condition: "hazard < 3"},
 			},
 		},
 		{
@@ -175,8 +179,8 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 					"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 				}},
 			}},
-			want: []GrantWarning{
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
+			want: []Warning{
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
 			},
 		},
 		{
@@ -191,11 +195,11 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 					"Execute": {{Resource: "ClaimMission", Condition: "hazard < 3"}},
 				}},
 			}},
-			want: []GrantWarning{
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Execute", Resource: "ClaimMission", Row: "Missions", Condition: "hazard < 3"},
-				{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Update", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
-				{Role: "Cadet", Scope: accesstypes.DomainPermissionScope, Permission: "Execute", Resource: "ClaimMission", Row: "Missions", Condition: "hazard < 3"},
+			want: []Warning{
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Delete", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Execute", Resource: "ClaimMission", Row: "Missions", Condition: "hazard < 3"},
+				GrantWarning{Role: "Paymaster", Scope: accesstypes.DomainPermissionScope, Permission: "Update", Resource: "Missions", Row: "Missions", Condition: "state = 'open'"},
+				GrantWarning{Role: "Cadet", Scope: accesstypes.DomainPermissionScope, Permission: "Execute", Resource: "ClaimMission", Row: "Missions", Condition: "hazard < 3"},
 			},
 		},
 		{

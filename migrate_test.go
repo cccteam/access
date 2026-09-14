@@ -109,6 +109,10 @@ func (emptyCollection) MethodTarget(accesstypes.PermissionScope, accesstypes.Res
 	return "", false
 }
 
+func (emptyCollection) ConcealingKeys(accesstypes.PermissionScope, accesstypes.Resource) (order, keys []accesstypes.Tag) {
+	return nil, nil
+}
+
 // Test_MigrateRoles_tenantNamesArePureData pins the structural-scope model:
 // any string is a legal tenant name — including "global" and the retired
 // sentinel spelling "access:global" — and every tenant lands in its own

@@ -360,7 +360,7 @@ func migrateRoles(ctx context.Context, client *access.Client, store *resource.Ge
 - Removes roles not in configuration
 - Validates resources, permissions, and conditions against the resource store before touching it
 - Prevents update permissions on immutable resources
-- Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List (see Warnings)
+- Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List, or a conditional List on a concealing field the resource sorts or filters by (see Warnings)
 
 **Note**: Safe to run multiple times — applies changes only when state differs from configuration, and a rollback that re-runs an older release's migrate job converges the store back to that release's defaults. The input configuration is not modified.
 
@@ -384,9 +384,34 @@ author which role to change. Unconditional writes are not flagged: they reveal e
 only by succeeding, which is what the grant permits. The check is a heuristic. Holding
 Read does not close the channel when the Read condition is narrower than the write's.
 
-`ValidateRoles` runs the same validation and returns the warnings as
-`[]access.GrantWarning` with no store client involved, so a project test or a tool gets
-the answer the deploy would:
+The second warning is about cost, not disclosure. A sort or filter on a conditionally
+visible field runs over the visible projection, `CASE WHEN <condition> THEN column END`,
+so a masked cell is `NULL` wherever the query looks at it and nothing about a hidden value
+leaks through order or match. No index serves that expression: every such page sorts the
+tenant's whole partition. The query drops the `CASE` when the row filter has already
+proven the field's condition on every surviving row, which is the case when every field
+the role lists on the resource is granted under a condition the field's own condition
+spells; it keeps the `CASE` when the role lists another field unconditionally, or under a
+condition the field's condition does not cover. `MigrateRoles` warns exactly there, for a
+field the resource orders by (`@order`, so every page pays) or admits as a sort or filter
+key (an indexed or `allow_filter` field, so a page sorted or filtered by it pays), and
+only where the field's masked cells conceal. The resource package's `masking:"positional"`
+struct tag declares the other behaviour: the cell stays hidden but the query runs on the
+real column, the index serves the page, and where the hidden values fall is disclosed; the
+generated collection leaves such a field out of the check.
+
+```
+Warning: role Archivist: List on Missions.fee is granted under "state = 'completed'", and fee is a sort or filter key of Missions whose masked cells conceal; this role also lists Missions fields under "state IN ('completed', 'failed', 'stood_down')", which the field's condition does not cover, so the row filter does not prove the field's condition and a page this role sorts or filters by fee orders on CASE WHEN <condition> THEN column END, which no index serves: it sorts the tenant's whole partition. Grant fee unconditionally in this role, tag the field masking:"positional" and disclose where its hidden values fall, or accept the cost for a table that never pages at volume.
+```
+
+The covering test is syntactic: `state = 'completed'` does not cover
+`state IN ('completed', 'failed', 'stood_down')` even though it implies it, so a role whose
+grants differ only that way is warned about until the renderer learns implication.
+
+`ValidateRoles` runs the same validation and returns the warnings as `[]access.Warning`
+with no store client involved, so a project test or a tool gets the answer the deploy
+would. Every warning prints as one line; a consumer that wants the fields switches on the
+kind, `access.GrantWarning` or `access.ConcealingKeyWarning`:
 
 ```go
 warnings, err := access.ValidateRoles(store, roleConfig)

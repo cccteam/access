@@ -19,6 +19,7 @@ type stubCollection struct {
 	immutable     []accesstypes.Resource
 	computed      []accesstypes.Resource
 	targets       map[accesstypes.Resource]accesstypes.Resource
+	keys          map[accesstypes.Resource][]accesstypes.Tag
 	attributes    map[string]accesstypes.AttributeType
 	columns       []string
 	subjectSets   []string
@@ -49,6 +50,10 @@ func (s *stubCollection) MethodTarget(_ accesstypes.PermissionScope, method acce
 	target, ok := s.targets[method]
 
 	return target, ok
+}
+
+func (s *stubCollection) ConcealingKeys(_ accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag) {
+	return nil, s.keys[res]
 }
 
 func (s *stubCollection) AttributeComparisonType(_ accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
@@ -203,6 +208,13 @@ func Test_UnionCollection(t *testing.T) {
 			wantErr: `resource "LaunchWidget" and disagree on its method target: "Widgets" vs none`,
 		},
 		{
+			name: "different concealing keys",
+			collections: []PermissionCollection{console, withDifferent(func(c *stubCollection) {
+				c.keys = map[accesstypes.Resource][]accesstypes.Tag{"Widgets": {"name"}}
+			})},
+			wantErr: `resource "Widgets" and disagree on its concealing keys: []/[] vs []/[name]`,
+		},
+		{
 			name:        "the disagreeing collections are named by position, not by adjacency",
 			collections: []PermissionCollection{portal, console, withDifferent(func(c *stubCollection) { c.immutable = nil })},
 			wantErr:     `collections 2 and 3 (in argument order) both register resource "Widgets.id"`,
@@ -245,6 +257,7 @@ func Test_unionCollection_answers(t *testing.T) {
 		list:          registry("Read", "Gadgets", "Read", "Gadgets.label"),
 		scopes:        map[accesstypes.Resource]accesstypes.PermissionScope{"Gadgets": accesstypes.GlobalPermissionScope},
 		computed:      []accesstypes.Resource{"Gadgets"},
+		keys:          map[accesstypes.Resource][]accesstypes.Tag{"Gadgets": {"label"}},
 		attributes:    map[string]accesstypes.AttributeType{"Gadgets.size": "int"},
 		columns:       []string{"Gadgets.size"},
 		subjectSets:   []string{"clients"},
@@ -273,6 +286,8 @@ func Test_unionCollection_answers(t *testing.T) {
 		{name: "subject value from any collection", got: union.DeclaresSubjectValue("tenant") && union.DeclaresSubjectValue("login"), want: true},
 		{name: "method target from the owner", got: methodTarget(union, "LaunchWidget"), want: "Widgets"},
 		{name: "no target for a plain resource", got: methodTarget(union, "Widgets"), want: ""},
+		{name: "concealing keys from the owner", got: concealingKeys(union, "Gadgets"), want: []accesstypes.Tag{"label"}},
+		{name: "no concealing keys outside the owner", got: concealingKeys(union, "Widgets"), want: []accesstypes.Tag(nil)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -282,6 +297,13 @@ func Test_unionCollection_answers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// concealingKeys reads a union's request-time concealing keys for a resource.
+func concealingKeys(c PermissionCollection, res accesstypes.Resource) []accesstypes.Tag {
+	_, keys := c.ConcealingKeys(accesstypes.GlobalPermissionScope, res)
+
+	return keys
 }
 
 // attributeType reads a union's attribute type as a plain string, "" when unknown.

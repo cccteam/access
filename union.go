@@ -71,6 +71,8 @@ type registration struct {
 	computed    bool
 	target      accesstypes.Resource
 	targeted    bool
+	order       []accesstypes.Tag
+	keys        []accesstypes.Tag
 }
 
 // registrationsOf reads every resource c, the collection at index in argument order,
@@ -88,6 +90,7 @@ func registrationsOf(index int, c PermissionCollection) map[accesstypes.Resource
 		slices.Sort(perms)
 		scope := c.Scope(res)
 		target, targeted := c.MethodTarget(scope, res)
+		order, keys := c.ConcealingKeys(scope, res)
 		registrations[res] = registration{
 			collection:  index,
 			permissions: slices.Compact(perms),
@@ -96,6 +99,8 @@ func registrationsOf(index int, c PermissionCollection) map[accesstypes.Resource
 			computed:    c.IsComputedResource(scope, res),
 			target:      target,
 			targeted:    targeted,
+			order:       order,
+			keys:        keys,
 		}
 	}
 
@@ -116,6 +121,8 @@ func (r *registration) disagreement(other *registration) (property, answers stri
 		return "computed marking", fmt.Sprintf("%t vs %t", r.computed, other.computed), true
 	case r.targeted != other.targeted || r.target != other.target:
 		return "method target", fmt.Sprintf("%s vs %s", describeTarget(r), describeTarget(other)), true
+	case !slices.Equal(r.order, other.order) || !slices.Equal(r.keys, other.keys):
+		return "concealing keys", fmt.Sprintf("%v/%v vs %v/%v", r.order, r.keys, other.order, other.keys), true
 	default:
 		return "", "", false
 	}
@@ -191,4 +198,8 @@ func (u *unionCollection) IsComputedResource(scope accesstypes.PermissionScope, 
 
 func (u *unionCollection) MethodTarget(scope accesstypes.PermissionScope, method accesstypes.Resource) (accesstypes.Resource, bool) {
 	return u.owner(method).MethodTarget(scope, method)
+}
+
+func (u *unionCollection) ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag) {
+	return u.owner(res).ConcealingKeys(scope, res)
 }
