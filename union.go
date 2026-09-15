@@ -181,15 +181,28 @@ func (u *unionCollection) AttributeIsColumn(scope accesstypes.PermissionScope, r
 	return u.owner(res).AttributeIsColumn(scope, res, name)
 }
 
-// DeclaresSubjectSet reports whether any collection declares the subject set: the
-// subject namespace is application-wide.
-func (u *unionCollection) DeclaresSubjectSet(name string) bool {
-	return slices.ContainsFunc(u.collections, func(c PermissionCollection) bool { return c.DeclaresSubjectSet(name) })
+// SubjectSetComparisonType resolves a subject set's comparison type from
+// whichever collection declares it: the subject namespace is application-wide.
+func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool) {
+	for _, c := range u.collections {
+		if typ, ok := c.SubjectSetComparisonType(name); ok {
+			return typ, true
+		}
+	}
+
+	return "", false
 }
 
-// DeclaresSubjectValue reports whether any collection declares the subject value.
-func (u *unionCollection) DeclaresSubjectValue(name string) bool {
-	return slices.ContainsFunc(u.collections, func(c PermissionCollection) bool { return c.DeclaresSubjectValue(name) })
+// SubjectValueComparisonType resolves a subject value's comparison type from
+// whichever collection declares it.
+func (u *unionCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
+	for _, c := range u.collections {
+		if typ, ok := c.SubjectValueComparisonType(name); ok {
+			return typ, true
+		}
+	}
+
+	return "", false
 }
 
 func (u *unionCollection) IsComputedResource(scope accesstypes.PermissionScope, res accesstypes.Resource) bool {

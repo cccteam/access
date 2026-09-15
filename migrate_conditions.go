@@ -12,9 +12,16 @@ import (
 // application Collection's vocabulary: the condition must parse, reference
 // only attributes the resource declares and subject vocabulary the
 // application declares, use the post-image only where a mutation proposes
-// values, and compare literals of the attribute's comparison type. Everything
-// caught here would otherwise surface as a per-request check or rendering
-// error — deploy is the last moment the mistake is the operator's alone.
+// values, compare literals of the attribute's comparison type, and compare or
+// test an attribute only against a subject value or subject set of the same
+// comparison type (now only against a timestamp-typed subject value). The
+// subject side's type is the type of the column the set or value yields,
+// derived by generation exactly as an attribute's is; deploy is the only
+// place the pairing can be checked, since neither the parser nor the fold
+// knows the vocabulary and the database refuses a mismatch at query time on
+// every request. Everything caught here would otherwise surface as a
+// per-request check or rendering error — deploy is the last moment the
+// mistake is the operator's alone.
 
 // validateGrantCondition checks one authored grant's condition text.
 func validateGrantCondition(store PermissionCollection, role accesstypes.Role, perm accesstypes.Permission, grant Grant) error {
@@ -60,12 +67,12 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 		}
 	}
 	for _, name := range condition.SubjectSets(expr) {
-		if !store.DeclaresSubjectSet(name) {
+		if _, ok := store.SubjectSetComparisonType(name); !ok {
 			return fail(errors.Newf("condition references subject.%s, which is not a declared subject set", name))
 		}
 	}
 	for _, name := range condition.SubjectValues(expr) {
-		if !store.DeclaresSubjectValue(name) {
+		if _, ok := store.SubjectValueComparisonType(name); !ok {
 			return fail(errors.Newf("condition references subject.%s, which is not a declared subject value", name))
 		}
 	}
@@ -126,10 +133,17 @@ func validateComparisonTypes(store PermissionCollection, scope accesstypes.Permi
 		return validateTemporalComparison(cmp)
 	}
 	if cmp.Left.IsNow() {
-		// now compares against timestamp strings (or, degenerately, itself as
-		// an attribute comparison's operand — handled below).
-		if literal, ok := cmp.Right.(condition.StringLiteral); ok {
-			return validateLiteralType(accesstypes.AttributeTypeTimestamp, "now", condition.Literal(literal))
+		// now compares against a timestamp string, a timestamp-typed subject
+		// value, or itself (which folds to a constant); the attribute-vs-now
+		// form is the operand case below.
+		switch operand := cmp.Right.(type) {
+		case condition.StringLiteral:
+			return validateLiteralType(accesstypes.AttributeTypeTimestamp, "now", condition.Literal(operand))
+		case condition.SubjectValue:
+			valueType, _ := store.SubjectValueComparisonType(operand.Name)
+			if valueType != accesstypes.AttributeTypeTimestamp {
+				return errors.Newf("now is a timestamp and cannot compare against subject.%s, a %s subject value", operand.Name, valueType)
+			}
 		}
 
 		return nil
@@ -156,8 +170,12 @@ func validateComparisonTypes(store PermissionCollection, scope accesstypes.Permi
 			return errors.Newf("%s is a %s attribute and cannot compare against now, a timestamp", cmp.Left.Name, attrType)
 		}
 	case condition.SubjectValue:
-		// The subject value's column type is the anchor table's business; the
-		// database compares.
+		// The value carries the comparison type of the column it yields, as
+		// the attribute does; the database compares only like with like.
+		valueType, _ := store.SubjectValueComparisonType(operand.Name)
+		if valueType != attrType {
+			return errors.Newf("%s is a %s attribute and cannot compare against subject.%s, a %s subject value", cmp.Left.Name, attrType, operand.Name, valueType)
+		}
 	case condition.Ref:
 		// The old-vs-new form: both sides are the grant resource's attributes
 		// and must carry the same comparison type (int, float, and decimal all
@@ -238,14 +256,23 @@ func validateInTypes(store PermissionCollection, scope accesstypes.PermissionSco
 		return nil
 	}
 
-	if in.SubjectSet != "" {
-		return nil
-	}
-
 	attrType, err := refType(store, scope, res, in.Left)
 	if err != nil {
 		return err
 	}
+
+	if in.SubjectSet != "" {
+		// The set's members carry the comparison type of the column the set
+		// yields; the lowering equates that column with the attribute inside
+		// the EXISTS, so a mismatch is the same query-time refusal a value is.
+		setType, _ := store.SubjectSetComparisonType(in.SubjectSet)
+		if setType != attrType {
+			return errors.Newf("%s is a %s attribute and cannot test membership in subject.%s, a set of %s values", in.Left.Name, attrType, in.SubjectSet, setType)
+		}
+
+		return nil
+	}
+
 	for _, literal := range in.Literals {
 		if err := validateLiteralType(attrType, in.Left.Name, literal); err != nil {
 			return err

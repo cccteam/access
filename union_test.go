@@ -22,8 +22,8 @@ type stubCollection struct {
 	keys          map[accesstypes.Resource][]accesstypes.Tag
 	attributes    map[string]accesstypes.AttributeType
 	columns       []string
-	subjectSets   []string
-	subjectValues []string
+	subjectSets   map[string]accesstypes.AttributeType
+	subjectValues map[string]accesstypes.AttributeType
 }
 
 func (s *stubCollection) List() map[accesstypes.Permission][]accesstypes.Resource {
@@ -66,12 +66,16 @@ func (s *stubCollection) AttributeIsColumn(_ accesstypes.PermissionScope, res ac
 	return slices.Contains(s.columns, string(res)+"."+name)
 }
 
-func (s *stubCollection) DeclaresSubjectSet(name string) bool {
-	return slices.Contains(s.subjectSets, name)
+func (s *stubCollection) SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool) {
+	typ, ok := s.subjectSets[name]
+
+	return typ, ok
 }
 
-func (s *stubCollection) DeclaresSubjectValue(name string) bool {
-	return slices.Contains(s.subjectValues, name)
+func (s *stubCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
+	typ, ok := s.subjectValues[name]
+
+	return typ, ok
 }
 
 // registry spells a List result from (permission, resource) pairs.
@@ -250,8 +254,8 @@ func Test_unionCollection_answers(t *testing.T) {
 		targets:       map[accesstypes.Resource]accesstypes.Resource{"LaunchWidget": "Widgets"},
 		attributes:    map[string]accesstypes.AttributeType{"Widgets.owner": "string"},
 		columns:       []string{"Widgets.owner"},
-		subjectSets:   []string{"crew"},
-		subjectValues: []string{"login"},
+		subjectSets:   map[string]accesstypes.AttributeType{"crew": "string"},
+		subjectValues: map[string]accesstypes.AttributeType{"login": "string"},
 	}
 	portal := &stubCollection{
 		list:          registry("Read", "Gadgets", "Read", "Gadgets.label"),
@@ -260,8 +264,8 @@ func Test_unionCollection_answers(t *testing.T) {
 		keys:          map[accesstypes.Resource][]accesstypes.Tag{"Gadgets": {"label"}},
 		attributes:    map[string]accesstypes.AttributeType{"Gadgets.size": "int"},
 		columns:       []string{"Gadgets.size"},
-		subjectSets:   []string{"clients"},
-		subjectValues: []string{"tenant"},
+		subjectSets:   map[string]accesstypes.AttributeType{"clients": "number"},
+		subjectValues: map[string]accesstypes.AttributeType{"tenant": "timestamp"},
 	}
 	union, err := UnionCollection(console, portal)
 	if err != nil {
@@ -281,9 +285,10 @@ func Test_unionCollection_answers(t *testing.T) {
 		{name: "attribute type from the owner", got: attributeType(union, "Gadgets", "size"), want: "int"},
 		{name: "attribute unknown outside the owner", got: attributeType(union, "Widgets", "size"), want: ""},
 		{name: "attribute column from the owner", got: union.AttributeIsColumn(accesstypes.DomainPermissionScope, "Widgets", "owner"), want: true},
-		{name: "subject set from any collection", got: union.DeclaresSubjectSet("clients") && union.DeclaresSubjectSet("crew"), want: true},
-		{name: "subject set none declares", got: union.DeclaresSubjectSet("visitors"), want: false},
-		{name: "subject value from any collection", got: union.DeclaresSubjectValue("tenant") && union.DeclaresSubjectValue("login"), want: true},
+		{name: "subject set type from whichever collection declares it", got: subjectSetType(union, "clients") + "," + subjectSetType(union, "crew"), want: "number,string"},
+		{name: "subject set none declares", got: subjectSetType(union, "visitors"), want: ""},
+		{name: "subject value type from whichever collection declares it", got: subjectValueType(union, "tenant") + "," + subjectValueType(union, "login"), want: "timestamp,string"},
+		{name: "subject value none declares", got: subjectValueType(union, "ghost"), want: ""},
 		{name: "method target from the owner", got: methodTarget(union, "LaunchWidget"), want: "Widgets"},
 		{name: "no target for a plain resource", got: methodTarget(union, "Widgets"), want: ""},
 		{name: "concealing keys from the owner", got: concealingKeys(union, "Gadgets"), want: []accesstypes.Tag{"label"}},
@@ -309,6 +314,20 @@ func concealingKeys(c PermissionCollection, res accesstypes.Resource) []accessty
 // attributeType reads a union's attribute type as a plain string, "" when unknown.
 func attributeType(c PermissionCollection, res accesstypes.Resource, name string) string {
 	typ, _ := c.AttributeComparisonType(c.Scope(res), res, name)
+
+	return string(typ)
+}
+
+// subjectSetType reads a union's subject set type as a plain string, "" when undeclared.
+func subjectSetType(c PermissionCollection, name string) string {
+	typ, _ := c.SubjectSetComparisonType(name)
+
+	return string(typ)
+}
+
+// subjectValueType reads a union's subject value type as a plain string, "" when undeclared.
+func subjectValueType(c PermissionCollection, name string) string {
+	typ, _ := c.SubjectValueComparisonType(name)
 
 	return string(typ)
 }

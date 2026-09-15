@@ -69,9 +69,32 @@ func (grammarCollection) AttributeIsColumn(_ accesstypes.PermissionScope, res ac
 	return res == "Widgets" && name != "shipClass"
 }
 
-func (grammarCollection) DeclaresSubjectSet(name string) bool { return name == "crews" }
+// The fixture's subject vocabulary: a string set and a number set, and a
+// number, a timestamp, and a string value — the last standing for a dotted
+// value, whose type is its terminal column's.
+func (grammarCollection) SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool) {
+	switch name {
+	case "crews":
+		return accesstypes.AttributeTypeString, true
+	case "hazardBands":
+		return accesstypes.AttributeTypeNumber, true
+	default:
+		return "", false
+	}
+}
 
-func (grammarCollection) DeclaresSubjectValue(name string) bool { return name == "approvalLimit" }
+func (grammarCollection) SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool) {
+	switch name {
+	case "approvalLimit":
+		return accesstypes.AttributeTypeNumber, true
+	case "clearedUntil":
+		return accesstypes.AttributeTypeTimestamp, true
+	case "homeSector":
+		return accesstypes.AttributeTypeString, true
+	default:
+		return "", false
+	}
+}
 
 func (grammarCollection) IsComputedResource(accesstypes.PermissionScope, accesstypes.Resource) bool {
 	return false
@@ -263,6 +286,11 @@ func TestValidateGrantCondition(t *testing.T) {
 		{name: "now against a timestamp attribute", perm: "Read", condition: "expires > now"},
 		{name: "now against a timestamp literal", perm: "Read", condition: "now < '2027-01-01T00:00:00Z'"},
 		{name: "subject set and subject value", perm: "Read", condition: "owner IN subject.crews AND price <= subject.approvalLimit"},
+		{name: "number set against a number attribute", perm: "Read", condition: "price IN subject.hazardBands"},
+		{name: "timestamp attribute against a timestamp subject value", perm: "Read", condition: "expires <= subject.clearedUntil"},
+		{name: "now against a timestamp subject value", perm: "Read", condition: "now < subject.clearedUntil"},
+		{name: "dotted subject value takes its terminal type", perm: "Read", condition: "shipClass = subject.homeSector"},
+		{name: "post-image column against a subject set", perm: "Update", condition: "new.owner IN subject.crews"},
 		{name: "post-image on update", perm: "Update", condition: "new.price <= 100"},
 		{name: "old-vs-new comparison on update", perm: "Update", condition: "new.price <= price"},
 		{name: "old-vs-new beside a state guard", perm: "Update", condition: "owner = subject AND new.price <= price"},
@@ -298,6 +326,12 @@ func TestValidateGrantCondition(t *testing.T) {
 		{name: "subject against a number attribute", perm: "Read", condition: "price = subject", wantErr: "user id"},
 		{name: "now against a string attribute", perm: "Read", condition: "owner < now", wantErr: "timestamp"},
 		{name: "malformed timestamp against now", perm: "Read", condition: "now < 'soon'", wantErr: "RFC 3339"},
+		{name: "subject value of another type", perm: "Read", condition: "owner = subject.approvalLimit", wantErr: "owner is a string attribute and cannot compare against subject.approvalLimit, a number subject value"},
+		{name: "subject value of another type on the post-image", perm: "Update", condition: "new.expires > subject.approvalLimit", wantErr: "cannot compare against subject.approvalLimit, a number subject value"},
+		{name: "subject set of another type", perm: "Read", condition: "price IN subject.crews", wantErr: "price is a number attribute and cannot test membership in subject.crews, a set of string values"},
+		{name: "negated subject set of another type", perm: "Read", condition: "owner NOT IN subject.hazardBands", wantErr: "cannot test membership in subject.hazardBands, a set of number values"},
+		{name: "now against a non-timestamp subject value", perm: "Read", condition: "now < subject.approvalLimit", wantErr: "now is a timestamp and cannot compare against subject.approvalLimit, a number subject value"},
+		{name: "post-image of a join-path attribute against a subject set", perm: "Update", condition: "new.shipClass IN subject.crews", wantErr: "join-path"},
 		{name: "list literal type mismatch", perm: "Read", condition: "price IN (1, 'two')", wantErr: "cannot compare against the string"},
 	}
 

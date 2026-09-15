@@ -20,12 +20,14 @@ type PermissionCollection interface {
 	IsResourceImmutable(scope accesstypes.PermissionScope, res accesstypes.Resource) bool
 
 	// The condition vocabulary: attribute names with their comparison types,
-	// and the application-wide subject namespace. Grant conditions validate
-	// against these at deploy time.
+	// and the application-wide subject namespace, each set or value with the
+	// comparison type of the column it yields. Grant conditions validate
+	// against these at deploy time; ok is false for a name the application
+	// does not declare.
 	AttributeComparisonType(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool)
 	AttributeIsColumn(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool
-	DeclaresSubjectSet(name string) bool
-	DeclaresSubjectValue(name string) bool
+	SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool)
+	SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool)
 
 	// IsComputedResource reports whether res is a computed resource: a
 	// hand-written query surface whose permission checks run at decode time,

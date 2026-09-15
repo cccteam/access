@@ -54,9 +54,13 @@ func (concealingCollection) AttributeIsColumn(_ accesstypes.PermissionScope, res
 	return res == "Missions"
 }
 
-func (concealingCollection) DeclaresSubjectSet(string) bool { return false }
+func (concealingCollection) SubjectSetComparisonType(string) (accesstypes.AttributeType, bool) {
+	return "", false
+}
 
-func (concealingCollection) DeclaresSubjectValue(string) bool { return false }
+func (concealingCollection) SubjectValueComparisonType(string) (accesstypes.AttributeType, bool) {
+	return "", false
+}
 
 func (concealingCollection) IsComputedResource(accesstypes.PermissionScope, accesstypes.Resource) bool {
 	return false
