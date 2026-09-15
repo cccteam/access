@@ -134,8 +134,9 @@ func validateComparisonTypes(store PermissionCollection, scope accesstypes.Permi
 	}
 	if cmp.Left.IsNow() {
 		// now compares against a timestamp string, a timestamp-typed subject
-		// value, or itself (which folds to a constant); the attribute-vs-now
-		// form is the operand case below.
+		// value, or itself (which folds to a constant); the parser has
+		// already refused every other operand, so no branch mirrors it here.
+		// The attribute-vs-now form is the operand case below.
 		switch operand := cmp.Right.(type) {
 		case condition.StringLiteral:
 			return validateLiteralType(accesstypes.AttributeTypeTimestamp, "now", condition.Literal(operand))

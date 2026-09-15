@@ -331,6 +331,9 @@ func TestValidateGrantCondition(t *testing.T) {
 		{name: "subject set of another type", perm: "Read", condition: "price IN subject.crews", wantErr: "price is a number attribute and cannot test membership in subject.crews, a set of string values"},
 		{name: "negated subject set of another type", perm: "Read", condition: "owner NOT IN subject.hazardBands", wantErr: "cannot test membership in subject.hazardBands, a set of number values"},
 		{name: "now against a non-timestamp subject value", perm: "Read", condition: "now < subject.approvalLimit", wantErr: "now is a timestamp and cannot compare against subject.approvalLimit, a number subject value"},
+		{name: "now against a number is refused at parse", perm: "Read", condition: "now = 5", wantErr: "\"5\" cannot stand against now"},
+		{name: "now against a boolean is refused at parse", perm: "Read", condition: "now = true", wantErr: "\"true\" cannot stand against now"},
+		{name: "now against bare subject is refused at parse", perm: "Read", condition: "now < subject", wantErr: "\"subject\" cannot stand against now"},
 		{name: "post-image of a join-path attribute against a subject set", perm: "Update", condition: "new.shipClass IN subject.crews", wantErr: "join-path"},
 		{name: "list literal type mismatch", perm: "Read", condition: "price IN (1, 'two')", wantErr: "cannot compare against the string"},
 	}
