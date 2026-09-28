@@ -3,7 +3,7 @@ module github.com/cccteam/access
 go 1.26.6
 
 require (
-	cloud.google.com/go/firestore v1.25.0
+	cloud.google.com/go/firestore v1.26.0
 	github.com/casbin/casbin/v2 v2.135.0
 	github.com/cccteam/ccc/accesstypes v0.5.9
 	github.com/cccteam/ccc/resource v0.10.6
