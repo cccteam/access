@@ -399,6 +399,20 @@ func (mr *MockUserManagerMockRecorder) AddUserRoles(ctx, scope, user any, roles 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddUserRoles", reflect.TypeOf((*MockUserManager)(nil).AddUserRoles), varargs...)
 }
 
+// ChangeRoleGrants mocks base method.
+func (m *MockUserManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChangeRoleGrants", ctx, scope, role, removals, additions)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ChangeRoleGrants indicates an expected call of ChangeRoleGrants.
+func (mr *MockUserManagerMockRecorder) ChangeRoleGrants(ctx, scope, role, removals, additions any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChangeRoleGrants", reflect.TypeOf((*MockUserManager)(nil).ChangeRoleGrants), ctx, scope, role, removals, additions)
+}
+
 // DeleteAllRolePermissions mocks base method.
 func (m *MockUserManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
 	m.ctrl.T.Helper()

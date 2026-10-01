@@ -386,30 +386,52 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role a
 	return nil
 }
 
-// InsertGrants adds the role's grant rows in one batched round trip; each row's
-// insert ignores a conflict, so present rows are untouched and the call is
-// idempotent like InsertGrant. The (scope, role) parent row must exist.
+// InsertGrants adds the role's grant rows as one write: a change with no
+// removals. The (scope, role) parent row must exist.
 func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error {
-	if len(grants) == 0 {
+	return s.ChangeGrants(ctx, scope, role, nil, grants)
+}
+
+// ChangeGrants removes the role's removals and adds its additions in one
+// transaction, as one batched round trip: a failure rolls the whole change
+// back. Each insert ignores a conflict, so present rows are untouched and the
+// additions are idempotent like InsertGrant. The (scope, role) parent row must
+// exist for the additions.
+func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
+	if len(removals) == 0 && len(additions) == 0 {
 		return nil
 	}
 
 	global, axis, domain := policy.ScopeColumns(scope)
 	batch := &pgx.Batch{}
-	for _, g := range grants {
+	for _, g := range removals {
+		batch.Queue(s.sqlDeleteGrant, global, axis, domain, role, g.Perm, g.Resource, g.Field, g.Condition)
+	}
+	for _, g := range additions {
 		batch.Queue(s.sqlInsertGrant, global, axis, domain, role, g.Perm, g.Resource, g.Field, g.Condition)
 	}
 
-	results := s.pool.SendBatch(ctx, batch)
-	for range grants {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "pgxpool.Pool.Begin() change grants")
+	}
+	defer func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+	}()
+
+	results := tx.SendBatch(ctx, batch)
+	for range batch.Len() {
 		if _, err := results.Exec(); err != nil {
 			_ = results.Close()
 
-			return errors.Wrap(err, "pgx.BatchResults.Exec() insert grant")
+			return errors.Wrap(err, "pgx.BatchResults.Exec() change grants")
 		}
 	}
 	if err := results.Close(); err != nil {
-		return errors.Wrap(err, "pgx.BatchResults.Close() insert grants")
+		return errors.Wrap(err, "pgx.BatchResults.Close() change grants")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit() change grants")
 	}
 
 	return nil

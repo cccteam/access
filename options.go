@@ -1,6 +1,9 @@
 package access
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 // Option configures optional Client behavior.
 type Option func(*clientOptions)
@@ -9,13 +12,20 @@ type clientOptions struct {
 	signal            ChangeSignal
 	heartbeatInterval time.Duration
 	onReloadError     func(error)
+	collection        PermissionCollection
 }
 
 func defaultClientOptions() *clientOptions {
 	return &clientOptions{
 		heartbeatInterval: defaultHeartbeatInterval,
-		onReloadError:     func(error) {},
+		onReloadError:     logReloadError,
 	}
+}
+
+// logReloadError is the default reload-error hook: every background failure
+// and every skipped grant reaches the log, so neither is silent.
+func logReloadError(err error) {
+	log.Printf("access: %v", err)
 }
 
 // WithChangeSignal wires a push hint that propagates policy changes between
@@ -40,15 +50,29 @@ func WithHeartbeatInterval(d time.Duration) Option {
 	}
 }
 
-// WithReloadErrorHandler installs an alerting hook for background failures:
-// policy reloads and change-signal announce/watch errors. While reloads fail
-// the Client keeps serving the last good policy snapshot, so this handler is
-// the only place persistent staleness becomes visible — wire it to logging or
-// alerting in production.
+// WithReloadErrorHandler replaces the hook that receives background failures
+// (policy reloads and change-signal announce/watch errors) and the grants a
+// load skipped because this release cannot use them (*SkippedGrant). While
+// reloads fail the Client keeps serving the last good policy snapshot, so this
+// hook is where persistent staleness and skipped grants become visible. The
+// default writes each one to the standard log; wire alerting here when the log
+// is not enough.
 func WithReloadErrorHandler(f func(error)) Option {
 	return func(o *clientOptions) {
 		if f != nil {
 			o.onReloadError = f
 		}
+	}
+}
+
+// WithPermissionCollection tells the Client what the running release declares:
+// its permissions, resources and fields. A stored grant naming one the release
+// does not declare (after a rollback, or once a release drops a resource) is
+// then left out of the snapshot and reported as a SkippedGrant instead of
+// being carried as a grant nothing can check. Without it, names are not
+// checked; conditions are checked either way.
+func WithPermissionCollection(c PermissionCollection) Option {
+	return func(o *clientOptions) {
+		o.collection = c
 	}
 }

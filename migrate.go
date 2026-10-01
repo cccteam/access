@@ -327,8 +327,10 @@ func bootstrapRoles(ctx context.Context, client UserManager, plan *rolePlan, sco
 }
 
 // reconcileRole brings one role in one scope partition to its desired grant
-// set: the role row is created if missing, extra grants are removed, and
-// missing grants are added.
+// set: the role row is created if missing, then the extra grants are removed
+// and the missing ones added in one store write, so the role is never seen
+// with neither its old grant nor its new one, and an interrupted write leaves
+// it as it was.
 func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Scope, role accesstypes.Role, desired grantSet) error {
 	roleFound, err := client.RoleExists(ctx, scope, role)
 	if err != nil {
@@ -348,41 +350,38 @@ func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Sc
 	existing := grantSetFrom(listed)
 
 	// A row is identified by its condition too, so a grant whose condition
-	// changed is one row removed and another added.
+	// changed is one row removed and another added, in the same write.
 	removals := diffGrants(existing, desired)
-	for _, perm := range sortedPermissions(removals) {
-		for _, res := range sortedResources(removals[perm]) {
-			for _, condition := range sortedConditions(removals[perm][res]) {
-				if err := client.DeleteRoleGrant(ctx, scope, role, perm, res, condition); err != nil {
-					return errors.Wrapf(err, "removing %s on %s from role %s", perm, res, role)
-				}
-			}
-		}
-		fmt.Printf("Removed %s on %v from role %s in scope %s\n", perm, sortedResources(removals[perm]), role, scope)
-	}
-
-	// Additions go to the store as one write per role: a policy of a few
-	// hundred grants across several domains would otherwise cost one commit
-	// each at every deploy.
 	additions := diffGrants(desired, existing)
-	var rows []GrantRow
-	for _, perm := range sortedPermissions(additions) {
-		for _, res := range sortedResources(additions[perm]) {
-			for _, condition := range sortedConditions(additions[perm][res]) {
-				rows = append(rows, GrantRow{Permission: perm, Resource: res, Condition: condition})
-			}
-		}
+	remove, add := grantRows(removals), grantRows(additions)
+	if len(remove) == 0 && len(add) == 0 {
+		return nil
 	}
-	if len(rows) > 0 {
-		if err := client.AddRoleGrants(ctx, scope, role, rows...); err != nil {
-			return errors.Wrapf(err, "adding %d grants to role %s", len(rows), role)
-		}
+	if err := client.ChangeRoleGrants(ctx, scope, role, remove, add); err != nil {
+		return errors.Wrapf(err, "removing %d and adding %d grants of role %s in scope %s", len(remove), len(add), role, scope)
+	}
+	for _, perm := range sortedPermissions(removals) {
+		fmt.Printf("Removed %s on %v from role %s in scope %s\n", perm, sortedResources(removals[perm]), role, scope)
 	}
 	for _, perm := range sortedPermissions(additions) {
 		fmt.Printf("Added %s on %v to role %s in scope %s\n", perm, sortedResources(additions[perm]), role, scope)
 	}
 
 	return nil
+}
+
+// grantRows lists a grant set as rows, in a stable order.
+func grantRows(set grantSet) []GrantRow {
+	var rows []GrantRow
+	for _, perm := range sortedPermissions(set) {
+		for _, res := range sortedResources(set[perm]) {
+			for _, condition := range sortedConditions(set[perm][res]) {
+				rows = append(rows, GrantRow{Permission: perm, Resource: res, Condition: condition})
+			}
+		}
+	}
+
+	return rows
 }
 
 // expandAllRoleGrants expands each role's grants, indexed like the input

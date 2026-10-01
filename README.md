@@ -135,9 +135,15 @@ client, err := access.New(store,
     access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
     // Optional: tune the heartbeat backstop (default 1m).
     access.WithHeartbeatInterval(30*time.Second),
-    // Optional: alerting hook for background reload/signal failures. While
-    // reloads fail, checks keep serving the last good snapshot.
-    access.WithReloadErrorHandler(func(err error) { log.Printf("access: %v", err) }),
+    // Optional: what this release declares, so a stored grant naming a
+    // permission, resource or field it does not have is skipped and reported
+    // instead of carried.
+    access.WithPermissionCollection(router.Collection()),
+    // Optional: replace the hook that receives background reload/signal
+    // failures and the grants a load skipped. The default writes each one to
+    // the standard log; while reloads fail, checks keep serving the last good
+    // snapshot.
+    access.WithReloadErrorHandler(func(err error) { alert(err) }),
 )
 
 // Readiness: block until the first policy snapshot has loaded.
@@ -146,6 +152,19 @@ if err := client.WaitReady(ctx); err != nil { ... }
 // Shutdown: stop background reloading (checks keep serving the last snapshot).
 defer client.Close()
 ```
+
+A grant the running release cannot use — a condition that does not parse, a
+row-referencing condition on a scope-wide grant, or, with
+`WithPermissionCollection`, a permission, resource or field the release does
+not declare — does not stop the load: it is left out of the snapshot and
+reported to the reload-error hook as a `*access.SkippedGrant`. The permission
+it would grant is denied, the rest of the policy loads, and the instance
+becomes ready. That is what makes a stored grant safe to outlive the release
+that wrote it: after a rollback, or after a release removes a field, the grant
+is denied and reported, and everything else keeps working. A role's grant set
+changes through `ChangeRoleGrants`, one store write for the removals and the
+additions together, so a reader never sees a role with neither its old grant
+nor its new one; `MigrateRoles` uses it.
 
 The push signal is a latency optimization only — correctness never depends on
 it. For Spanner environments (no LISTEN/NOTIFY), the `firebasesignal`

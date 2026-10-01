@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -331,12 +332,95 @@ func Test_MigrateRoles_writesEachRoleOnce(t *testing.T) {
 		{name: "a new domain: one write per role in it", domains: []accesstypes.Domain{"tenant1", "tenant2", "tenant3"}, wantWrites: 1},
 	}
 	for _, tt := range tests {
-		before := store.batchWrites
+		before := store.changeWrites
 		if err := MigrateRoles(ctx, manager, grammarCollection{}, config, tt.domains...); err != nil {
 			t.Fatalf("%s: MigrateRoles() error = %v", tt.name, err)
 		}
-		if got := store.batchWrites - before; got != tt.wantWrites {
-			t.Errorf("%s: InsertGrants called %d times, want %d", tt.name, got, tt.wantWrites)
+		if got := store.changeWrites - before; got != tt.wantWrites {
+			t.Errorf("%s: ChangeGrants called %d times, want %d", tt.name, got, tt.wantWrites)
 		}
+	}
+	if store.deleteCalls != 0 || store.batchWrites != 0 {
+		t.Errorf("DeleteGrant called %d times and InsertGrants %d times, want 0 and 0: a role's grants change through ChangeGrants alone", store.deleteCalls, store.batchWrites)
+	}
+}
+
+// Test_MigrateRoles_changesEachRoleInOneWrite pins that a role's removals and
+// additions reach the store as one ChangeGrants call: a condition edit is one
+// row removed and one added together, a dropped grant is one removal, and no
+// DeleteGrant call is ever made.
+func Test_MigrateRoles_changesEachRoleInOneWrite(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := newFakeStore()
+	manager := newUserManager(newStoreManager(store))
+	reader := func(condition string, fields ...accesstypes.Tag) *RoleConfig {
+		return &RoleConfig{Roles: ScopedRoles{Domain: []*Role{{
+			Name:        "Reader",
+			Permissions: map[accesstypes.Permission][]Grant{"Read": {{Resource: "Widgets", Fields: fields, Condition: condition}}},
+		}}}}
+	}
+
+	tests := []struct {
+		name          string
+		config        *RoleConfig
+		wantRemovals  []policy.RoleGrant
+		wantAdditions []policy.RoleGrant
+		wantGrants    []policy.RoleGrant
+	}{
+		{
+			name:          "first run adds the grant",
+			config:        reader("price < 100"),
+			wantAdditions: []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Condition: "price < 100"}},
+			wantGrants:    []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Condition: "price < 100"}},
+		},
+		{
+			name:          "a condition edit removes the old row and adds the new one together",
+			config:        reader("price < 200"),
+			wantRemovals:  []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Condition: "price < 100"}},
+			wantAdditions: []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Condition: "price < 200"}},
+			wantGrants:    []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Condition: "price < 200"}},
+		},
+		{
+			name:          "a field added is one addition",
+			config:        reader("price < 200", "name"),
+			wantAdditions: []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Field: "name", Condition: "price < 200"}},
+			wantGrants: []policy.RoleGrant{
+				{Perm: "Read", Resource: "Widgets", Condition: "price < 200"},
+				{Perm: "Read", Resource: "Widgets", Field: "name", Condition: "price < 200"},
+			},
+		},
+		{
+			name:         "a field dropped is one removal",
+			config:       reader("price < 200"),
+			wantRemovals: []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Field: "name", Condition: "price < 200"}},
+			wantGrants:   []policy.RoleGrant{{Perm: "Read", Resource: "Widgets", Condition: "price < 200"}},
+		},
+	}
+	for _, tt := range tests {
+		before := store.changeWrites
+		if err := MigrateRoles(ctx, manager, grammarCollection{}, tt.config, "tenant1"); err != nil {
+			t.Fatalf("%s: MigrateRoles() error = %v", tt.name, err)
+		}
+		if got := store.changeWrites - before; got != 1 {
+			t.Errorf("%s: ChangeGrants called %d times, want 1", tt.name, got)
+		}
+		if diff := cmp.Diff(tt.wantRemovals, store.lastChange.removals, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("%s: removals mismatch (-want +got):\n%s", tt.name, diff)
+		}
+		if diff := cmp.Diff(tt.wantAdditions, store.lastChange.additions, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("%s: additions mismatch (-want +got):\n%s", tt.name, diff)
+		}
+		got, err := store.ListRoleGrants(ctx, accesstypes.DomainScope("tenant1"), "Reader")
+		if err != nil {
+			t.Fatalf("%s: ListRoleGrants() error = %v", tt.name, err)
+		}
+		if diff := cmp.Diff(tt.wantGrants, got); diff != "" {
+			t.Errorf("%s: grants after the run (-want +got):\n%s", tt.name, diff)
+		}
+	}
+	if store.deleteCalls != 0 {
+		t.Errorf("DeleteGrant called %d times, want 0", store.deleteCalls)
 	}
 }

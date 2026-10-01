@@ -1,8 +1,11 @@
 package access
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,7 +30,7 @@ func userSubject(name string) policy.Subject {
 // compileSnapshot compiles fixture records through the shared compiler.
 func compileSnapshot(t *testing.T, records *policy.Records) *snapshot {
 	t.Helper()
-	snap, err := newSnapshot(records, time.Now())
+	snap, _, err := newSnapshot(records, nil, time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -527,53 +530,176 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 	}
 }
 
-// Test_newSnapshot_conditionValidation pins the load-time condition rules:
-// every condition text must compile, and a scope-wide grant may carry only a
-// row-free condition — a binding-name attribute or new. reference has no row
-// to see there and fails the load. Schema validation (binding names against
-// the Collection) is MigrateRoles' job, not the snapshot's.
-func Test_newSnapshot_conditionValidation(t *testing.T) {
+// Test_newSnapshot_skipsGrantsTheReleaseCannotUse pins the load-time rule for
+// a grant the running release cannot use: it is left out of the snapshot and
+// reported, so the permission it would grant is denied while the role's other
+// grants hold and the load completes. Three things make a grant unusable: a
+// condition text that does not parse, a row-referencing condition on a
+// scope-wide grant (a grant attached to no resource has no row for it to see),
+// and, when the collection is known, a permission, resource or field the
+// release does not declare. A scope-wide grant's permission is not checked
+// against the collection, which lists only the permissions resources require.
+// Schema validation of conditions (binding names against the collection) stays
+// MigrateRoles' job.
+func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	t.Parallel()
 
+	chief := roleSubject("Chief")
 	tests := []struct {
-		name    string
-		grant   policy.Grant
-		wantErr bool
+		name       string
+		grant      policy.Grant
+		collection PermissionCollection
+		wantSkip   *SkippedGrant // nil: the grant is kept
+		wantReason string
+		// check is the resource whose decision proves the grant kept or
+		// skipped; the grant's own dotted name when empty.
+		check accesstypes.Resource
 	}{
 		{
-			name:    "row-referencing condition on a scope-wide grant fails the load",
-			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "state = 'new'"},
-			wantErr: true,
+			name:       "a condition that does not parse",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "price", Condition: "state = "},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Widgets.price", Condition: "state = "},
+			wantReason: "does not parse",
 		},
 		{
-			name:    "row-referencing condition on a global scope-wide grant fails the load",
-			grant:   policy.Grant{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Admin"), Perm: "Export", Resource: "", Condition: "state = 'new'"},
-			wantErr: true,
+			name:       "a row-referencing condition on a scope-wide grant",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Approve", Resource: "", Condition: "state = 'new'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Approve", Resource: "", Condition: "state = 'new'"},
+			wantReason: "row-referencing condition on a scope-wide grant",
 		},
 		{
-			name:  "row-free condition on a scope-wide grant compiles",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
+			name:  "a row-free condition on a scope-wide grant is kept",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
 		},
 		{
-			name:    "malformed condition text fails the load",
-			grant:   policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets", Condition: "state = "},
-			wantErr: true,
+			name:  "a conditional field grant is kept",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "price", Condition: "price < 100"},
 		},
 		{
-			name:  "unconditional scope-wide grant compiles",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: ""},
+			name:  "an unconditional field grant is kept",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "name"},
 		},
 		{
-			name:  "conditional resource grant compiles",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets", Condition: "state = 'new'"},
+			name:       "a permission the release does not declare",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Fly", Resource: "Widgets"},
+			collection: grammarCollection{},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Fly", Resource: "Widgets"},
+			wantReason: "this release has no permission Fly",
+		},
+		{
+			name:       "a resource the release does not declare",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets"},
+			collection: grammarCollection{},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
+			wantReason: "this release declares no Read on Gadgets",
+		},
+		{
+			name:       "a field the release does not declare",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "weight"},
+			collection: grammarCollection{},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Widgets.weight"},
+			wantReason: "this release declares no Read on Widgets.weight",
+		},
+		{
+			name:       "a field the release declares for another permission only",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "name"},
+			collection: grammarCollection{},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Update", Resource: "Widgets.name"},
+			wantReason: "this release declares no Update on Widgets.name",
+		},
+		{
+			name:       "all fields of a declared resource are kept",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "*"},
+			collection: grammarCollection{},
+			check:      "Widgets.price",
+		},
+		{
+			name:       "all fields of an undeclared resource",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets", Field: "*"},
+			collection: grammarCollection{},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
+			wantReason: "this release declares no Read on Gadgets",
+		},
+		{
+			name:       "a scope-wide grant is not checked against the collection",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Fly", Resource: ""},
+			collection: grammarCollection{},
+		},
+		{
+			name:  "names are not checked without a collection",
+			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets"},
+		},
+		{
+			name:       "an undeclared name and a bad condition: one report, the name first",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets", Condition: "state = "},
+			collection: grammarCollection{},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Gadgets", Condition: "state = "},
+			wantReason: "this release declares no Read on Gadgets",
+		},
+		{
+			name:       "a user's own grant is reported as the user's",
+			grant:      policy.Grant{Scope: tenant1Scope, Subject: userSubject("cleo"), Perm: "Read", Resource: "Widgets", Field: "price", Condition: "state = "},
+			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "user cleo", Permission: "Read", Resource: "Widgets.price", Condition: "state = "},
+			wantReason: "does not parse",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := newSnapshot(&policy.Records{Grants: []policy.Grant{tt.grant}}, time.Now())
-			if (err != nil) != tt.wantErr {
-				t.Errorf("newSnapshot() error = %v, wantErr %v", err, tt.wantErr)
+
+			// The sibling grant stays with the role whatever happens to the one
+			// under test, and cleo holds the role.
+			records := &policy.Records{
+				Grants: []policy.Grant{
+					{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets"},
+					tt.grant,
+				},
+				Memberships: []policy.Membership{{Scope: tenant1Scope, Member: userSubject("cleo"), Role: "Chief"}},
+			}
+			snap, skipped, err := newSnapshot(records, tt.collection, time.Now())
+			if err != nil {
+				t.Fatalf("newSnapshot() error = %v, want the load to complete", err)
+			}
+			if got := snap.decideUserResources("cleo", tenant1Scope, "Read", "Widgets"); !got[0].granted {
+				t.Errorf("the sibling grant is not held: decide(Read, Widgets) = %+v", got[0])
+			}
+
+			check := tt.check
+			if check == "" {
+				check = grantResourceName(&tt.grant)
+			}
+			var decision resourceDecision
+			if tt.grant.Resource == "" {
+				decision = snap.checkUser("cleo", tenant1Scope, tt.grant.Perm)
+			} else {
+				decision = snap.decideUserResources("cleo", tenant1Scope, tt.grant.Perm, check)[0]
+			}
+
+			if tt.wantSkip == nil {
+				if len(skipped) != 0 {
+					t.Fatalf("skipped = %v, want the grant kept", skipped)
+				}
+				if !decision.granted && len(decision.conditions) == 0 {
+					t.Errorf("the kept grant decides nothing: %+v", decision)
+				}
+
+				return
+			}
+			if len(skipped) != 1 {
+				t.Fatalf("skipped %d grants, want 1: %v", len(skipped), skipped)
+			}
+			got := skipped[0]
+			if got.Scope != tt.wantSkip.Scope || got.Subject != tt.wantSkip.Subject || got.Permission != tt.wantSkip.Permission || got.Resource != tt.wantSkip.Resource || got.Condition != tt.wantSkip.Condition {
+				t.Errorf("SkippedGrant = %+v, want %+v", got, tt.wantSkip)
+			}
+			if got.Reason == nil || !strings.Contains(got.Reason.Error(), tt.wantReason) {
+				t.Errorf("SkippedGrant.Reason = %v, want one containing %q", got.Reason, tt.wantReason)
+			}
+			if !strings.Contains(got.Error(), tt.wantReason) || !strings.Contains(got.Error(), tt.wantSkip.Subject) {
+				t.Errorf("SkippedGrant.Error() = %q, want the subject and the reason in it", got.Error())
+			}
+			if decision.granted || len(decision.conditions) != 0 {
+				t.Errorf("the skipped grant still decides: %+v, want denied", decision)
 			}
 		})
 	}
@@ -789,7 +915,7 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 			{Scope: tenant1Scope, Member: userSubject("carol"), Role: "Chief"},
 		},
 	}
-	snap, err := newSnapshot(records, time.Now())
+	snap, _, err := newSnapshot(records, nil, time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -1764,5 +1890,108 @@ func Test_snapshot_roleDomains(t *testing.T) {
 				t.Errorf("roleDomains(%s) (-want +got):\n%s", tt.role, diff)
 			}
 		})
+	}
+}
+
+// Test_snapshotEngine_reportsSkippedGrants: a grant the release cannot use
+// does not stop the load. The engine becomes ready, the other grants hold, the
+// skipped grant is denied, and the reload-error hook receives one
+// *SkippedGrant per compiled snapshot: not again on a reload that finds the
+// store unchanged, again when the store changed and the snapshot recompiled.
+func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := engineFakeStore(t)
+	if err := store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "widgets", "", "state = "); err != nil {
+		t.Fatalf("InsertGrant() error = %v", err)
+	}
+
+	var mu sync.Mutex
+	var reports []error
+	opts := defaultClientOptions()
+	opts.onReloadError = func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reports = append(reports, err)
+	}
+	e := testEngine(t, store, opts)
+
+	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := e.waitReady(readyCtx); err != nil {
+		t.Fatalf("waitReady() error = %v, want ready despite the bad grant", err)
+	}
+	settle(e)
+
+	if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees", "widgets"); err != nil || !got[0].granted || got[1].granted || len(got[1].conditions) != 0 {
+		t.Fatalf("checkUserResources() = (%+v, %v), want employees granted and widgets denied", got, err)
+	}
+
+	skippedReports := func() []*SkippedGrant {
+		mu.Lock()
+		defer mu.Unlock()
+		var out []*SkippedGrant
+		for _, err := range reports {
+			var sg *SkippedGrant
+			if errors.As(err, &sg) {
+				out = append(out, sg)
+			}
+		}
+
+		return out
+	}
+
+	got := skippedReports()
+	if len(got) != 1 {
+		t.Fatalf("reports = %v, want one SkippedGrant", reports)
+	}
+	want := SkippedGrant{Scope: tenant1Scope, Subject: "role Editor", Permission: "Read", Resource: "widgets", Condition: "state = "}
+	if got[0].Scope != want.Scope || got[0].Subject != want.Subject || got[0].Permission != want.Permission || got[0].Resource != want.Resource || got[0].Condition != want.Condition || got[0].Reason == nil {
+		t.Errorf("SkippedGrant = %+v, want %+v with a reason", got[0], want)
+	}
+
+	// An unchanged store does not recompile, so nothing is reported again.
+	settle(e)
+	if got := skippedReports(); len(got) != 1 {
+		t.Errorf("after a reload of an unchanged store: %d reports, want still 1", len(got))
+	}
+
+	// A changed store recompiles and reports the grant once more.
+	grantWidgets(t, store)
+	e.invalidate()
+	if _, err := e.checkUserResources(ctx, "erin", tenant1Scope, "Read", "employees"); err != nil {
+		t.Fatalf("checkUserResources() error = %v", err)
+	}
+	if got := skippedReports(); len(got) != 2 {
+		t.Errorf("after a recompile: %d reports, want 2", len(got))
+	}
+}
+
+// Test_logReloadError pins the default hook: a skipped grant reaches the
+// standard log, prefixed so the line is found by its package.
+func Test_logReloadError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() {
+		log.SetOutput(previous)
+	})
+
+	defaultClientOptions().onReloadError(&SkippedGrant{
+		Scope:      tenant1Scope,
+		Subject:    "role Chief",
+		Permission: "Read",
+		Resource:   "Widgets.price",
+		Condition:  "state = ",
+		Reason:     errors.New("the condition does not parse"),
+	})
+
+	for _, want := range []string{"access: skipped a grant this release cannot use, so it is denied", "role Chief", "Read on Widgets.price", `under condition "state = "`, "the condition does not parse"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("log = %q, want it to contain %q", buf.String(), want)
+		}
 	}
 }

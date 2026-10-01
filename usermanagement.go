@@ -317,14 +317,46 @@ func (u *userManager) AddRoleGrants(ctx context.Context, scope accesstypes.Scope
 
 // addGrantRows validates the rows and hands them to the store as one write.
 func (u *userManager) addGrantRows(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, rows []GrantRow) error {
-	for _, row := range rows {
-		if row.Resource == "" {
-			return httpio.NewBadRequestMessage("resource cannot be empty string")
-		}
+	if err := requireResources(rows); err != nil {
+		return err
 	}
 
 	if err := u.store.addGrants(ctx, scope, role, rows); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ChangeRoleGrants removes the removals from role and adds the additions to it
+// as one store write.
+func (u *userManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := u.requireRole(ctx, scope, role, "Permissions cannot be changed on a role that doesn't exist"); err != nil {
+		return err
+	}
+	if err := requireResources(removals); err != nil {
+		return err
+	}
+	if err := requireResources(additions); err != nil {
+		return err
+	}
+
+	if err := u.store.changeGrants(ctx, scope, role, removals, additions); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// requireResources refuses a grant row that names no resource.
+func requireResources(rows []GrantRow) error {
+	for _, row := range rows {
+		if row.Resource == "" {
+			return httpio.NewBadRequestMessage("resource cannot be empty string")
+		}
 	}
 
 	return nil

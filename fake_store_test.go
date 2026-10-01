@@ -24,6 +24,12 @@ type fakeMembership struct {
 	role  accesstypes.Role
 }
 
+// fakeChange is the rows of one ChangeGrants call.
+type fakeChange struct {
+	removals  []policy.RoleGrant
+	additions []policy.RoleGrant
+}
+
 type fakeGrant struct {
 	scope     accesstypes.Scope
 	role      accesstypes.Role
@@ -46,6 +52,12 @@ type fakeStore struct {
 	// batchWrites counts InsertGrants calls, so tests can pin that a bulk
 	// write reached the store as one call.
 	batchWrites int
+	// changeWrites counts ChangeGrants calls and lastChange keeps the last
+	// call's rows, so tests can pin that a role's grant set changed as one
+	// call; deleteCalls counts DeleteGrant calls, which that path never makes.
+	changeWrites int
+	lastChange   fakeChange
+	deleteCalls  int
 
 	// failWith, when set, makes every method return this error.
 	failWith error
@@ -248,9 +260,31 @@ func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.Scope, rol
 	return nil
 }
 
+func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.changeWrites++
+	f.lastChange = fakeChange{removals: slices.Clone(removals), additions: slices.Clone(additions)}
+	if f.failWith != nil {
+		return f.failWith
+	}
+	if len(additions) > 0 && !f.roles[fakeRoleKey{scope, role}] {
+		return errors.Newf("role %q does not exist in scope %q", role, scope)
+	}
+	for _, g := range removals {
+		delete(f.grants, fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition})
+	}
+	for _, g := range additions {
+		f.grants[fakeGrant{scope, role, g.Perm, g.Resource, g.Field, g.Condition}] = true
+	}
+
+	return nil
+}
+
 func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.deleteCalls++
 	if f.failWith != nil {
 		return f.failWith
 	}

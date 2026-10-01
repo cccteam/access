@@ -157,6 +157,14 @@ type UserManager interface {
 	// they are. Errors if role doesn't exist or a grant names no resource.
 	AddRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants ...GrantRow) error
 
+	// ChangeRoleGrants removes the removals from role and adds the additions
+	// to it as one store write: a reader sees the role's grants before the
+	// change or after it, never between, and a failure leaves them as they
+	// were. Additions the role already holds are left as they are; removals
+	// it does not hold are ignored. Errors if role doesn't exist or a grant
+	// names no resource.
+	ChangeRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error
+
 	// DeleteRolePermissionResources removes every grant of permission on the
 	// resources from role in scope, whatever their conditions. Errors if role
 	// doesn't exist.

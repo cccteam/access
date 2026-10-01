@@ -166,13 +166,9 @@ func (m *storeManager) addGrants(ctx context.Context, scope accesstypes.Scope, r
 		return nil
 	}
 
-	grants := make([]policy.RoleGrant, 0, len(rows))
-	for _, row := range rows {
-		base, field, err := splitGrantResource(row.Resource)
-		if err != nil {
-			return err
-		}
-		grants = append(grants, policy.RoleGrant{Perm: row.Permission, Resource: base, Field: field, Condition: row.Condition})
+	grants, err := roleGrantRows(rows)
+	if err != nil {
+		return err
 	}
 	if err := m.store.InsertGrants(ctx, scope, role, grants); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrants(): %d grants for role %q", len(grants), role)
@@ -180,6 +176,43 @@ func (m *storeManager) addGrants(ctx context.Context, scope accesstypes.Scope, r
 	m.notifyPolicyChange()
 
 	return nil
+}
+
+// changeGrants applies a role's removals and additions as one store write and
+// signals one policy change; nothing to change is a no-op.
+func (m *storeManager) changeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error {
+	if len(removals) == 0 && len(additions) == 0 {
+		return nil
+	}
+
+	remove, err := roleGrantRows(removals)
+	if err != nil {
+		return err
+	}
+	add, err := roleGrantRows(additions)
+	if err != nil {
+		return err
+	}
+	if err := m.store.ChangeGrants(ctx, scope, role, remove, add); err != nil {
+		return errors.Wrapf(err, "access.Store.ChangeGrants(): removing %d and adding %d grants for role %q", len(remove), len(add), role)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+// roleGrantRows splits each row's resource into the store's base and field.
+func roleGrantRows(rows []GrantRow) ([]policy.RoleGrant, error) {
+	grants := make([]policy.RoleGrant, 0, len(rows))
+	for _, row := range rows {
+		base, field, err := splitGrantResource(row.Resource)
+		if err != nil {
+			return nil, err
+		}
+		grants = append(grants, policy.RoleGrant{Perm: row.Permission, Resource: base, Field: field, Condition: row.Condition})
+	}
+
+	return grants, nil
 }
 
 // removeGrant removes exactly one grant row: the resource's row under the

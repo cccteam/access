@@ -37,6 +37,7 @@ const (
 // reload serves the last good snapshot and reports through onError.
 type snapshotEngine struct {
 	store             Store
+	collection        PermissionCollection // may be nil: grant names are then not checked
 	heartbeatInterval time.Duration
 	signal            ChangeSignal // may be nil
 	onError           func(error)  // never nil
@@ -75,6 +76,7 @@ type snapshotEngine struct {
 func newSnapshotEngine(store Store, opts *clientOptions) *snapshotEngine {
 	return &snapshotEngine{
 		store:             store,
+		collection:        opts.collection,
 		heartbeatInterval: opts.heartbeatInterval,
 		signal:            opts.signal,
 		onError:           opts.onReloadError,
@@ -395,13 +397,20 @@ func (s *snapshotEngine) reload(ctx context.Context) (*snapshot, error) {
 		return &fresh, nil
 	}
 
-	snap, err := newSnapshot(records, time.Now())
+	snap, skipped, err := newSnapshot(records, s.collection, time.Now())
 	if err != nil {
 		return nil, errors.Wrap(err, "newSnapshot()")
 	}
 	snap.writeGen = gen
 	s.snap.Store(snap)
 	s.readyOnce.Do(func() { close(s.ready) })
+
+	// The grants this release cannot use are reported once per compiled
+	// snapshot: an unchanged store does not recompile, so a persistent bad
+	// row is not reported on every heartbeat.
+	for _, g := range skipped {
+		s.onError(g)
+	}
 
 	return snap, nil
 }

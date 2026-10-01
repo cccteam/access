@@ -42,6 +42,9 @@ import (
 //     (DB-enforced), and reports whether a row was actually deleted.
 //   - InsertUserRole and InsertGrant require the (domain, role) row to exist
 //     (DB-enforced foreign key / parent interleave).
+//   - ChangeGrants applies a role's removals and additions in one transaction,
+//     so a grant whose condition changed (one row removed, one added) is never
+//     seen with neither row.
 //   - List results are sorted for deterministic output.
 //   - ReadPolicy reads grants and memberships with snapshot consistency: both
 //     row sets observe the same store state.
@@ -82,6 +85,13 @@ type Store interface {
 	// list is written once; an empty list is a no-op. Same parent-row
 	// requirement as InsertGrant.
 	InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error
+	// ChangeGrants removes the role's removals and adds its additions as one
+	// transaction: a reader sees the role's grants before the change or after
+	// it, never between, and a failure leaves them as they were. Additions
+	// already present are left as they are, as in InsertGrants; removals of
+	// absent rows are no-ops; nothing to change is a no-op. Same parent-row
+	// requirement as InsertGrant for the additions.
+	ChangeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []policy.RoleGrant) error
 	DeleteGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error
 	DeleteGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error
 	ListRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error)

@@ -408,48 +408,88 @@ func (s *Store) InsertGrant(ctx context.Context, scope accesstypes.Scope, role a
 	return s.insertIgnoreExists(ctx, m, "insert grant")
 }
 
-// insertGrantsChunk bounds the rows one InsertGrants transaction carries, well
+// changeGrantsChunk bounds the rows one ChangeGrants transaction carries, well
 // inside Spanner's per-commit mutation limit at this table's width.
-const insertGrantsChunk = 1000
+const changeGrantsChunk = 1000
 
-// InsertGrants adds the role's grant rows in chunks, each one read-write
-// transaction: the rows already present are read back by key and only the
-// missing ones are inserted, so present rows keep their UpdatedAt and the
-// call is idempotent like InsertGrant. The (scope, role) parent row must exist.
+// InsertGrants adds the role's grant rows as one write: a change with no
+// removals. The (scope, role) parent row must exist.
 func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error {
+	return s.ChangeGrants(ctx, scope, role, nil, grants)
+}
+
+// grantChange is one row of a ChangeGrants call.
+type grantChange struct {
+	grant  policy.RoleGrant
+	remove bool
+}
+
+// ChangeGrants removes the role's removals and adds its additions in one
+// read-write transaction: the deletes and the inserts commit together, so a
+// failure leaves the role's grants as they were. The rows already present among
+// the additions are read back by key and only the missing ones are inserted, so
+// present rows keep their UpdatedAt and the call is idempotent like
+// InsertGrant. A change of more than changeGrantsChunk rows lands in that many
+// transactions, removals first; a role's grants are far inside that. The
+// (scope, role) parent row must exist for the additions.
+func (s *Store) ChangeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
+	if len(removals) == 0 && len(additions) == 0 {
+		return nil
+	}
+
 	global, axis, domain := policy.ScopeColumns(scope)
 	columns := []string{colIsGlobal, colAxis, colDomain, colRole, colPermission, colResource, colField, colCondition, colUpdatedAt}
 	keyColumns := []string{colPermission, colResource, colField, colCondition}
+	key := func(g policy.RoleGrant) spanner.Key {
+		return spanner.Key{global, axis, domain, string(role), string(g.Perm), g.Resource, g.Field, g.Condition}
+	}
 
-	for chunk := range slices.Chunk(grants, insertGrantsChunk) {
+	changes := make([]grantChange, 0, len(removals)+len(additions))
+	for _, g := range removals {
+		changes = append(changes, grantChange{grant: g, remove: true})
+	}
+	for _, g := range additions {
+		changes = append(changes, grantChange{grant: g})
+	}
+
+	for chunk := range slices.Chunk(changes, changeGrantsChunk) {
 		_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			keys := make([]spanner.KeySet, 0, len(chunk))
-			for _, g := range chunk {
-				keys = append(keys, spanner.Key{global, axis, domain, string(role), string(g.Perm), g.Resource, g.Field, g.Condition})
+			for _, c := range chunk {
+				if !c.remove {
+					keys = append(keys, key(c.grant))
+				}
 			}
 
-			present := make(map[policy.RoleGrant]struct{}, len(chunk))
-			err := txn.Read(ctx, s.names.roleGrants, spanner.KeySets(keys...), keyColumns).Do(func(row *spanner.Row) error {
-				var perm, resource, field, condition string
-				if err := row.Columns(&perm, &resource, &field, &condition); err != nil {
-					return errors.Wrap(err, "spanner.Row.Columns()")
-				}
-				present[policy.RoleGrant{Perm: accesstypes.Permission(perm), Resource: resource, Field: field, Condition: condition}] = struct{}{}
+			present := make(map[policy.RoleGrant]struct{}, len(keys))
+			if len(keys) > 0 {
+				err := txn.Read(ctx, s.names.roleGrants, spanner.KeySets(keys...), keyColumns).Do(func(row *spanner.Row) error {
+					var perm, resource, field, condition string
+					if err := row.Columns(&perm, &resource, &field, &condition); err != nil {
+						return errors.Wrap(err, "spanner.Row.Columns()")
+					}
+					present[policy.RoleGrant{Perm: accesstypes.Permission(perm), Resource: resource, Field: field, Condition: condition}] = struct{}{}
 
-				return nil
-			})
-			if err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Read() role grants")
+					return nil
+				})
+				if err != nil {
+					return errors.Wrap(err, "spanner.ReadWriteTransaction.Read() role grants")
+				}
 			}
 
 			mutations := make([]*spanner.Mutation, 0, len(chunk))
-			for _, g := range chunk {
-				if _, skip := present[g]; skip {
+			for _, c := range chunk {
+				if c.remove {
+					mutations = append(mutations, spanner.Delete(s.names.roleGrants, key(c.grant)))
+
 					continue
 				}
-				present[g] = struct{}{}
+				if _, skip := present[c.grant]; skip {
+					continue
+				}
+				present[c.grant] = struct{}{}
 				mutations = append(mutations, spanner.Insert(s.names.roleGrants, columns,
-					[]any{global, axis, domain, string(role), string(g.Perm), g.Resource, g.Field, g.Condition, spanner.CommitTimestamp}))
+					[]any{global, axis, domain, string(role), string(c.grant.Perm), c.grant.Resource, c.grant.Field, c.grant.Condition, spanner.CommitTimestamp}))
 			}
 			if len(mutations) == 0 {
 				return nil
@@ -461,7 +501,7 @@ func (s *Store) InsertGrants(ctx context.Context, scope accesstypes.Scope, role 
 			return nil
 		})
 		if err != nil {
-			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() insert grants")
+			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction() change grants")
 		}
 	}
 

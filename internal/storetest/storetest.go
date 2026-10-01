@@ -53,6 +53,7 @@ func Run(t *testing.T, store access.Store) {
 	t.Run("roles", func(t *testing.T) { runRoles(t, store) })
 	t.Run("memberships", func(t *testing.T) { runMemberships(t, store) })
 	t.Run("grants", func(t *testing.T) { runGrants(t, store) })
+	t.Run("change grants", func(t *testing.T) { runChangeGrants(t, store) })
 	t.Run("global scope", func(t *testing.T) { runGlobalScope(t, store) })
 	t.Run("delete role", func(t *testing.T) { runDeleteRole(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
@@ -269,6 +270,88 @@ func runInsertGrants(t *testing.T, store access.Store, grants []policy.RoleGrant
 		if err := store.DeleteGrant(ctx, tenant1, editor, g.Perm, g.Resource, g.Field, g.Condition); err != nil {
 			t.Fatalf("DeleteGrant(%v) error = %v", g, err)
 		}
+	}
+}
+
+// refusedGrant is a row every store refuses: its permission is 65 characters,
+// over the Spanner column's 64, and carries a NUL byte, which PostgreSQL
+// rejects in text. A change that carries it fails whole, which is how the
+// suite proves that a failed change leaves the role's grants as they were.
+var refusedGrant = policy.RoleGrant{Perm: accesstypes.Permission(strings.Repeat("x", 64) + "\x00"), Resource: employees}
+
+// runChangeGrants holds ChangeGrants to its contract: removals and additions
+// land together, so a condition edit never shows the role with neither row; a
+// change the store refuses leaves the grants as they were; additions already
+// present and removals already absent are no-ops, as is nothing to change; and
+// the role must exist for additions. It leaves the grants as runGrants did.
+func runChangeGrants(t *testing.T, store access.Store) {
+	t.Helper()
+	ctx := t.Context()
+
+	base := []policy.RoleGrant{
+		{Perm: readPerm, Resource: employees, Field: ""},
+		{Perm: readPerm, Resource: employees, Field: "*"},
+		{Perm: readPerm, Resource: employees, Field: nameField},
+	}
+	old := policy.RoleGrant{Perm: readPerm, Resource: employees, Field: salaryField, Condition: ownerCondition}
+	edited := policy.RoleGrant{Perm: readPerm, Resource: employees, Field: salaryField, Condition: "region = 'west'"}
+	list := func(step string) []policy.RoleGrant {
+		got, err := store.ListRoleGrants(ctx, tenant1, editor)
+		if err != nil {
+			t.Fatalf("ListRoleGrants() after %s error = %v", step, err)
+		}
+
+		return got
+	}
+
+	// Additions only, one of them already present: the present row is left
+	// alone and the other lands.
+	if err := store.ChangeGrants(ctx, tenant1, editor, nil, []policy.RoleGrant{base[0], old}); err != nil {
+		t.Fatalf("ChangeGrants() with additions only error = %v", err)
+	}
+	if diff := cmp.Diff(append(slices.Clone(base), old), list("the additions")); diff != "" {
+		t.Errorf("ListRoleGrants() after additions (-want +got):\n%s", diff)
+	}
+
+	// A condition edit: the old row goes and the new one comes in one call.
+	if err := store.ChangeGrants(ctx, tenant1, editor, []policy.RoleGrant{old}, []policy.RoleGrant{edited}); err != nil {
+		t.Fatalf("ChangeGrants() condition edit error = %v", err)
+	}
+	if diff := cmp.Diff(append(slices.Clone(base), edited), list("the condition edit")); diff != "" {
+		t.Errorf("ListRoleGrants() after the condition edit (-want +got):\n%s", diff)
+	}
+
+	// A change the store refuses leaves the role as it was: the removal did
+	// not stick without its addition.
+	if err := store.ChangeGrants(ctx, tenant1, editor, []policy.RoleGrant{edited}, []policy.RoleGrant{refusedGrant}); err == nil {
+		t.Fatal("ChangeGrants() with a row the store refuses must fail, got nil")
+	}
+	if diff := cmp.Diff(append(slices.Clone(base), edited), list("the refused change")); diff != "" {
+		t.Errorf("ListRoleGrants() after a refused change must be unchanged (-want +got):\n%s", diff)
+	}
+
+	// Removing an absent row and changing nothing are no-ops.
+	if err := store.ChangeGrants(ctx, tenant1, editor, []policy.RoleGrant{old}, nil); err != nil {
+		t.Fatalf("ChangeGrants() removing an absent row must be a no-op, got error = %v", err)
+	}
+	if err := store.ChangeGrants(ctx, tenant1, editor, nil, nil); err != nil {
+		t.Fatalf("ChangeGrants() with nothing to change must be a no-op, got error = %v", err)
+	}
+	if diff := cmp.Diff(append(slices.Clone(base), edited), list("the no-ops")); diff != "" {
+		t.Errorf("ListRoleGrants() after the no-ops (-want +got):\n%s", diff)
+	}
+
+	// Additions need the role.
+	if err := store.ChangeGrants(ctx, tenant1, "Ghost", nil, []policy.RoleGrant{{Perm: readPerm, Resource: employees}}); err == nil {
+		t.Fatal("ChangeGrants() with absent role must fail (parent enforcement), got nil")
+	}
+
+	// Back to what runGrants left.
+	if err := store.ChangeGrants(ctx, tenant1, editor, []policy.RoleGrant{edited}, nil); err != nil {
+		t.Fatalf("ChangeGrants() removal error = %v", err)
+	}
+	if diff := cmp.Diff(base, list("the removal")); diff != "" {
+		t.Errorf("ListRoleGrants() after the removal (-want +got):\n%s", diff)
 	}
 }
 
