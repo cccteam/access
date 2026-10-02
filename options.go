@@ -31,9 +31,9 @@ func logReloadError(err error) {
 }
 
 // WithChangeSignal wires a push hint that propagates policy changes between
-// instances in near-realtime. This is the intended configuration (see the
-// postgressignal and firebasesignal subpackages); without it, changes
-// propagate within one heartbeat interval.
+// instances in near-realtime. This is the intended configuration: the
+// application adapts its one signal channel through ChangeSignalFunc. Without
+// it, changes propagate within one heartbeat interval.
 func WithChangeSignal(s ChangeSignal) Option {
 	return func(o *clientOptions) {
 		o.signal = s

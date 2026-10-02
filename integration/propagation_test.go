@@ -6,36 +6,37 @@ import (
 	"time"
 
 	"github.com/cccteam/access"
-	"github.com/cccteam/access/postgressignal"
+	"github.com/cccteam/access/internal/signaltest"
 	"github.com/cccteam/access/postgresstore"
 	"github.com/cccteam/ccc/accesstypes"
 	dbinitiator "github.com/cccteam/db-initiator"
+	"github.com/go-playground/errors/v5"
 )
 
-const signalChannel = "access_policy_changed"
+// policyKind is the kind the adapter publishes and follows on the in-memory
+// channel, standing in for the policy kind the application's channel declares.
+const policyKind = "policy"
 
-// waitForListeners polls until n LISTEN backends are connected, so a NOTIFY
-// sent afterwards cannot be lost to subscription racing.
-func waitForListeners(ctx context.Context, t *testing.T, db *dbinitiator.PostgresDatabase, n int64) {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		var count int64
-		// pg_stat_activity is cluster-wide; scope to this test's database so
-		// parallel tests cannot satisfy (or disturb) each other's waits.
-		if err := db.QueryRow(ctx,
-			"select count(*) from pg_stat_activity where datname = current_database() and query ilike 'listen%'",
-		).Scan(&count); err != nil {
-			t.Fatalf("pgx.Row.Scan(): %v", err)
-		}
-		if count >= n {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("wanted %d LISTEN backends, have %d", n, count)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+// policySignal adapts the shared in-memory channel the way an application
+// adapts its own: announce publishes the policy kind; watch subscribes to it
+// and blocks until ctx ends, so the subscription's stop runs when Watch
+// returns.
+func policySignal(channel *signaltest.Channel) access.ChangeSignal {
+	return access.ChangeSignalFunc(
+		func(ctx context.Context) error {
+			return channel.Signal(ctx, policyKind)
+		},
+		func(ctx context.Context, onChange func()) error {
+			stop, err := channel.Subscribe(policyKind, onChange)
+			if err != nil {
+				return errors.Wrap(err, "signaltest.Channel.Subscribe()")
+			}
+			defer stop()
+			<-ctx.Done()
+
+			return nil
+		},
+	)
 }
 
 // waitFor polls until check passes or the deadline expires.
@@ -50,17 +51,17 @@ func waitFor(t *testing.T, timeout time.Duration, msg string, check func() bool)
 	}
 }
 
-// newTestClient builds a Client instance over the shared typed-store tables.
-func newTestClient(t *testing.T, db *dbinitiator.PostgresDatabase, name string, withSignal bool, heartbeat time.Duration) *access.Client {
+// newTestClient builds a Client instance over the shared typed-store tables;
+// a nil signal configures none.
+func newTestClient(t *testing.T, db *dbinitiator.PostgresDatabase, name string, signal access.ChangeSignal, heartbeat time.Duration) *access.Client {
 	t.Helper()
 
 	opts := []access.Option{
 		access.WithHeartbeatInterval(heartbeat),
 		access.WithReloadErrorHandler(func(err error) { t.Logf("%s reload error: %v", name, err) }),
 	}
-	if withSignal {
-		// The signal rides the application's existing pool.
-		opts = append(opts, access.WithChangeSignal(postgressignal.New(db.Pool, signalChannel)))
+	if signal != nil {
+		opts = append(opts, access.WithChangeSignal(signal))
 	}
 	store, err := postgresstore.New(db.Pool)
 	if err != nil {
@@ -82,8 +83,9 @@ func newTestClient(t *testing.T, db *dbinitiator.PostgresDatabase, name string, 
 // Test_Client_policyPropagation proves the full chain on a real store: a
 // policy write on one client instance reaches another instance's snapshot
 // through the typed policy tables, via each of the two propagation paths —
-// the change signal (heartbeat pinned out of the picture) and the heartbeat
-// alone (poll-only deployments, no signal configured).
+// the change signal (the adapter over one in-memory channel, the heartbeat
+// pinned out of the picture) and the heartbeat alone (poll-only deployments,
+// no signal configured).
 var (
 	tenant1       = accesstypes.DomainScope("tenant1")
 	tenant1Policy = accesstypes.DomainPolicyScope("tenant1")
@@ -129,8 +131,15 @@ func Test_Client_policyPropagation(t *testing.T) {
 				}
 			}
 
-			writer := newTestClient(t, db, "writer", tt.withSignal, tt.heartbeatInterval)
-			reader := newTestClient(t, db, "reader", tt.withSignal, tt.heartbeatInterval)
+			// One channel stands in for the application's: both instances
+			// publish and subscribe on it.
+			channel := &signaltest.Channel{}
+			var signal access.ChangeSignal
+			if tt.withSignal {
+				signal = policySignal(channel)
+			}
+			writer := newTestClient(t, db, "writer", signal, tt.heartbeatInterval)
+			reader := newTestClient(t, db, "reader", signal, tt.heartbeatInterval)
 
 			readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
@@ -141,10 +150,12 @@ func Test_Client_policyPropagation(t *testing.T) {
 				t.Fatalf("reader WaitReady() error = %v", err)
 			}
 			if tt.withSignal {
-				// Both clients' watches must be listening before the writes,
+				// Both clients' watches must be subscribed before the writes,
 				// or the announces could be lost (and the pinned heartbeat
 				// would hide them).
-				waitForListeners(ctx, t, db, 2)
+				waitFor(t, 15*time.Second, "the clients never subscribed to the policy kind", func() bool {
+					return channel.Subscribers(policyKind) == 2
+				})
 			}
 
 			mgr := writer.UserManager()
@@ -174,6 +185,10 @@ func Test_Client_policyPropagation(t *testing.T) {
 
 				return decisions["employees"].IsGranted()
 			})
+
+			if got := len(channel.Signals()); (got > 0) != tt.withSignal {
+				t.Fatalf("channel saw %d signals, want some = %v", got, tt.withSignal)
+			}
 		})
 	}
 }

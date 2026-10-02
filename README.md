@@ -137,11 +137,11 @@ func main() {
 Permission checks are served from an immutable in-memory snapshot: lock-free,
 allocation-free, and never touching the database on the request path. Policy
 changes propagate between instances in near-realtime through a change signal
-(recommended — see below), with a background heartbeat as the correctness
-backstop: it re-reads the policy store (default every 1m) and swaps in a new
-snapshot only when the content changed, so cross-instance staleness is bounded
-by the heartbeat interval even if the signal breaks. Writes made through this
-client are visible to its own checks immediately.
+the application supplies (see Change signal below), with a background heartbeat
+as the correctness backstop: it re-reads the policy store (default every 1m) and
+swaps in a new snapshot only when the content changed, so cross-instance
+staleness is bounded by the heartbeat interval even if the signal breaks. Writes
+made through this client are visible to its own checks immediately.
 
 The snapshot compiles the release's default roles from the role file beside the
 store's rows, in three parts: the global partition; the policy held in every
@@ -153,8 +153,6 @@ every-domain part alone, so a membership held in every domain reaches that
 tenant, and a thousand tenants share one compiled copy of the defaults.
 
 ```go
-import "github.com/cccteam/access/postgressignal"
-
 client, err := access.New(store,
     // The release's default roles: the role file embedded in the binary,
     // validated against what the release declares (see Default Roles). The
@@ -163,9 +161,9 @@ client, err := access.New(store,
     // carrying it. An application with no role file passes
     // access.WithPermissionCollection(router.Collection()) for that check.
     access.WithDefaultRoles(router.Collection(), roles.File),
-    // Recommended: propagate changes between instances in near-realtime.
-    // Rides the app's existing pgx pool.
-    access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
+    // Recommended: propagate changes between instances in near-realtime over
+    // the application's signal channel (see Change signal).
+    access.WithChangeSignal(policySignal),
     // Optional: tune the heartbeat backstop (default 1m).
     access.WithHeartbeatInterval(30*time.Second),
     // Optional: replace the hook that receives background reload/signal
@@ -206,17 +204,57 @@ A custom role's grant set changes through `ChangeRoleGrants`, one store write
 for the removals and the additions together, so a reader never sees a role
 with neither its old grant nor its new one.
 
-The push signal is a latency optimization only — correctness never depends on
-it. For Spanner environments (no LISTEN/NOTIFY), the `firebasesignal`
-subpackage provides the equivalent over a Firestore document watch:
+### Change signal
+
+The engine announces on the change signal after every successful policy write
+and watches it for the hints other instances announce. A hint only nudges the
+background loop to re-read the policy store: the signal carries no policy, so a
+lost or duplicated hint costs latency and nothing else. Announce failures and
+watch errors reach the reload-error hook and never fail the write.
+
+The application supplies the signal as an adapter over its one signal channel,
+through `access.ChangeSignalFunc(announce, watch)`. `announce` publishes the
+policy kind on the channel. `watch` subscribes to the policy kind, hands every
+signal to the `onChange` the engine passes, and blocks until its context ends;
+that is the `Watch` contract, and it keeps the subscription open for the life of
+the client, its stop running when `watch` returns. Whenever `watch` returns
+early (a subscription that ended), the engine re-invokes it after a delay, so a
+`watch` that returns on connection loss is enough.
+
+The heartbeat is the backstop. With or without a signal, the engine re-reads the
+policy store every heartbeat interval (default 1m, `WithHeartbeatInterval`) and
+swaps in a new snapshot only when the content changed, so cross-instance
+staleness is bounded by that interval while the signal is broken or absent.
+Correctness never depends on the signal.
+
+An application built on the resource package has the channel already: its
+`live.Service` (package `github.com/cccteam/ccc/resource/live`) carries
+`Signal(ctx, kind)` and `Subscribe(kind, onSignal) (stop, err)` over the signal
+kinds the resource package declares, and `resource.KindPolicy` is the policy
+kind. The adapter over it, where `svc` is the application's `live.Service`:
 
 ```go
-import "github.com/cccteam/access/firebasesignal"
+policySignal := access.ChangeSignalFunc(
+    func(ctx context.Context) error {
+        return svc.Signal(ctx, resource.KindPolicy)
+    },
+    func(ctx context.Context, onChange func()) error {
+        stop, err := svc.Subscribe(resource.KindPolicy, onChange)
+        if err != nil {
+            return err
+        }
+        defer stop()
+        <-ctx.Done()
 
-fsClient, _ := firestore.NewClient(ctx, projectID)
-signal, err := firebasesignal.New(fsClient, "access/policy")
-client, err := access.New(store, access.WithChangeSignal(signal))
+        return nil
+    },
+)
+
+client, err := access.New(store, access.WithChangeSignal(policySignal))
 ```
+
+Any channel that publishes a kind to every instance's subscribers adapts the
+same way.
 
 ## API Usage
 
@@ -486,7 +524,7 @@ Hand it to `New` with the collection it validates against:
 ```go
 client, err := access.New(store,
     access.WithDefaultRoles(router.Collection(), roles.File),
-    access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
+    access.WithChangeSignal(policySignal), // see Change signal
 )
 if err != nil {
     return err // includes a role file that does not parse or does not validate
