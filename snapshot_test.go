@@ -539,8 +539,8 @@ func assertMatchesRBACOracle(t *testing.T, snap *snapshot, subject string, grant
 // and, when the collection is known, a permission, resource or field the
 // release does not declare. A scope-wide grant's permission is not checked
 // against the collection, which lists only the permissions resources require.
-// Schema validation of conditions (binding names against the collection) stays
-// MigrateRoles' job.
+// Schema validation of conditions (binding names against the collection) is not
+// the snapshot's job: the role file's validation does it for the release's grants.
 func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	t.Parallel()
 
