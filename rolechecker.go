@@ -8,10 +8,10 @@ import (
 )
 
 // RoleResourceChecker is the engine surface a RoleChecker delegates to: the
-// check call that answers enforcement, and the digest and domain calls that
+// check call that answers enforcement, and the digest and foothold calls that
 // answer the frontend's advisory questions — the role twin of
 // UserResourceChecker. *Client satisfies it; test doubles satisfy it with the
-// role check they already script plus digest and domain stubs.
+// role check they already script plus digest and foothold stubs.
 type RoleResourceChecker interface {
 	CheckRoleResources(
 		ctx context.Context, env accesstypes.Environment, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
@@ -19,7 +19,7 @@ type RoleResourceChecker interface {
 
 	RolePermissionDigest(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
-	RoleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error)
+	RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error)
 }
 
 // RoleChecker is the request-bound permission checker for one role: what a
@@ -72,16 +72,17 @@ func (r *RoleChecker) PermissionDigest(ctx context.Context, scope accesstypes.Sc
 	return digest, nil
 }
 
-// Domains lists the domains where the bound role holds at least one grant,
-// sorted — the tenant picker's membership question. It is a pure delegate to
-// RoleDomains; see Client.RoleDomains for the foothold semantics.
-func (r *RoleChecker) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
-	domains, err := r.checker.RoleDomains(ctx, r.role)
+// HasGrants reports whether the bound role holds at least one grant in scope
+// — the foothold a session operating as the role has there. It is a pure
+// delegate to RoleHasGrants; see Client.RoleHasGrants for the foothold
+// semantics.
+func (r *RoleChecker) HasGrants(ctx context.Context, scope accesstypes.Scope) (bool, error) {
+	has, err := r.checker.RoleHasGrants(ctx, r.role, scope)
 	if err != nil {
-		return nil, errors.Wrap(err, "access.RoleResourceChecker.RoleDomains()")
+		return false, errors.Wrap(err, "access.RoleResourceChecker.RoleHasGrants()")
 	}
 
-	return domains, nil
+	return has, nil
 }
 
 // Role returns the bound role.

@@ -1,19 +1,19 @@
 package access
 
 import (
-	"context"
-	"fmt"
+	"bytes"
+	"encoding/json"
 	"slices"
 	"strings"
 
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
-	"github.com/cccteam/ccc/tracer"
 	"github.com/go-playground/errors/v5"
 )
 
-// PermissionCollection is the set of permission-registry and condition-vocabulary
-// operations MigrateRoles draws on. *resource.GeneratedCollection satisfies this
-// interface.
+// PermissionCollection is the set of permission-registry and
+// condition-vocabulary operations the role file validates against.
+// *resource.GeneratedCollection satisfies this interface.
 type PermissionCollection interface {
 	List() map[accesstypes.Permission][]accesstypes.Resource
 	Scope(res accesstypes.Resource) accesstypes.PermissionScope
@@ -56,7 +56,31 @@ type PermissionCollection interface {
 	ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag)
 }
 
-// RoleConfig contains the roles to migrate, declared by scope.
+// RoleFile is the bytes of a role file: the release's default roles, authored
+// as JSON in the RoleConfig shape and embedded in the application binary
+// (//go:embed roles.json). It is handed to New through WithDefaultRoles,
+// which parses and validates it, so a release whose file is malformed or
+// names what its collection does not declare does not start.
+type RoleFile []byte
+
+// Parse decodes the file into its configuration. The shape is RoleConfig's;
+// a field the shape does not declare is an error, since a misspelled key
+// would otherwise silently drop the roles under it.
+func (f RoleFile) Parse() (*RoleConfig, error) {
+	if len(bytes.TrimSpace(f)) == 0 {
+		return nil, errors.New("the role file is empty")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(f))
+	decoder.DisallowUnknownFields()
+	config := &RoleConfig{}
+	if err := decoder.Decode(config); err != nil {
+		return nil, errors.Wrap(err, "the role file does not parse")
+	}
+
+	return config, nil
+}
+
+// RoleConfig contains the release's default roles, declared by scope.
 type RoleConfig struct {
 	Roles ScopedRoles `json:"roles"`
 }
@@ -64,13 +88,12 @@ type RoleConfig struct {
 // ScopedRoles declares every role at exactly one scope, structurally — each
 // scope its own JSON key, mirroring how accesstypes.Scope and role assignments
 // express the global partition. A role describes powers at one scope: a global
-// role carries grants on global-scoped resources and is reconciled into the
-// global partition only; a domain role carries grants on domain-scoped
-// resources and is reconciled into every tenant partition. A grant whose
-// resource's scope contradicts the role's declared scope fails the migration —
-// it would otherwise be provisioned into a partition the role's holders never
-// look in. A job function needing both kinds of powers is two roles assigned
-// to one user, never one mixed role.
+// role carries grants on global-scoped resources and is held in the global
+// partition only; a domain role carries grants on domain-scoped resources and
+// reaches every tenant domain. A grant whose resource's scope contradicts the
+// role's declared scope fails validation — it would otherwise be held where
+// the role's holders never look. A job function needing both kinds of powers
+// is two roles assigned to one user, never one mixed role.
 type ScopedRoles struct {
 	Global []*Role `json:"global"`
 	Domain []*Role `json:"domain"`
@@ -84,17 +107,17 @@ type Role struct {
 
 // Grant is one authored unit of a role's configuration: a permission (the map
 // key above) on one resource, covering a field set, optionally limited by one
-// condition. MigrateRoles expands it into the stored base and field grant
-// rows, all carrying the same condition — the construction invariant the
-// check seams and the read gate lean on: a conditional base decision's
-// payload is always exactly the union its field decisions deliver.
+// condition. It expands into the base and field grant rows, all carrying the
+// same condition — the construction invariant the check seams and the read
+// gate lean on: a conditional base decision's payload is always exactly the
+// union its field decisions deliver.
 //
 // A role may carry several grants on one resource for one permission, each
-// with a different condition: the condition is part of a stored row's
-// identity, so each grant's rows stand beside the others' and the engine sees
-// them exactly as it would had they arrived through separate roles (any
-// unconditional cover settles a decision as Granted). Two grants with the
-// same condition are one grant written twice and are rejected.
+// with a different condition: the condition is part of a grant's identity, so
+// each grant's rows stand beside the others' and the engine sees them exactly
+// as it would had they arrived through separate roles (any unconditional
+// cover settles a decision as Granted). Two grants with the same condition
+// are one grant written twice and are rejected.
 type Grant struct {
 	// Resource is the base resource name. A dotted field resource is legal
 	// only as a bare mechanical grant (no Fields, no Condition) — fields
@@ -124,109 +147,135 @@ func (g Grant) expand() []accesstypes.Resource {
 	return resources
 }
 
-// MigrateRoles applies role configuration across the given tenant domains:
-// adds missing roles, grants, and conditions, and removes extras. The
-// configuration is the complete statement of the store's roles: nothing is
-// provisioned that it does not declare, and a role it no longer names is
-// deleted. A role a user still holds cannot be deleted, so a stale role fails
-// the migration naming it; remove its memberships, or author it in the
-// configuration. A role declared with no grants is created and holds nothing.
-//
-// Roles are declared at exactly one scope (see ScopedRoles): global roles are
-// reconciled into the global partition only, domain roles into every tenant
-// partition, and a role whose grants contradict its declared scope fails the
-// migration.
-//
-// The caller states its tenant universe explicitly; the global scope is
-// always included structurally (global-scoped grants live there), so
-// global-only applications pass no domains at all. Domains are opaque tenant
-// labels — any string is a legal tenant name, their validity is the caller's
-// business, and a domain not listed here is never reconciled.
-//
-// A configuration MigrateRoles accepts can still carry a shape worth a word: a
-// conditional Delete, Update, or targeted Execute in a role that can neither
-// Read nor List the row it checks (GrantWarning), or a conditional List grant
-// on a field the resource sorts or filters by whose masked cells conceal, so
-// this role's pages sort the tenant's partition (ConcealingKeyWarning). Such a
-// grant is provisioned as written and reported as a "Warning:" line beside
-// the Added and Removed lines. ValidateRoles returns the same warnings without
-// a store.
-func MigrateRoles(ctx context.Context, client UserManager, store PermissionCollection, roleConfig *RoleConfig, domains ...accesstypes.Domain) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	// Everything the configuration can get wrong is settled before the store
-	// is touched: an invalid file removes and adds nothing.
-	plan, warnings, err := planRoles(store, roleConfig)
-	if err != nil {
-		return err
-	}
-	for _, w := range warnings {
-		fmt.Printf("Warning: %s\n", w)
-	}
-
-	scopes := make([]accesstypes.Scope, 0, len(domains)+1)
-	scopes = append(scopes, accesstypes.GlobalScope())
-	for _, d := range domains {
-		scopes = append(scopes, accesstypes.DomainScope(d))
-	}
-
-	if err := bootstrapRoles(ctx, client, plan, scopes); err != nil {
-		return errors.Wrap(err, "bootstrapRoles()")
-	}
-
-	return nil
-}
-
-// ValidateRoles checks a role configuration the way MigrateRoles does before
-// it touches the store — role names, grant grammar, every condition against
-// the collection's vocabulary, each grant at its role's declared scope — and
+// ValidateRoles checks a role configuration the way New does before it
+// accepts the file — role names, grant grammar, every condition against the
+// collection's vocabulary, each grant at its role's declared scope — and
 // returns the warnings the configuration raises (see Warning), with no store
-// client involved. A project test or a tool gets the answer the deploy would.
+// client involved. A project test or a tool gets the answer the release's
+// start would.
 func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warning, error) {
-	_, warnings, err := planRoles(store, roleConfig)
+	defaults, err := compileDefaultRoles(store, roleConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	return warnings, nil
+	return defaults.warnings, nil
 }
 
-// rolePlan is a role configuration validated and expanded, ready to
-// reconcile: the roles declared at each scope beside their expanded grant
-// sets, indexed alike.
-type rolePlan struct {
-	globalRoles  []*Role
-	domainRoles  []*Role
-	globalGrants []grantSet
-	domainGrants []grantSet
+// defaultRoles is a role configuration validated and expanded: the release's
+// default roles, each kind's roles beside their grant sets, the warnings the
+// configuration raises, and the grants as policy records the snapshot
+// compiles — global roles held in the global partition, domain roles held in
+// every domain. A nil *defaultRoles is a release with no default roles.
+type defaultRoles struct {
+	global   map[accesstypes.Role]grantSet
+	domain   map[accesstypes.Role]grantSet
+	warnings []Warning
+	grants   []policy.Grant
 }
 
-// planRoles validates and expands the configuration, returning the plan and
-// the warnings it raises.
-func planRoles(store PermissionCollection, roleConfig *RoleConfig) (*rolePlan, []Warning, error) {
+// compileDefaultRoles validates and expands the configuration.
+func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig) (*defaultRoles, error) {
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// The plan holds the file's roles alone: the configuration is the
-	// complete statement of the store's roles.
-	plan := &rolePlan{
-		globalRoles: roleConfig.Roles.Global,
-		domainRoles: roleConfig.Roles.Domain,
+	d := &defaultRoles{
+		global: make(map[accesstypes.Role]grantSet, len(roleConfig.Roles.Global)),
+		domain: make(map[accesstypes.Role]grantSet, len(roleConfig.Roles.Domain)),
 	}
-
-	globalGrants, globalWarnings, err := expandAllRoleGrants(store, plan.globalRoles, accesstypes.GlobalPermissionScope)
+	globalGrants, globalWarnings, err := expandAllRoleGrants(store, roleConfig.Roles.Global, accesstypes.GlobalPermissionScope)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	domainGrants, domainWarnings, err := expandAllRoleGrants(store, plan.domainRoles, accesstypes.DomainPermissionScope)
+	domainGrants, domainWarnings, err := expandAllRoleGrants(store, roleConfig.Roles.Domain, accesstypes.DomainPermissionScope)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	plan.globalGrants, plan.domainGrants = globalGrants, domainGrants
+	d.warnings = slices.Concat(globalWarnings, domainWarnings)
+	for i, r := range roleConfig.Roles.Global {
+		d.global[r.Name] = globalGrants[i]
+		d.grants = append(d.grants, grantRecords(accesstypes.GlobalPolicyScope(), r.Name, globalGrants[i])...)
+	}
+	for i, r := range roleConfig.Roles.Domain {
+		d.domain[r.Name] = domainGrants[i]
+		d.grants = append(d.grants, grantRecords(accesstypes.EveryDomainPolicyScope(), r.Name, domainGrants[i])...)
+	}
 
-	return plan, append(globalWarnings, domainWarnings...), nil
+	return d, nil
+}
+
+// grantRecords renders a role's grant set as the policy records the snapshot
+// compiles, held in scope, in a stable order.
+func grantRecords(scope accesstypes.PolicyScope, role accesstypes.Role, set grantSet) []policy.Grant {
+	var records []policy.Grant
+	for _, perm := range sortedPermissions(set) {
+		for _, res := range sortedResources(set[perm]) {
+			base, field := splitResourceField(string(res))
+			for _, condition := range sortedConditions(set[perm][res]) {
+				records = append(records, policy.Grant{
+					Scope:     scope,
+					Subject:   policy.Subject{Kind: policy.SubjectRole, Name: string(role)},
+					Perm:      perm,
+					Resource:  base,
+					Field:     field,
+					Condition: condition,
+				})
+			}
+		}
+	}
+
+	return records
+}
+
+// exists reports whether role is a default role of scope's kind: a global
+// role for the global partition, a domain role for one domain or every
+// domain. Nil-safe.
+func (d *defaultRoles) exists(scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	_, ok := d.kind(scope)[role]
+
+	return ok
+}
+
+// names lists the default roles of scope's kind, sorted. Nil-safe.
+func (d *defaultRoles) names(scope accesstypes.PolicyScope) []accesstypes.Role {
+	roles := d.kind(scope)
+	names := make([]accesstypes.Role, 0, len(roles))
+	for role := range roles {
+		names = append(names, role)
+	}
+	slices.Sort(names)
+
+	return names
+}
+
+// grantsOf returns the grant set of a default role of scope's kind, and
+// whether there is one. Nil-safe.
+func (d *defaultRoles) grantsOf(scope accesstypes.PolicyScope, role accesstypes.Role) (grantSet, bool) {
+	set, ok := d.kind(scope)[role]
+
+	return set, ok
+}
+
+// allGrants returns the defaults' grants as policy records. Nil-safe.
+func (d *defaultRoles) allGrants() []policy.Grant {
+	if d == nil {
+		return nil
+	}
+
+	return d.grants
+}
+
+// kind returns the default roles of scope's kind. Nil-safe.
+func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]grantSet {
+	if d == nil {
+		return nil
+	}
+	if scope.IsGlobal() {
+		return d.global
+	}
+
+	return d.domain
 }
 
 // validateRoleNames enforces the declaration grammar: every role name is
@@ -255,7 +304,7 @@ func validateRoleNames(roles ScopedRoles) error {
 	return check(roles.Domain, "domain")
 }
 
-// grantSet is one permission scope's desired grant rows: for each permission
+// grantSet is one role's grant rows: for each permission
 // and stored resource, the set of conditions it is granted under ("" = the
 // unconditional row). Each (permission, resource, condition) triple is one
 // stored row.
@@ -272,116 +321,24 @@ func (s grantSet) add(perm accesstypes.Permission, res accesstypes.Resource, con
 	s[perm][res][condition] = struct{}{}
 }
 
-// has reports whether the row is in the set.
-func (s grantSet) has(perm accesstypes.Permission, res accesstypes.Resource, condition string) bool {
-	_, ok := s[perm][res][condition]
-
-	return ok
-}
-
 // reads reports whether the set holds Read or List on the resource under any
 // condition — a path through which the role sees the resource's rows.
 func (s grantSet) reads(res accesstypes.Resource) bool {
 	return len(s[accesstypes.Read][res]) > 0 || len(s[accesstypes.List][res]) > 0
 }
 
-// grantSetFrom converts a role's listed grants into a set.
-func grantSetFrom(listed map[accesstypes.Permission]map[accesstypes.Resource][]string) grantSet {
-	set := make(grantSet)
-	for perm, resources := range listed {
+// listed renders the set in the shape UserManager.RoleGrants speaks: each
+// resource's conditions, sorted.
+func (s grantSet) listed() map[accesstypes.Permission]map[accesstypes.Resource][]string {
+	out := make(map[accesstypes.Permission]map[accesstypes.Resource][]string, len(s))
+	for perm, resources := range s {
+		out[perm] = make(map[accesstypes.Resource][]string, len(resources))
 		for res, conditions := range resources {
-			for _, c := range conditions {
-				set.add(perm, res, c)
-			}
+			out[perm][res] = sortedConditions(conditions)
 		}
 	}
 
-	return set
-}
-
-// bootstrapRoles reconciles the plan into every scope partition: roles a
-// partition holds that the plan does not name are removed, then each planned
-// role is brought to its grant set.
-func bootstrapRoles(ctx context.Context, client UserManager, plan *rolePlan, scopes []accesstypes.Scope) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := removeUnusedRoles(ctx, scopes, client, plan.globalRoles, plan.domainRoles); err != nil {
-		return err
-	}
-
-	for _, scope := range scopes {
-		roles, grants := plan.domainRoles, plan.domainGrants
-		if scope.IsGlobal() {
-			roles, grants = plan.globalRoles, plan.globalGrants
-		}
-
-		for i, r := range roles {
-			if err := reconcileRole(ctx, client, scope, r.Name, grants[i]); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// reconcileRole brings one role in one scope partition to its desired grant
-// set: the role row is created if missing, then the extra grants are removed
-// and the missing ones added in one store write, so the role is never seen
-// with neither its old grant nor its new one, and an interrupted write leaves
-// it as it was.
-func reconcileRole(ctx context.Context, client UserManager, scope accesstypes.Scope, role accesstypes.Role, desired grantSet) error {
-	roleFound, err := client.RoleExists(ctx, scope, role)
-	if err != nil {
-		return errors.Wrapf(err, "role %q in scope %s", role, scope)
-	}
-	if !roleFound {
-		if err := client.AddRole(ctx, scope, role); err != nil {
-			return errors.Wrapf(err, "role %q to scope %s", role, scope)
-		}
-		fmt.Printf("Added role %q to scope %s\n", role, scope)
-	}
-
-	listed, err := client.RoleGrants(ctx, scope, role)
-	if err != nil {
-		return errors.Wrapf(err, "role %q to scope %s", role, scope)
-	}
-	existing := grantSetFrom(listed)
-
-	// A row is identified by its condition too, so a grant whose condition
-	// changed is one row removed and another added, in the same write.
-	removals := diffGrants(existing, desired)
-	additions := diffGrants(desired, existing)
-	remove, add := grantRows(removals), grantRows(additions)
-	if len(remove) == 0 && len(add) == 0 {
-		return nil
-	}
-	if err := client.ChangeRoleGrants(ctx, scope, role, remove, add); err != nil {
-		return errors.Wrapf(err, "removing %d and adding %d grants of role %s in scope %s", len(remove), len(add), role, scope)
-	}
-	for _, perm := range sortedPermissions(removals) {
-		fmt.Printf("Removed %s on %v from role %s in scope %s\n", perm, sortedResources(removals[perm]), role, scope)
-	}
-	for _, perm := range sortedPermissions(additions) {
-		fmt.Printf("Added %s on %v to role %s in scope %s\n", perm, sortedResources(additions[perm]), role, scope)
-	}
-
-	return nil
-}
-
-// grantRows lists a grant set as rows, in a stable order.
-func grantRows(set grantSet) []GrantRow {
-	var rows []GrantRow
-	for _, perm := range sortedPermissions(set) {
-		for _, res := range sortedResources(set[perm]) {
-			for _, condition := range sortedConditions(set[perm][res]) {
-				rows = append(rows, GrantRow{Permission: perm, Resource: res, Condition: condition})
-			}
-		}
-	}
-
-	return rows
+	return out
 }
 
 // expandAllRoleGrants expands each role's grants, indexed like the input
@@ -409,7 +366,7 @@ func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared acc
 }
 
 // expandRoleGrants validates one role's authored grants against its declared
-// scope and expands them into the grant set MigrateRoles reconciles. A grant on
+// scope and expands them into the role's grant set. A grant on
 // a resource whose scope contradicts the declaration is rejected: it would be
 // provisioned into a partition the role's holders never look in.
 func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.PermissionScope) (grantSet, error) {
@@ -477,57 +434,6 @@ func (a authoredGrants) note(perm accesstypes.Permission, res accesstypes.Resour
 	a[perm][res][condition] = struct{}{}
 
 	return false
-}
-
-// removeUnusedRoles deletes every role a scope partition holds that its
-// declared role list no longer names — the global list for the global scope,
-// the domain list for every tenant scope.
-func removeUnusedRoles(ctx context.Context, scopes []accesstypes.Scope, client UserManager, globalRoles, domainRoles []*Role) error {
-	for _, scope := range scopes {
-		declared := domainRoles
-		if scope.IsGlobal() {
-			declared = globalRoles
-		}
-
-		existingRoles, err := client.Roles(ctx, scope)
-		if err != nil {
-			return errors.Wrap(err, "client.Roles()")
-		}
-
-	EXISTING:
-		for _, er := range existingRoles {
-			for _, nr := range declared {
-				if nr.Name == er {
-					continue EXISTING
-				}
-			}
-			if _, err := client.DeleteRole(ctx, scope, er); err != nil {
-				return errors.Wrap(err, "client.DeleteRole()")
-			}
-			fmt.Printf("Removed old Role %s from scope %s\n", er, scope)
-		}
-	}
-
-	return nil
-}
-
-// diffGrants returns the rows present in source and absent from exclude. A
-// row is a (permission, resource, condition) triple, so a grant with a changed
-// condition lands in both the removal and addition halves of a reconciliation.
-func diffGrants(source, exclude grantSet) grantSet {
-	out := make(grantSet)
-	for perm, resources := range source {
-		for res, conditions := range resources {
-			for condition := range conditions {
-				if exclude.has(perm, res, condition) {
-					continue
-				}
-				out.add(perm, res, condition)
-			}
-		}
-	}
-
-	return out
 }
 
 func sortedPermissions(s grantSet) []accesstypes.Permission {

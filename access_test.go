@@ -57,13 +57,13 @@ func TestClient_CheckUser_returnsDecision(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermission(ctx, tenant1, "Editor", "Read"); err != nil {
+	if err := manager.AddRolePermission(ctx, tenant1.PolicyScope(), "Editor", "Read"); err != nil {
 		t.Fatalf("AddRolePermission() error = %v", err)
 	}
-	if err := manager.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+	if err := manager.AddRoleUsers(ctx, tenant1.PolicyScope(), "Editor", "erin"); err != nil {
 		t.Fatalf("AddRoleUsers() error = %v", err)
 	}
 
@@ -127,13 +127,13 @@ func TestClient_CheckUserResources_returnsDecisions(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees", "employees.name"); err != nil {
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
-	if err := manager.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+	if err := manager.AddRoleUsers(ctx, tenant1.PolicyScope(), "Editor", "erin"); err != nil {
 		t.Fatalf("AddRoleUsers() error = %v", err)
 	}
 
@@ -208,7 +208,7 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 	})
 
 	tenant1 := accesstypes.DomainScope("tenant1")
-	if err := store.InsertRole(ctx, tenant1, "Editor"); err != nil {
+	if err := store.InsertRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
 	for _, g := range []struct {
@@ -221,11 +221,11 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 		{resource: "widgets", field: "*"},
 		{resource: "widgets", field: "name", condition: "owner = subject"},
 	} {
-		if err := store.InsertGrant(ctx, tenant1, "Editor", "Update", g.resource, g.field, g.condition); err != nil {
+		if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Editor", "Update", g.resource, g.field, g.condition); err != nil {
 			t.Fatalf("InsertGrant(%v) error = %v", g, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, tenant1, "erin", "Editor"); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Editor"); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -283,13 +283,13 @@ func TestClient_CheckUserResources_unknownTenantFailsClosed(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees"); err != nil {
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
-	if err := manager.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+	if err := manager.AddRoleUsers(ctx, tenant1.PolicyScope(), "Editor", "erin"); err != nil {
 		t.Fatalf("AddRoleUsers() error = %v", err)
 	}
 
@@ -336,16 +336,16 @@ func TestClient_CheckUser_conditionFolding(t *testing.T) {
 	})
 
 	tenant1 := accesstypes.DomainScope("tenant1")
-	if err := store.InsertRole(ctx, tenant1, "Chief"); err != nil {
+	if err := store.InsertRole(ctx, tenant1.PolicyScope(), "Chief"); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := store.InsertGrant(ctx, tenant1, "Chief", "Approve", "", "", "now < '2027-03-01T00:00:00Z'"); err != nil {
+	if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Chief", "Approve", "", "", "now < '2027-03-01T00:00:00Z'"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertGrant(ctx, tenant1, "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
+	if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, tenant1, "erin", "Chief"); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Chief"); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -421,10 +421,10 @@ func TestClient_CheckRole_returnsDecision(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermission(ctx, tenant1, "Editor", "Read"); err != nil {
+	if err := manager.AddRolePermission(ctx, tenant1.PolicyScope(), "Editor", "Read"); err != nil {
 		t.Fatalf("AddRolePermission() error = %v", err)
 	}
 
@@ -489,10 +489,10 @@ func TestClient_CheckRoleResources_returnsDecisions(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees", "employees.name"); err != nil {
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
 
@@ -563,7 +563,7 @@ func TestClient_CheckRoleResources_conditionalDecision(t *testing.T) {
 	})
 
 	tenant1 := accesstypes.DomainScope("tenant1")
-	if err := store.InsertRole(ctx, tenant1, "Editor"); err != nil {
+	if err := store.InsertRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
 	for _, g := range []struct {
@@ -576,7 +576,7 @@ func TestClient_CheckRoleResources_conditionalDecision(t *testing.T) {
 		{resource: "widgets", field: "*"},
 		{resource: "widgets", field: "name", condition: "owner = subject"},
 	} {
-		if err := store.InsertGrant(ctx, tenant1, "Editor", "Update", g.resource, g.field, g.condition); err != nil {
+		if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Editor", "Update", g.resource, g.field, g.condition); err != nil {
 			t.Fatalf("InsertGrant(%v) error = %v", g, err)
 		}
 	}
@@ -635,13 +635,13 @@ func TestClient_CheckRole_conditionFolding(t *testing.T) {
 	})
 
 	tenant1 := accesstypes.DomainScope("tenant1")
-	if err := store.InsertRole(ctx, tenant1, "Chief"); err != nil {
+	if err := store.InsertRole(ctx, tenant1.PolicyScope(), "Chief"); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := store.InsertGrant(ctx, tenant1, "Chief", "Approve", "", "", "now < '2027-03-01T00:00:00Z'"); err != nil {
+	if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Chief", "Approve", "", "", "now < '2027-03-01T00:00:00Z'"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertGrant(ctx, tenant1, "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
+	if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 

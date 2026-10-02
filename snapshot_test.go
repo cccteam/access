@@ -30,7 +30,7 @@ func userSubject(name string) policy.Subject {
 // compileSnapshot compiles fixture records through the shared compiler.
 func compileSnapshot(t *testing.T, records *policy.Records) *snapshot {
 	t.Helper()
-	snap, _, err := newSnapshot(records, nil, time.Now())
+	snap, _, err := newSnapshot(records, nil, nil, time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -93,17 +93,17 @@ func Test_snapshot_decideUserResources(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
-			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Auditor"},
-			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: roleSubject("Editor"), Role: "Chief"},
 		},
 	})
 
@@ -212,25 +212,25 @@ func Test_snapshot_decideUserResources_conditions(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1Scope, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
-			{Scope: tenant1Scope, Subject: roleSubject("ServicingAgent"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
-			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
-			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
-			{Scope: tenant1Scope, Subject: roleSubject("Owner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
-			{Scope: tenant1Scope, Subject: roleSubject("CoOwner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "*"},
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "title", Condition: "unpublished = false"},
-			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+			{Scope: tenant1Policy, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
+			{Scope: tenant1Policy, Subject: roleSubject("ServicingAgent"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
+			{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
+			{Scope: tenant1Policy, Subject: roleSubject("Owner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+			{Scope: tenant1Policy, Subject: roleSubject("CoOwner"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "*"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "docs", Field: "title", Condition: "unpublished = false"},
+			{Scope: tenant1Policy, Subject: userSubject("hank"), Perm: "Update", Resource: "notes", Field: "body", Condition: "owner = subject"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "DraftEditor"},
-			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "ServicingAgent"},
-			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Auditor"},
-			{Scope: tenant1Scope, Member: userSubject("frank"), Role: "Auditor"},
-			{Scope: tenant1Scope, Member: userSubject("frank"), Role: "Chief"},
-			{Scope: tenant1Scope, Member: userSubject("gina"), Role: "Owner"},
-			{Scope: tenant1Scope, Member: userSubject("gina"), Role: "CoOwner"},
-			{Scope: tenant1Scope, Member: userSubject("carol"), Role: "Editor"},
+			{Scope: tenant1Policy, Member: userSubject("dana"), Role: "DraftEditor"},
+			{Scope: tenant1Policy, Member: userSubject("dana"), Role: "ServicingAgent"},
+			{Scope: tenant1Policy, Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: tenant1Policy, Member: userSubject("frank"), Role: "Auditor"},
+			{Scope: tenant1Policy, Member: userSubject("frank"), Role: "Chief"},
+			{Scope: tenant1Policy, Member: userSubject("gina"), Role: "Owner"},
+			{Scope: tenant1Policy, Member: userSubject("gina"), Role: "CoOwner"},
+			{Scope: tenant1Policy, Member: userSubject("carol"), Role: "Editor"},
 		},
 	})
 
@@ -336,15 +336,15 @@ func Test_snapshot_decideUserResources_oneRoleTwoConditions(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state = 'new'"},
-			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state IN ('new', 'approved')"},
-			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "notes", Condition: "state = 'new'"},
-			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
-			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state = 'new'"},
-			{Scope: tenant1Scope, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Policy, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state = 'new'"},
+			{Scope: tenant1Policy, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Policy, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "notes", Condition: "state = 'new'"},
+			{Scope: tenant1Policy, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "phone", Condition: "state IN ('new', 'approved')"},
+			{Scope: tenant1Policy, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state = 'new'"},
+			{Scope: tenant1Policy, Subject: roleSubject("Dispatcher"), Perm: "Update", Resource: "loans", Field: "owner", Condition: "state IN ('new', 'approved')"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1Scope, Member: userSubject("dana"), Role: "Dispatcher"},
+			{Scope: tenant1Policy, Member: userSubject("dana"), Role: "Dispatcher"},
 		},
 	})
 
@@ -468,20 +468,20 @@ func Test_snapshot_zeroConditionsMatchesRBAC(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
-			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
-			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "List"},
-			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
-			{Scope: tenant2Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "*"},
-			{Scope: tenant1Scope, Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "documents", Field: "*"},
+			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "List", Resource: "widgets"},
+			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "List"},
+			{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: tenant2Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "*"},
+			{Scope: tenant1Policy, Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Editor"},
-			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Auditor"},
-			{Scope: tenant1Scope, Member: roleSubject("Editor"), Role: "Chief"},
-			{Scope: tenant2Scope, Member: userSubject("dana"), Role: "Editor"},
+			{Scope: tenant1Policy, Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1Policy, Member: userSubject("erin"), Role: "Auditor"},
+			{Scope: tenant1Policy, Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: tenant2Policy, Member: userSubject("dana"), Role: "Editor"},
 		},
 	})
 
@@ -557,89 +557,89 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 	}{
 		{
 			name:       "a condition that does not parse",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "price", Condition: "state = "},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Widgets.price", Condition: "state = "},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "price", Condition: "state = "},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Widgets.price", Condition: "state = "},
 			wantReason: "does not parse",
 		},
 		{
 			name:       "a row-referencing condition on a scope-wide grant",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Approve", Resource: "", Condition: "state = 'new'"},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Approve", Resource: "", Condition: "state = 'new'"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Approve", Resource: "", Condition: "state = 'new'"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Approve", Resource: "", Condition: "state = 'new'"},
 			wantReason: "row-referencing condition on a scope-wide grant",
 		},
 		{
 			name:  "a row-free condition on a scope-wide grant is kept",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Approve", Resource: "", Condition: "now < '2027-03-01T00:00:00Z'"},
 		},
 		{
 			name:  "a conditional field grant is kept",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "price", Condition: "price < 100"},
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "price", Condition: "price < 100"},
 		},
 		{
 			name:  "an unconditional field grant is kept",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "name"},
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "name"},
 		},
 		{
 			name:       "a permission the release does not declare",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Fly", Resource: "Widgets"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: "Widgets"},
 			collection: grammarCollection{},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Fly", Resource: "Widgets"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Fly", Resource: "Widgets"},
 			wantReason: "this release has no permission Fly",
 		},
 		{
 			name:       "a resource the release does not declare",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets"},
 			collection: grammarCollection{},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
 			wantReason: "this release declares no Read on Gadgets",
 		},
 		{
 			name:       "a field the release does not declare",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "weight"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets", Field: "weight"},
 			collection: grammarCollection{},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Widgets.weight"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Widgets.weight"},
 			wantReason: "this release declares no Read on Widgets.weight",
 		},
 		{
 			name:       "a field the release declares for another permission only",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "name"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "name"},
 			collection: grammarCollection{},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Update", Resource: "Widgets.name"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Update", Resource: "Widgets.name"},
 			wantReason: "this release declares no Update on Widgets.name",
 		},
 		{
 			name:       "all fields of a declared resource are kept",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "*"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Update", Resource: "Widgets", Field: "*"},
 			collection: grammarCollection{},
 			check:      "Widgets.price",
 		},
 		{
 			name:       "all fields of an undeclared resource",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets", Field: "*"},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets", Field: "*"},
 			collection: grammarCollection{},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Gadgets"},
 			wantReason: "this release declares no Read on Gadgets",
 		},
 		{
 			name:       "a scope-wide grant is not checked against the collection",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Fly", Resource: ""},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Fly", Resource: ""},
 			collection: grammarCollection{},
 		},
 		{
 			name:  "names are not checked without a collection",
-			grant: policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets"},
+			grant: policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets"},
 		},
 		{
 			name:       "an undeclared name and a bad condition: one report, the name first",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Gadgets", Condition: "state = "},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Gadgets", Condition: "state = "},
 			collection: grammarCollection{},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "role Chief", Permission: "Read", Resource: "Gadgets", Condition: "state = "},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "role Chief", Permission: "Read", Resource: "Gadgets", Condition: "state = "},
 			wantReason: "this release declares no Read on Gadgets",
 		},
 		{
 			name:       "a user's own grant is reported as the user's",
-			grant:      policy.Grant{Scope: tenant1Scope, Subject: userSubject("cleo"), Perm: "Read", Resource: "Widgets", Field: "price", Condition: "state = "},
-			wantSkip:   &SkippedGrant{Scope: tenant1Scope, Subject: "user cleo", Permission: "Read", Resource: "Widgets.price", Condition: "state = "},
+			grant:      policy.Grant{Scope: tenant1Policy, Subject: userSubject("cleo"), Perm: "Read", Resource: "Widgets", Field: "price", Condition: "state = "},
+			wantSkip:   &SkippedGrant{Scope: tenant1Policy, Subject: "user cleo", Permission: "Read", Resource: "Widgets.price", Condition: "state = "},
 			wantReason: "does not parse",
 		},
 	}
@@ -650,13 +650,14 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 			// The sibling grant stays with the role whatever happens to the one
 			// under test, and cleo holds the role.
 			records := &policy.Records{
+				Roles: []policy.Role{{Scope: tenant1Policy, Name: "Chief"}},
 				Grants: []policy.Grant{
-					{Scope: tenant1Scope, Subject: chief, Perm: "Read", Resource: "Widgets"},
+					{Scope: tenant1Policy, Subject: chief, Perm: "Read", Resource: "Widgets"},
 					tt.grant,
 				},
-				Memberships: []policy.Membership{{Scope: tenant1Scope, Member: userSubject("cleo"), Role: "Chief"}},
+				Memberships: []policy.Membership{{Scope: tenant1Policy, Member: userSubject("cleo"), Role: "Chief"}},
 			}
-			snap, skipped, err := newSnapshot(records, tt.collection, time.Now())
+			snap, skipped, err := newSnapshot(records, nil, tt.collection, time.Now())
 			if err != nil {
 				t.Fatalf("newSnapshot() error = %v, want the load to complete", err)
 			}
@@ -688,7 +689,10 @@ func Test_newSnapshot_skipsGrantsTheReleaseCannotUse(t *testing.T) {
 			if len(skipped) != 1 {
 				t.Fatalf("skipped %d grants, want 1: %v", len(skipped), skipped)
 			}
-			got := skipped[0]
+			got, ok := skipped[0].(*SkippedGrant)
+			if !ok {
+				t.Fatalf("finding = %T, want *SkippedGrant", skipped[0])
+			}
 			if got.Scope != tt.wantSkip.Scope || got.Subject != tt.wantSkip.Subject || got.Permission != tt.wantSkip.Permission || got.Resource != tt.wantSkip.Resource || got.Condition != tt.wantSkip.Condition {
 				t.Errorf("SkippedGrant = %+v, want %+v", got, tt.wantSkip)
 			}
@@ -906,16 +910,16 @@ func Test_snapshot_scopeWideChecks(t *testing.T) {
 	globalScope := accesstypes.GlobalScope()
 	records := &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: globalScope, Subject: roleSubject("Admin"), Perm: "Export", Resource: ""},
-			{Scope: globalScope, Subject: roleSubject("Admin"), Perm: "Read", Resource: "employees"},
-			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Approve", Resource: ""},
+			{Scope: globalScope.PolicyScope(), Subject: roleSubject("Admin"), Perm: "Export", Resource: ""},
+			{Scope: globalScope.PolicyScope(), Subject: roleSubject("Admin"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Approve", Resource: ""},
 		},
 		Memberships: []policy.Membership{
-			{Scope: globalScope, Member: userSubject("alice"), Role: "Admin"},
-			{Scope: tenant1Scope, Member: userSubject("carol"), Role: "Chief"},
+			{Scope: globalScope.PolicyScope(), Member: userSubject("alice"), Role: "Admin"},
+			{Scope: tenant1Policy, Member: userSubject("carol"), Role: "Chief"},
 		},
 	}
-	snap, _, err := newSnapshot(records, nil, time.Now())
+	snap, _, err := newSnapshot(records, nil, nil, time.Now())
 	if err != nil {
 		t.Fatalf("newSnapshot() error = %v", err)
 	}
@@ -967,13 +971,13 @@ func Test_snapshot_decideRoleResources(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Editor"), Role: "Chief"},
-			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Loop1"), Role: "Loop2"},
-			{Scope: accesstypes.DomainScope("tenant1"), Member: roleSubject("Loop2"), Role: "Loop1"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: roleSubject("Editor"), Role: "Chief"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: roleSubject("Loop1"), Role: "Loop2"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: roleSubject("Loop2"), Role: "Loop1"},
 		},
 	})
 
@@ -1042,15 +1046,15 @@ func Test_snapshot_decideRoleResources_conditions(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1Scope, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
-			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
-			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
-			{Scope: tenant1Scope, Subject: userSubject("hank"), Perm: "Read", Resource: "reports"},
+			{Scope: tenant1Policy, Subject: roleSubject("DraftEditor"), Perm: "Update", Resource: "loans", Field: "*", Condition: "state = 'new'"},
+			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "reports", Condition: "region = subject"},
+			{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Read", Resource: "reports"},
+			{Scope: tenant1Policy, Subject: userSubject("hank"), Perm: "Read", Resource: "reports"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Auditor"},
-			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Chief"},
-			{Scope: tenant1Scope, Member: userSubject("hank"), Role: "Auditor"},
+			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Auditor"},
+			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Chief"},
+			{Scope: tenant1Policy, Member: userSubject("hank"), Role: "Auditor"},
 		},
 	})
 
@@ -1113,10 +1117,15 @@ func Test_snapshot_decideRoleResources_conditions(t *testing.T) {
 	}
 }
 
-// Shared tenant scopes for the package's test fixtures.
+// Shared scopes for the package's test fixtures: where a request is
+// (tenant1Scope, tenant2Scope) and where policy is held (the Policy forms).
 var (
-	tenant1Scope = accesstypes.DomainScope("tenant1")
-	tenant2Scope = accesstypes.DomainScope("tenant2")
+	tenant1Scope      = accesstypes.DomainScope("tenant1")
+	tenant2Scope      = accesstypes.DomainScope("tenant2")
+	tenant1Policy     = accesstypes.DomainPolicyScope("tenant1")
+	tenant2Policy     = accesstypes.DomainPolicyScope("tenant2")
+	globalPolicy      = accesstypes.GlobalPolicyScope()
+	everyDomainPolicy = accesstypes.EveryDomainPolicyScope()
 )
 
 // engineFakeStore returns a fakeStore seeded with the engine lifecycle
@@ -1126,9 +1135,9 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	ctx := context.Background()
 	store := newFakeStore()
 	for _, err := range []error{
-		store.InsertRole(ctx, tenant1Scope, "Editor"),
-		store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "employees", "", ""),
-		store.InsertUserRole(ctx, tenant1Scope, "erin", "Editor"),
+		store.InsertRole(ctx, tenant1Policy, "Editor"),
+		store.InsertGrant(ctx, tenant1Policy, "Editor", "Read", "employees", "", ""),
+		store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor"),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)
@@ -1142,7 +1151,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 // store without notifying this instance's engine.
 func grantWidgets(t *testing.T, store *fakeStore) {
 	t.Helper()
-	if err := store.InsertGrant(context.Background(), tenant1Scope, "Editor", "List", "widgets", "", ""); err != nil {
+	if err := store.InsertGrant(context.Background(), tenant1Policy, "Editor", "List", "widgets", "", ""); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 }
@@ -1156,7 +1165,7 @@ func testEngine(t *testing.T, store Store, opts *clientOptions) *snapshotEngine 
 		opts = defaultClientOptions()
 	}
 	opts.heartbeatInterval = time.Hour
-	e := newSnapshotEngine(store, opts)
+	e := newSnapshotEngine(store, nil, opts)
 	t.Cleanup(func() {
 		if err := e.close(); err != nil {
 			t.Errorf("snapshotEngine.close() error = %v", err)
@@ -1540,14 +1549,14 @@ func Test_snapshot_userHasGrants(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
-			{Scope: accesstypes.DomainScope("tenant2"), Subject: roleSubject("Chief"), Perm: "Read"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
+			{Scope: accesstypes.DomainPolicyScope("tenant2"), Subject: roleSubject("Chief"), Perm: "Read"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
-			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("gale"), Role: "Idler"},
-			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("hana"), Role: "Chief"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: userSubject("gale"), Role: "Idler"},
+			{Scope: accesstypes.DomainPolicyScope("tenant2"), Member: userSubject("hana"), Role: "Chief"},
 		},
 	})
 
@@ -1589,26 +1598,26 @@ func Test_snapshot_userDigest(t *testing.T) {
 		Grants: []policy.Grant{
 			// Editor: unconditional Read on the employees endpoint and its name
 			// field; conditional Update on both.
-			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
-			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Condition: "status = 'open'"},
-			{Scope: tenant1, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
 			// Chief: unconditional Update on the field Editor holds only
 			// conditionally, and an all-fields List on widgets.
-			{Scope: tenant1, Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
-			{Scope: tenant1, Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
 			// Auditor is assigned to nobody: its grant only puts "label" into
 			// the widgets field vocabulary the all-fields enumeration lists.
-			{Scope: tenant1, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
 			// Pinger holds only a scope-wide grant: no resource to enumerate.
-			{Scope: tenant1, Subject: roleSubject("Pinger"), Perm: "Ping"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Pinger"), Perm: "Ping"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1, Member: userSubject("erin"), Role: "Editor"},
-			{Scope: tenant1, Member: userSubject("casey"), Role: "Editor"},
-			{Scope: tenant1, Member: userSubject("casey"), Role: "Chief"},
-			{Scope: tenant1, Member: userSubject("wren"), Role: "Chief"},
-			{Scope: tenant1, Member: userSubject("gale"), Role: "Pinger"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("casey"), Role: "Editor"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("casey"), Role: "Chief"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("wren"), Role: "Chief"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("gale"), Role: "Pinger"},
 		},
 	})
 
@@ -1677,53 +1686,6 @@ func Test_snapshot_userDigest(t *testing.T) {
 	}
 }
 
-// Test_snapshot_userDomains pins the membership enumeration: every domain
-// where the user holds a foothold — through a role, a scope-wide role grant,
-// or a direct grant — sorted; the global scope is never a domain; a grantless
-// membership, a global-only user, and an unknown user all enumerate to an
-// empty (never nil) list, so the wire payload is always a JSON array.
-func Test_snapshot_userDomains(t *testing.T) {
-	t.Parallel()
-
-	snap := compileSnapshot(t, &policy.Records{
-		Grants: []policy.Grant{
-			{Scope: accesstypes.DomainScope("tenant2"), Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: roleSubject("Chief"), Perm: "Read"},
-			{Scope: accesstypes.DomainScope("tenant3"), Subject: userSubject("dana"), Perm: "List", Resource: "widgets"},
-			{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Auditor"), Perm: "List", Resource: "reports"},
-		},
-		Memberships: []policy.Membership{
-			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("erin"), Role: "Editor"},
-			{Scope: accesstypes.DomainScope("tenant1"), Member: userSubject("erin"), Role: "Chief"},
-			{Scope: accesstypes.GlobalScope(), Member: userSubject("erin"), Role: "Auditor"},
-			{Scope: accesstypes.DomainScope("tenant2"), Member: userSubject("gale"), Role: "Idler"},
-			{Scope: accesstypes.GlobalScope(), Member: userSubject("hana"), Role: "Auditor"},
-		},
-	})
-
-	tests := []struct {
-		name string
-		user accesstypes.User
-		want []accesstypes.Domain
-	}{
-		{name: "role footholds list sorted, global scope excluded", user: "erin", want: []accesstypes.Domain{"tenant1", "tenant2"}},
-		{name: "a direct grant is a foothold", user: "dana", want: []accesstypes.Domain{"tenant3"}},
-		{name: "membership in a grantless role is not", user: "gale", want: []accesstypes.Domain{}},
-		{name: "global-only grants list no domain", user: "hana", want: []accesstypes.Domain{}},
-		{name: "unknown user lists nothing", user: "nobody", want: []accesstypes.Domain{}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if diff := cmp.Diff(tt.want, snap.userDomains(tt.user)); diff != "" {
-				t.Errorf("userDomains(%s) (-want +got):\n%s", tt.user, diff)
-			}
-		})
-	}
-}
-
 // Test_snapshot_roleHasGrants pins the foothold question for a session
 // operating as a role: any grant the role holds in the scope — own or
 // inherited, resource-attached or scope-wide — is a foothold; a role that
@@ -1734,12 +1696,12 @@ func Test_snapshot_roleHasGrants(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: tenant2Scope, Subject: roleSubject("Chief"), Perm: "Read"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant2Policy, Subject: roleSubject("Chief"), Perm: "Read"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Editor"},
-			{Scope: tenant1Scope, Member: userSubject("gale"), Role: "Idler"},
+			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Editor"},
+			{Scope: tenant1Policy, Member: userSubject("gale"), Role: "Idler"},
 		},
 	})
 
@@ -1779,18 +1741,18 @@ func Test_snapshot_roleDigest(t *testing.T) {
 
 	snap := compileSnapshot(t, &policy.Records{
 		Grants: []policy.Grant{
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
-			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
-			{Scope: tenant1Scope, Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
-			{Scope: tenant1Scope, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
-			{Scope: tenant1Scope, Subject: roleSubject("Pinger"), Perm: "Ping"},
-			{Scope: tenant1Scope, Subject: userSubject("erin"), Perm: "Delete", Resource: "employees"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
+			{Scope: tenant1Policy, Subject: roleSubject("Editor"), Perm: "Update", Resource: "employees", Field: "name", Condition: "status = 'open'"},
+			{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "Update", Resource: "employees", Field: "name"},
+			{Scope: tenant1Policy, Subject: roleSubject("Chief"), Perm: "List", Resource: "widgets", Field: "*"},
+			{Scope: tenant1Policy, Subject: roleSubject("Auditor"), Perm: "Read", Resource: "widgets", Field: "label"},
+			{Scope: tenant1Policy, Subject: roleSubject("Pinger"), Perm: "Ping"},
+			{Scope: tenant1Policy, Subject: userSubject("erin"), Perm: "Delete", Resource: "employees"},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Editor"},
-			{Scope: tenant1Scope, Member: roleSubject("Lead"), Role: "Chief"},
-			{Scope: tenant1Scope, Member: userSubject("erin"), Role: "Editor"},
+			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Editor"},
+			{Scope: tenant1Policy, Member: roleSubject("Lead"), Role: "Chief"},
+			{Scope: tenant1Policy, Member: userSubject("erin"), Role: "Editor"},
 		},
 	})
 
@@ -1850,49 +1812,6 @@ func Test_snapshot_roleDigest(t *testing.T) {
 	}
 }
 
-// Test_snapshot_roleDomains pins the membership enumeration for a session
-// operating as a role: every domain where the role holds a foothold — own,
-// inherited, or scope-wide — sorted; the global scope is never a domain; a
-// grantless role and an unknown role enumerate to an empty (never nil) list.
-func Test_snapshot_roleDomains(t *testing.T) {
-	t.Parallel()
-
-	snap := compileSnapshot(t, &policy.Records{
-		Grants: []policy.Grant{
-			{Scope: tenant2Scope, Subject: roleSubject("Editor"), Perm: "Read", Resource: "employees"},
-			{Scope: tenant1Scope, Subject: roleSubject("Editor"), Perm: "Read"},
-			{Scope: accesstypes.DomainScope("tenant3"), Subject: roleSubject("Chief"), Perm: "Read", Resource: "budgets"},
-			{Scope: accesstypes.GlobalScope(), Subject: roleSubject("Auditor"), Perm: "List", Resource: "reports"},
-		},
-		Memberships: []policy.Membership{
-			{Scope: accesstypes.DomainScope("tenant3"), Member: roleSubject("Lead"), Role: "Chief"},
-			{Scope: tenant1Scope, Member: userSubject("gale"), Role: "Idler"},
-		},
-	})
-
-	tests := []struct {
-		name string
-		role accesstypes.Role
-		want []accesstypes.Domain
-	}{
-		{name: "own footholds list sorted", role: "Editor", want: []accesstypes.Domain{"tenant1", "tenant2"}},
-		{name: "an inherited grant is a foothold", role: "Lead", want: []accesstypes.Domain{"tenant3"}},
-		{name: "global-only grants list no domain", role: "Auditor", want: []accesstypes.Domain{}},
-		{name: "a role with members but no grants lists nothing", role: "Idler", want: []accesstypes.Domain{}},
-		{name: "unknown role lists nothing", role: "Ghost", want: []accesstypes.Domain{}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if diff := cmp.Diff(tt.want, snap.roleDomains(tt.role)); diff != "" {
-				t.Errorf("roleDomains(%s) (-want +got):\n%s", tt.role, diff)
-			}
-		})
-	}
-}
-
 // Test_snapshotEngine_reportsSkippedGrants: a grant the release cannot use
 // does not stop the load. The engine becomes ready, the other grants hold, the
 // skipped grant is denied, and the reload-error hook receives one
@@ -1903,7 +1822,7 @@ func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
 
 	ctx := context.Background()
 	store := engineFakeStore(t)
-	if err := store.InsertGrant(ctx, tenant1Scope, "Editor", "Read", "widgets", "", "state = "); err != nil {
+	if err := store.InsertGrant(ctx, tenant1Policy, "Editor", "Read", "widgets", "", "state = "); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 
@@ -1946,7 +1865,7 @@ func Test_snapshotEngine_reportsSkippedGrants(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("reports = %v, want one SkippedGrant", reports)
 	}
-	want := SkippedGrant{Scope: tenant1Scope, Subject: "role Editor", Permission: "Read", Resource: "widgets", Condition: "state = "}
+	want := SkippedGrant{Scope: tenant1Policy, Subject: "role Editor", Permission: "Read", Resource: "widgets", Condition: "state = "}
 	if got[0].Scope != want.Scope || got[0].Subject != want.Subject || got[0].Permission != want.Permission || got[0].Resource != want.Resource || got[0].Condition != want.Condition || got[0].Reason == nil {
 		t.Errorf("SkippedGrant = %+v, want %+v with a reason", got[0], want)
 	}
@@ -1981,7 +1900,7 @@ func Test_logReloadError(t *testing.T) {
 	})
 
 	defaultClientOptions().onReloadError(&SkippedGrant{
-		Scope:      tenant1Scope,
+		Scope:      tenant1Policy,
 		Subject:    "role Chief",
 		Permission: "Read",
 		Resource:   "Widgets.price",

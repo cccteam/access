@@ -39,7 +39,7 @@ func genConditionFreePolicy(rng *rand.Rand) *policy.Records {
 
 	for range rng.IntN(25) {
 		grant := policy.Grant{
-			Scope:   pickOne(rng, randomPolicyScopes),
+			Scope:   pickOne(rng, randomPolicyScopes).PolicyScope(),
 			Perm:    pickOne(rng, randomPolicyPerms),
 			Subject: roleSubject(string(pickOne(rng, randomPolicyRoles))),
 		}
@@ -62,7 +62,7 @@ func genConditionFreePolicy(rng *rand.Rand) *policy.Records {
 
 	for range rng.IntN(10) {
 		membership := policy.Membership{
-			Scope:  pickOne(rng, randomPolicyScopes),
+			Scope:  pickOne(rng, randomPolicyScopes).PolicyScope(),
 			Member: userSubject(pickOne(rng, randomPolicyUsers)),
 			Role:   pickOne(rng, randomPolicyRoles),
 		}
@@ -102,7 +102,7 @@ func Test_snapshot_zeroConditionsMatchesRBAC_random(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20260911, 13))
 	for i := range 300 {
 		records := genConditionFreePolicy(rng)
-		snap, _, err := newSnapshot(records, nil, time.Now())
+		snap, _, err := newSnapshot(records, nil, nil, time.Now())
 		if err != nil {
 			t.Fatalf("case %d: newSnapshot() error = %v\npolicy: %+v", i, err, records)
 		}

@@ -35,7 +35,7 @@ func (m *storeManager) notifyPolicyChange() {
 	}
 }
 
-func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	if err := m.store.InsertUserRole(ctx, scope, user, role); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
@@ -44,7 +44,7 @@ func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.Scope,
 	return nil
 }
 
-func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	if err := m.store.DeleteUserRole(ctx, scope, user, role); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteUserRole(): role %q from %q", role, user)
 	}
@@ -53,7 +53,7 @@ func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.Sco
 	return nil
 }
 
-func (m *storeManager) userRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error) {
+func (m *storeManager) userRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error) {
 	roles, err := m.store.ListUserRoles(ctx, scope, user)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListUserRoles(): user %q", user)
@@ -62,40 +62,16 @@ func (m *storeManager) userRoles(ctx context.Context, scope accesstypes.Scope, u
 	return roles, nil
 }
 
-// userPermissions composes the user's effective permissions from membership
-// and role grants. The typed stores hold no user-direct grants and no role
-// inheritance, so one membership hop is the whole resolution.
-func (m *storeManager) userPermissions(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) (accesstypes.UserScopePermissions, error) {
-	roles, err := m.store.ListUserRoles(ctx, scope, user)
+func (m *storeManager) userMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error) {
+	memberships, err := m.store.ListUserMemberships(ctx, user)
 	if err != nil {
-		return accesstypes.UserScopePermissions{}, errors.Wrapf(err, "access.Store.ListUserRoles(): user %q", user)
+		return nil, errors.Wrapf(err, "access.Store.ListUserMemberships(): user %q", user)
 	}
 
-	permissions := accesstypes.UserScopePermissions{Resources: make(map[accesstypes.Resource][]accesstypes.Permission)}
-	for _, role := range roles {
-		grants, err := m.store.ListRoleGrants(ctx, scope, role)
-		if err != nil {
-			return accesstypes.UserScopePermissions{}, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
-		}
-		for _, g := range grants {
-			if g.Resource == "" {
-				if !slices.Contains(permissions.ScopeWide, g.Perm) {
-					permissions.ScopeWide = append(permissions.ScopeWide, g.Perm)
-				}
-
-				continue
-			}
-			resource := joinResourceField(g.Resource, g.Field)
-			if !slices.Contains(permissions.Resources[resource], g.Perm) {
-				permissions.Resources[resource] = append(permissions.Resources[resource], g.Perm)
-			}
-		}
-	}
-
-	return permissions, nil
+	return memberships, nil
 }
 
-func (m *storeManager) addRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
+func (m *storeManager) addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	if err := m.store.InsertRole(ctx, scope, role); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertRole(): role %q in scope %q", role, scope)
 	}
@@ -104,7 +80,7 @@ func (m *storeManager) addRole(ctx context.Context, scope accesstypes.Scope, rol
 	return nil
 }
 
-func (m *storeManager) roles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
+func (m *storeManager) roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
 	roles, err := m.store.ListRoles(ctx, scope)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoles(): scope %q", scope)
@@ -113,10 +89,10 @@ func (m *storeManager) roles(ctx context.Context, scope accesstypes.Scope) ([]ac
 	return roles, nil
 }
 
-// deleteRole is scoped to (scope, role) — the typed stores fix casbin's
-// domain-blind delete. Grants cascade in the store; memberships block the
-// delete (DB-enforced), backstopping the caller's has-users guard.
-func (m *storeManager) deleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+// deleteRole is scoped to (scope, role). Grants cascade in the store;
+// memberships held in the scope block the delete, checked by the store in the
+// delete's own transaction, backstopping the caller's has-users guard.
+func (m *storeManager) deleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	deleted, err := m.store.DeleteRole(ctx, scope, role)
 	if err != nil {
 		return false, errors.Wrapf(err, "access.Store.DeleteRole(): role %q in scope %q", role, scope)
@@ -128,7 +104,7 @@ func (m *storeManager) deleteRole(ctx context.Context, scope accesstypes.Scope, 
 	return deleted, nil
 }
 
-func (m *storeManager) roleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (m *storeManager) roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	exists, err := m.store.RoleExists(ctx, scope, role)
 	if err != nil {
 		return false, errors.Wrapf(err, "access.Store.RoleExists(): role %q in scope %q", role, scope)
@@ -137,7 +113,7 @@ func (m *storeManager) roleExists(ctx context.Context, scope accesstypes.Scope, 
 	return exists, nil
 }
 
-func (m *storeManager) roleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
+func (m *storeManager) roleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
 	users, err := m.store.ListRoleUsers(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleUsers(): role %q", role)
@@ -146,7 +122,7 @@ func (m *storeManager) roleUsers(ctx context.Context, scope accesstypes.Scope, r
 	return users, nil
 }
 
-func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
@@ -161,7 +137,7 @@ func (m *storeManager) addGrant(ctx context.Context, scope accesstypes.Scope, ro
 
 // addGrants persists the rows as one store write and signals one policy
 // change; no rows is a no-op.
-func (m *storeManager) addGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, rows []GrantRow) error {
+func (m *storeManager) addGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, rows []GrantRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -180,7 +156,7 @@ func (m *storeManager) addGrants(ctx context.Context, scope accesstypes.Scope, r
 
 // changeGrants applies a role's removals and additions as one store write and
 // signals one policy change; nothing to change is a no-op.
-func (m *storeManager) changeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error {
+func (m *storeManager) changeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error {
 	if len(removals) == 0 && len(additions) == 0 {
 		return nil
 	}
@@ -217,7 +193,7 @@ func roleGrantRows(rows []GrantRow) ([]policy.RoleGrant, error) {
 
 // removeGrant removes exactly one grant row: the resource's row under the
 // given condition ("" = the unconditional row).
-func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
@@ -232,7 +208,7 @@ func (m *storeManager) removeGrant(ctx context.Context, scope accesstypes.Scope,
 
 // removeGrants removes every grant row on the resource, whatever its
 // condition.
-func (m *storeManager) removeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
+func (m *storeManager) removeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error {
 	base, field, err := splitGrantResource(resource)
 	if err != nil {
 		return err
@@ -248,7 +224,7 @@ func (m *storeManager) removeGrants(ctx context.Context, scope accesstypes.Scope
 // addScopeWideGrant persists a permission attached to no resource: the store
 // row carries empty resource and field columns, a spot real resources can
 // never occupy (their names are validated non-empty in splitGrantResource).
-func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
+func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error {
 	if err := m.store.InsertGrant(ctx, scope, role, perm, "", "", ""); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGrant(): scope-wide %q for role %q", perm, role)
 	}
@@ -257,7 +233,7 @@ func (m *storeManager) addScopeWideGrant(ctx context.Context, scope accesstypes.
 	return nil
 }
 
-func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error {
+func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error {
 	if err := m.store.DeleteGrant(ctx, scope, role, perm, "", "", ""); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteGrant(): scope-wide %q for role %q", perm, role)
 	}
@@ -266,7 +242,7 @@ func (m *storeManager) removeScopeWideGrant(ctx context.Context, scope accesstyp
 	return nil
 }
 
-func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
+func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)
@@ -290,7 +266,7 @@ func (m *storeManager) roleGrants(ctx context.Context, scope accesstypes.Scope, 
 // each resource is granted under (sorted; "" is the unconditional grant),
 // keyed by permission; scope-wide grants are structural (no resource) and not
 // included.
-func (m *storeManager) roleGrantConditions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+func (m *storeManager) roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
 	grants, err := m.store.ListRoleGrants(ctx, scope, role)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoleGrants(): role %q", role)

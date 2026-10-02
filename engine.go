@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 
+	"github.com/cccteam/access/internal/policy"
 	"github.com/cccteam/ccc/accesstypes"
 )
 
@@ -35,11 +36,10 @@ type evaluator interface {
 	// domain did not exist).
 	userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
-	// userDomains lists the domains where user holds at least one grant,
-	// sorted — the membership question a tenant picker asks, answered with
-	// the same foothold predicate as userHasGrants. The global scope is not
-	// a domain and is never listed.
-	userDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
+	// userPermissions returns user's effective permissions within scope by
+	// name — the management listing, answered from the same snapshot the
+	// checks are.
+	userPermissions(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.UserScopePermissions, error)
 
 	// checkRole returns role's scope-wide decision within scope: what
 	// checkUser answers a member holding only that role, minus the
@@ -61,38 +61,42 @@ type evaluator interface {
 	// the role twin of userHasGrants.
 	roleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error)
 
-	// roleDomains lists the domains where role holds at least one grant,
-	// sorted — the role twin of userDomains.
-	roleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error)
+	// rolePermissions returns role's effective grants within scope by name:
+	// the release's file grants for a default role, the store's for a custom
+	// one, inheritance folded — the role twin of userPermissions.
+	rolePermissions(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.RolePermissionCollection, error)
 }
 
-// policyStore is the management surface for role membership, role existence, and
-// grants. Validation (role existence, empty-input checks) belongs to the
-// callers; implementations only persist and query policy.
+// policyStore is the management surface for role membership, custom role
+// existence, and grants, each held where its PolicyScope says. Validation
+// (role existence, empty-input checks) belongs to the callers; implementations
+// only persist and query policy.
 type policyStore interface {
 	// Membership
-	addUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error
-	deleteUserRole(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error
-	userRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error)
-	userPermissions(ctx context.Context, scope accesstypes.Scope, user accesstypes.User) (accesstypes.UserScopePermissions, error)
+	addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	userRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
+	// userMemberships lists every membership the user holds, wherever it is
+	// held, as stored.
+	userMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error)
 
 	// Roles
-	addRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error
-	roles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error)
+	addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
+	roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error)
 	// deleteRole removes the role and its grants, scoped to (scope, role).
-	deleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
-	roleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
-	roleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error)
+	deleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
+	roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
+	roleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
 
 	// Grants. A scope-wide grant attaches a permission to no resource; it is a
 	// separate write, never a distinguished resource value.
-	addGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error
-	addGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, rows []GrantRow) error
-	changeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error
-	removeGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error
-	removeGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error
-	addScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error
-	removeScopeWideGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission) error
-	roleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
-	roleGrantConditions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+	addGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error
+	addGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, rows []GrantRow) error
+	changeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error
+	removeGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource, condition string) error
+	removeGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource accesstypes.Resource) error
+	addScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
+	removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
+	roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
+	roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
 }

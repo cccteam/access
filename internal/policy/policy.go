@@ -35,7 +35,8 @@ type Subject struct {
 	Name string // bare (unprefixed) role or user name
 }
 
-// Grant is one normalized permission grant.
+// Grant is one normalized permission grant, held where its Scope says: the
+// global partition, one tenant domain, or every tenant domain.
 //   - Resource == "" (with Field == "") is a scope-wide grant: the permission
 //     is held with no resource attachment. Real resource names are validated
 //     non-empty at every write boundary, so "" is structurally unreachable
@@ -52,7 +53,7 @@ type Subject struct {
 //     text verbatim — nothing below the snapshot compiler interprets it, and
 //     the compiler only interns it.
 type Grant struct {
-	Scope     accesstypes.Scope
+	Scope     accesstypes.PolicyScope
 	Subject   Subject
 	Perm      accesstypes.Permission
 	Resource  string // bare base resource name; "" = scope-wide
@@ -60,22 +61,32 @@ type Grant struct {
 	Condition string // opaque expression text; "" = unconditional
 }
 
-// Membership is one normalized role membership. Member is usually a user; a
-// role member expresses role inheritance, which the compiler folds at load
-// time. The typed stores only ever produce user members.
+// Membership is one normalized role membership, held where its Scope says.
+// Member is usually a user; a role member expresses role inheritance, which
+// the compiler folds at load time. The typed stores only ever produce user
+// members.
 type Membership struct {
-	Scope  accesstypes.Scope
+	Scope  accesstypes.PolicyScope
 	Member Subject
 	Role   accesstypes.Role
+}
+
+// Role is one custom role row: a role that exists where its Scope says
+// because the store holds it, with or without grants. The release's default
+// roles have no row.
+type Role struct {
+	Scope accesstypes.PolicyScope
+	Name  accesstypes.Role
 }
 
 // Records is a reader's complete, store-agnostic output.
 type Records struct {
 	Grants      []Grant
 	Memberships []Membership
+	Roles       []Role
 }
 
-// RoleGrant is one stored grant row scoped to an already-known (domain, role):
+// RoleGrant is one stored grant row scoped to an already-known (scope, role):
 // the shape a store returns for role-grant listings.
 type RoleGrant struct {
 	Perm      accesstypes.Permission
@@ -93,6 +104,8 @@ func (r *Records) Hash() [sha256.Size]byte {
 	slices.SortFunc(grants, compareGrants)
 	memberships := slices.Clone(r.Memberships)
 	slices.SortFunc(memberships, compareMemberships)
+	roles := slices.Clone(r.Roles)
+	slices.SortFunc(roles, compareRoles)
 
 	h := sha256.New()
 	for _, g := range grants {
@@ -112,13 +125,18 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashString(h, m.Member.Name)
 		hashString(h, string(m.Role))
 	}
+	for _, role := range roles {
+		hashString(h, "r")
+		hashScope(h, role.Scope)
+		hashString(h, string(role.Name))
+	}
 
 	return [sha256.Size]byte(h.Sum(nil))
 }
 
 func compareGrants(a, b Grant) int {
 	return cmpChain(
-		compareScopes(a.Scope, b.Scope),
+		CompareScopes(a.Scope, b.Scope),
 		int(a.Subject.Kind)-int(b.Subject.Kind),
 		strings.Compare(a.Subject.Name, b.Subject.Name),
 		strings.Compare(string(a.Perm), string(b.Perm)),
@@ -130,59 +148,72 @@ func compareGrants(a, b Grant) int {
 
 func compareMemberships(a, b Membership) int {
 	return cmpChain(
-		compareScopes(a.Scope, b.Scope),
+		CompareScopes(a.Scope, b.Scope),
 		int(a.Member.Kind)-int(b.Member.Kind),
 		strings.Compare(a.Member.Name, b.Member.Name),
 		strings.Compare(string(a.Role), string(b.Role)),
 	)
 }
 
-func compareScopes(a, b accesstypes.Scope) int {
-	ag, ax, ad := ScopeColumns(a)
-	bg, bx, bd := ScopeColumns(b)
-
-	return cmpChain(boolCompare(ag, bg), strings.Compare(ax, bx), strings.Compare(ad, bd))
+func compareRoles(a, b Role) int {
+	return cmpChain(CompareScopes(a.Scope, b.Scope), strings.Compare(string(a.Name), string(b.Name)))
 }
 
-func boolCompare(a, b bool) int {
+// CompareScopes orders two places policy is held by their stored column
+// triple, the order a store lists rows in.
+func CompareScopes(a, b accesstypes.PolicyScope) int {
+	ak, ax, ad := ScopeColumns(a)
+	bk, bx, bd := ScopeColumns(b)
+
+	return cmpChain(strings.Compare(ak, bk), strings.Compare(ax, bx), strings.Compare(ad, bd))
+}
+
+// The kinds a store persists in its Kind column: where a row is held. They
+// are the column's only values, and the stores' DDL says so.
+const (
+	KindGlobal = "global"
+	KindDomain = "domain"
+	KindEvery  = "every"
+)
+
+// ScopeColumns decomposes a PolicyScope into the structural column triple the
+// stores persist: (kind, axis, domain). The kind is one of KindGlobal,
+// KindDomain and KindEvery; the axis is the name of the axis the domain
+// belongs to, "" for the default axis; the domain is "" unless the row is
+// held in one domain. ScopeFromColumns is its inverse.
+func ScopeColumns(s accesstypes.PolicyScope) (kind, axis, domain string) {
 	switch {
-	case a == b:
-		return 0
-	case a:
-		return 1
+	case s.IsGlobal():
+		return KindGlobal, s.Axis(), ""
+	case s.IsEveryDomain():
+		return KindEvery, s.Axis(), ""
 	default:
-		return -1
+		d, _ := s.Domain()
+
+		return KindDomain, s.Axis(), string(d)
 	}
 }
 
-// ScopeColumns decomposes a Scope into the structural column triple the
-// stores persist: (global, axis, domain). The axis is the name of the axis the
-// domain belongs to, "" for the default axis; a global scope carries "" in
-// both axis and domain, the flag alone marking the partition. ScopeFromColumns
-// is its inverse.
-func ScopeColumns(s accesstypes.Scope) (global bool, axis, domain string) {
-	if s.IsGlobal() {
-		return true, "", ""
-	}
-	d, _ := s.Domain()
-
-	return false, s.Axis(), string(d)
-}
-
-// ScopeFromColumns reassembles a Scope from its stored column triple. Only
-// the default axis ("") can be reassembled: no constructor for a named axis
-// exists yet, and a row under another axis must never fold into the default
-// one — that would apply its grants to tenants they were not written for — so
-// such a row is refused and the read fails closed.
-func ScopeFromColumns(global bool, axis, domain string) (accesstypes.Scope, error) {
+// ScopeFromColumns reassembles a PolicyScope from its stored column triple.
+// Only the default axis ("") can be reassembled: no constructor for a named
+// axis exists yet, and a row under another axis must never fold into the
+// default one — that would apply its grants to tenants they were not written
+// for — so such a row is refused and the read fails closed. A kind the stores
+// never write is refused the same way.
+func ScopeFromColumns(kind, axis, domain string) (accesstypes.PolicyScope, error) {
 	if axis != "" {
-		return accesstypes.Scope{}, errors.Newf("row belongs to axis %q, and no axis other than the default is declared", axis)
+		return accesstypes.PolicyScope{}, errors.Newf("row belongs to axis %q, and no axis other than the default is declared", axis)
 	}
-	if global {
-		return accesstypes.GlobalScope(), nil
+	switch kind {
+	case KindGlobal:
+		return accesstypes.GlobalPolicyScope(), nil
+	case KindEvery:
+		return accesstypes.EveryDomainPolicyScope(), nil
+	case KindDomain:
+		return accesstypes.DomainPolicyScope(accesstypes.Domain(domain)), nil
+	default:
+		return accesstypes.PolicyScope{}, errors.Newf("row is held in kind %q, which is not global, domain or every", kind)
 	}
-
-	return accesstypes.DomainScope(accesstypes.Domain(domain)), nil
 }
 
 // cmpChain returns the first non-zero comparison result.
@@ -209,14 +240,10 @@ func hashByte(h hash.Hash, b byte) {
 	h.Write([]byte{b})
 }
 
-// hashScope writes a scope's structural triple (global flag, axis, domain).
-func hashScope(h hash.Hash, s accesstypes.Scope) {
-	global, axis, domain := ScopeColumns(s)
-	var b byte
-	if global {
-		b = 1
-	}
-	hashByte(h, b)
+// hashScope writes a scope's structural triple (kind, axis, domain).
+func hashScope(h hash.Hash, s accesstypes.PolicyScope) {
+	kind, axis, domain := ScopeColumns(s)
+	hashString(h, kind)
 	hashString(h, axis)
 	hashString(h, domain)
 }

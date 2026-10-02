@@ -84,7 +84,10 @@ func newTestClient(t *testing.T, db *dbinitiator.PostgresDatabase, name string, 
 // through the typed policy tables, via each of the two propagation paths —
 // the change signal (heartbeat pinned out of the picture) and the heartbeat
 // alone (poll-only deployments, no signal configured).
-var tenant1 = accesstypes.DomainScope("tenant1")
+var (
+	tenant1       = accesstypes.DomainScope("tenant1")
+	tenant1Policy = accesstypes.DomainPolicyScope("tenant1")
+)
 
 func Test_Client_policyPropagation(t *testing.T) {
 	t.Parallel()
@@ -145,13 +148,13 @@ func Test_Client_policyPropagation(t *testing.T) {
 			}
 
 			mgr := writer.UserManager()
-			if err := mgr.AddRole(ctx, tenant1, "Editor"); err != nil {
+			if err := mgr.AddRole(ctx, tenant1Policy, "Editor"); err != nil {
 				t.Fatalf("AddRole() error = %v", err)
 			}
-			if err := mgr.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees"); err != nil {
+			if err := mgr.AddRolePermissionResources(ctx, tenant1Policy, "Editor", "Read", "employees"); err != nil {
 				t.Fatalf("AddRolePermissionResources() error = %v", err)
 			}
-			if err := mgr.AddRoleUsers(ctx, tenant1, "Editor", "erin"); err != nil {
+			if err := mgr.AddRoleUsers(ctx, tenant1Policy, "Editor", "erin"); err != nil {
 				t.Fatalf("AddRoleUsers() error = %v", err)
 			}
 

@@ -74,31 +74,34 @@ func TestStore_isolation(t *testing.T) {
 		t.Fatalf("applying DDL: %v", err)
 	}
 
-	if err := adminStore.InsertRole(ctx, accesstypes.DomainScope("tenant1"), "Editor"); err != nil {
+	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor"); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainScope("tenant1"), "alice", "Editor"); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor"); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
-	if exists, err := partnerStore.RoleExists(ctx, accesstypes.DomainScope("tenant1"), "Editor"); err != nil || exists {
+	if exists, err := partnerStore.RoleExists(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor"); err != nil || exists {
 		t.Errorf("RoleExists() on sibling store = (%v, %v), want (false, nil)", exists, err)
 	}
 	records, err := partnerStore.ReadPolicy(ctx)
 	if err != nil {
 		t.Fatalf("ReadPolicy() error = %v", err)
 	}
-	if len(records.Grants) != 0 || len(records.Memberships) != 0 {
+	if len(records.Roles) != 0 || len(records.Grants) != 0 || len(records.Memberships) != 0 {
 		t.Errorf("ReadPolicy() on sibling store returned rows: %+v", records)
 	}
 }
 
-// TestDDL_axisKey pins the ruling that Axis is the second key column of every
-// table, declared NOT NULL and written "" for the default axis: a Spanner
-// primary key cannot change after the fact, so the key order shipped here is
-// what lets a single-axis application's rows stay correct unchanged when it
-// later declares an axis.
-func TestDDL_axisKey(t *testing.T) {
+// TestDDL_keys pins the shape of the tables: Kind leads every key and is
+// checked against the three values the store writes; Axis is the second key
+// column of every table, declared NOT NULL and written "" for the default
+// axis — a Spanner primary key cannot change after the fact, so the key order
+// shipped here is what lets a single-axis application's rows stay correct
+// unchanged when it later declares an axis; UserRoles stands alone, indexed by
+// user, since a membership names a role with no row; and RoleGrants stays
+// interleaved in Roles so a custom role's grants go with it.
+func TestDDL_keys(t *testing.T) {
 	t.Parallel()
 
 	store, err := New(nil)
@@ -112,10 +115,23 @@ func TestDDL_axisKey(t *testing.T) {
 		stmt int
 		want []string
 	}{
-		{name: "roles", stmt: 0, want: []string{"Axis STRING(128) NOT NULL", "PRIMARY KEY (IsGlobal, Axis, Domain, Role)"}},
-		{name: "user roles", stmt: 1, want: []string{"Axis STRING(128) NOT NULL", "PRIMARY KEY (IsGlobal, Axis, Domain, Role, User)"}},
-		{name: "user roles by scope and user", stmt: 2, want: []string{"ON AccessUserRoles (IsGlobal, Axis, Domain, User)"}},
-		{name: "role grants", stmt: 3, want: []string{"Axis STRING(128) NOT NULL", "PRIMARY KEY (IsGlobal, Axis, Domain, Role, Permission, Resource, Field, Condition)"}},
+		{name: "roles", stmt: 0, want: []string{
+			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL",
+			"CONSTRAINT AccessRolesKind CHECK (Kind IN ('global', 'domain', 'every'))",
+			"PRIMARY KEY (Kind, Axis, Domain, Role)",
+		}},
+		{name: "user roles stand alone", stmt: 1, want: []string{
+			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL",
+			"CONSTRAINT AccessUserRolesKind CHECK (Kind IN ('global', 'domain', 'every'))",
+			"PRIMARY KEY (Kind, Axis, Domain, Role, User)",
+		}},
+		{name: "user roles by user", stmt: 2, want: []string{"CREATE INDEX AccessUserRolesByUser ON AccessUserRoles (User, Kind, Axis, Domain)"}},
+		{name: "role grants interleaved in roles", stmt: 3, want: []string{
+			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL",
+			"CONSTRAINT AccessRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every'))",
+			"PRIMARY KEY (Kind, Axis, Domain, Role, Permission, Resource, Field, Condition)",
+			"INTERLEAVE IN PARENT AccessRoles ON DELETE CASCADE",
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

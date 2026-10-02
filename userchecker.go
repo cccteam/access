@@ -8,10 +8,10 @@ import (
 )
 
 // UserResourceChecker is the engine surface a UserChecker delegates to: the
-// check call that answers enforcement, and the digest and domain calls that
+// check call that answers enforcement, and the digest and foothold calls that
 // answer the frontend's advisory questions. *Client satisfies it; test
 // doubles that script permission checks satisfy it with the same check
-// method they already fake plus digest and domain stubs.
+// method they already fake plus digest and foothold stubs.
 type UserResourceChecker interface {
 	CheckUserResources(
 		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
@@ -19,7 +19,7 @@ type UserResourceChecker interface {
 
 	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
-	UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error)
+	UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 }
 
 // UserChecker is the request-bound permission checker for one user: the
@@ -70,16 +70,17 @@ func (u *UserChecker) PermissionDigest(ctx context.Context, scope accesstypes.Sc
 	return digest, nil
 }
 
-// Domains lists the domains where the bound user holds at least one grant,
-// sorted — the tenant picker's membership question. It is a pure delegate to
-// UserDomains; see Client.UserDomains for the foothold semantics.
-func (u *UserChecker) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
-	domains, err := u.checker.UserDomains(ctx, u.user)
+// HasGrants reports whether the bound user holds at least one grant in scope
+// — the foothold a tenant picker filters the application's tenant list by,
+// and the visibility question concealed tenancy asks. It is a pure delegate
+// to UserHasGrants; see Client.UserHasGrants for the foothold semantics.
+func (u *UserChecker) HasGrants(ctx context.Context, scope accesstypes.Scope) (bool, error) {
+	has, err := u.checker.UserHasGrants(ctx, u.user, scope)
 	if err != nil {
-		return nil, errors.Wrap(err, "access.UserResourceChecker.UserDomains()")
+		return false, errors.Wrap(err, "access.UserResourceChecker.UserHasGrants()")
 	}
 
-	return domains, nil
+	return has, nil
 }
 
 // User returns the bound user.

@@ -10,9 +10,10 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// This file flags the shapes a role configuration can carry that are legal
-// and probably not what the author wanted. MigrateRoles provisions them as
-// written and says so, one "Warning:" line each; ValidateRoles returns them.
+// This file flags the shapes a role file can carry that are legal and
+// probably not what the author wanted. The release holds them as written;
+// Client.CheckPolicy and ValidateRoles return them, one line each, for the
+// deploy's migrate step to print.
 //
 // The existence probe (GrantWarning). A Delete, an Update, and a targeted
 // Execute locate their row first and answer NotFound when it is absent, then
@@ -41,10 +42,12 @@ import (
 // keeps the CASE on a field the resource orders by or admits as a sort or
 // filter key; it is informational, never a refusal.
 
-// Warning is one shape MigrateRoles provisions as written but flags. The
-// kinds are GrantWarning and ConcealingKeyWarning; a consumer that ranges and
-// prints sees one line each, and one that switches on the kind reads its
-// fields.
+// Warning is one thing a deploy should hear about before the release takes
+// traffic: a shape the role file carries as written but flags (GrantWarning,
+// ConcealingKeyWarning), or something the policy store holds that this
+// release cannot use as written (SkippedGrant, ShadowedRole,
+// OrphanedMembership). A consumer that ranges and prints sees one line each,
+// and one that switches on the kind reads its fields.
 type Warning interface {
 	fmt.Stringer
 
@@ -52,7 +55,7 @@ type Warning interface {
 	warning()
 }
 
-// GrantWarning is one grant MigrateRoles provisions as written but flags: a
+// GrantWarning is one grant the role file carries as written but flags: a
 // conditional Delete, Update, or targeted Execute in a role that holds neither
 // Read nor List on the row resource the grant checks.
 type GrantWarning struct {
@@ -132,7 +135,7 @@ func grantWarnings(store PermissionCollection, role *Role, scope accesstypes.Per
 	return warnings
 }
 
-// ConcealingKeyWarning is one conditional List grant MigrateRoles provisions
+// ConcealingKeyWarning is one conditional List grant the role file carries
 // as written but flags: it covers a field the resource orders by or admits as
 // a sort or filter key, the field's masked cells conceal, and the role's other
 // List grants on the resource leave the field's condition standing in the

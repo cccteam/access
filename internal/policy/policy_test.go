@@ -11,15 +11,21 @@ import (
 func Test_Records_Hash(t *testing.T) {
 	t.Parallel()
 
+	tenant1 := accesstypes.DomainPolicyScope("tenant1")
+	tenant2 := accesstypes.DomainPolicyScope("tenant2")
 	base := &Records{
 		Grants: []Grant{
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: Subject{Kind: SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees"},
-			{Scope: accesstypes.DomainScope("tenant1"), Subject: Subject{Kind: SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees", Field: "name"},
-			{Scope: accesstypes.DomainScope("tenant2"), Subject: Subject{Kind: SubjectUser, Name: "alice"}, Perm: "List", Resource: "widgets"},
+			{Scope: tenant1, Subject: Subject{Kind: SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees"},
+			{Scope: tenant1, Subject: Subject{Kind: SubjectRole, Name: "Editor"}, Perm: "Read", Resource: "employees", Field: "name"},
+			{Scope: tenant2, Subject: Subject{Kind: SubjectUser, Name: "alice"}, Perm: "List", Resource: "widgets"},
 		},
 		Memberships: []Membership{
-			{Scope: accesstypes.DomainScope("tenant1"), Member: Subject{Kind: SubjectUser, Name: "erin"}, Role: "Editor"},
-			{Scope: accesstypes.DomainScope("tenant2"), Member: Subject{Kind: SubjectUser, Name: "bob"}, Role: "Viewer"},
+			{Scope: tenant1, Member: Subject{Kind: SubjectUser, Name: "erin"}, Role: "Editor"},
+			{Scope: tenant2, Member: Subject{Kind: SubjectUser, Name: "bob"}, Role: "Viewer"},
+		},
+		Roles: []Role{
+			{Scope: tenant1, Name: "Editor"},
+			{Scope: tenant2, Name: "Viewer"},
 		},
 	}
 
@@ -36,6 +42,7 @@ func Test_Records_Hash(t *testing.T) {
 				return &Records{
 					Grants:      []Grant{base.Grants[2], base.Grants[0], base.Grants[1]},
 					Memberships: []Membership{base.Memberships[1], base.Memberships[0]},
+					Roles:       []Role{base.Roles[1], base.Roles[0]},
 				}
 			},
 			wantSameHash: true,
@@ -46,7 +53,7 @@ func Test_Records_Hash(t *testing.T) {
 				grants := slices.Clone(base.Grants)
 				grants[2].Field = "name"
 
-				return &Records{Grants: grants, Memberships: base.Memberships}
+				return &Records{Grants: grants, Memberships: base.Memberships, Roles: base.Roles}
 			},
 			wantSameHash: false,
 		},
@@ -56,34 +63,51 @@ func Test_Records_Hash(t *testing.T) {
 				grants := slices.Clone(base.Grants)
 				grants[2].Condition = "owner = @subject"
 
-				return &Records{Grants: grants, Memberships: base.Memberships}
+				return &Records{Grants: grants, Memberships: base.Memberships, Roles: base.Roles}
 			},
 			wantSameHash: false,
 		},
 		{
 			name: "removed membership changes the hash",
 			variant: func() *Records {
-				return &Records{Grants: base.Grants, Memberships: base.Memberships[:1]}
+				return &Records{Grants: base.Grants, Memberships: base.Memberships[:1], Roles: base.Roles}
 			},
 			wantSameHash: false,
 		},
 		{
-			name: "global scope hashes differently from a tenant scope",
+			name: "removed role row changes the hash",
 			variant: func() *Records {
-				grants := slices.Clone(base.Grants)
-				grants[2].Scope = accesstypes.GlobalScope()
-
-				return &Records{Grants: grants, Memberships: base.Memberships}
+				return &Records{Grants: base.Grants, Memberships: base.Memberships, Roles: base.Roles[:1]}
 			},
 			wantSameHash: false,
 		},
 		{
-			name: "a tenant literally named global is not the global scope",
+			name: "the global partition hashes differently from a tenant",
 			variant: func() *Records {
 				grants := slices.Clone(base.Grants)
-				grants[2].Scope = accesstypes.DomainScope("global")
+				grants[2].Scope = accesstypes.GlobalPolicyScope()
 
-				return &Records{Grants: grants, Memberships: base.Memberships}
+				return &Records{Grants: grants, Memberships: base.Memberships, Roles: base.Roles}
+			},
+			wantSameHash: false,
+		},
+		{
+			name: "every domain hashes differently from a tenant",
+			variant: func() *Records {
+				memberships := slices.Clone(base.Memberships)
+				memberships[1].Scope = accesstypes.EveryDomainPolicyScope()
+
+				return &Records{Grants: base.Grants, Memberships: memberships, Roles: base.Roles}
+			},
+			wantSameHash: false,
+		},
+		{
+			name: "a tenant literally named global is not the global partition",
+			variant: func() *Records {
+				grants := slices.Clone(base.Grants)
+				grants[2].Scope = accesstypes.DomainPolicyScope("global")
+
+				return &Records{Grants: grants, Memberships: base.Memberships, Roles: base.Roles}
 			},
 			wantSameHash: false,
 		},
@@ -93,7 +117,7 @@ func Test_Records_Hash(t *testing.T) {
 				grants := slices.Clone(base.Grants)
 				grants[2].Subject.Kind = SubjectRole
 
-				return &Records{Grants: grants, Memberships: base.Memberships}
+				return &Records{Grants: grants, Memberships: base.Memberships, Roles: base.Roles}
 			},
 			wantSameHash: false,
 		},
@@ -114,25 +138,28 @@ func Test_ScopeColumns_roundTrip(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		scope      accesstypes.Scope
-		wantGlobal bool
+		scope      accesstypes.PolicyScope
+		wantKind   string
 		wantDomain string
 	}{
-		{name: "global", scope: accesstypes.GlobalScope(), wantGlobal: true},
-		{name: "tenant", scope: accesstypes.DomainScope("tenant1"), wantDomain: "tenant1"},
-		{name: "tenant named global", scope: accesstypes.DomainScope("global"), wantDomain: "global"},
-		{name: "zero scope is the zero domain's tenant scope", scope: accesstypes.Scope{}},
+		{name: "the global partition", scope: accesstypes.GlobalPolicyScope(), wantKind: KindGlobal},
+		{name: "one tenant", scope: accesstypes.DomainPolicyScope("tenant1"), wantKind: KindDomain, wantDomain: "tenant1"},
+		{name: "every tenant", scope: accesstypes.EveryDomainPolicyScope(), wantKind: KindEvery},
+		{name: "a tenant named global", scope: accesstypes.DomainPolicyScope("global"), wantKind: KindDomain, wantDomain: "global"},
+		{name: "a tenant named every", scope: accesstypes.DomainPolicyScope("every"), wantKind: KindDomain, wantDomain: "every"},
+		{name: "the zero value is the zero domain's partition", scope: accesstypes.PolicyScope{}, wantKind: KindDomain},
+		{name: "a converted tenant scope", scope: accesstypes.DomainScope("tenant1").PolicyScope(), wantKind: KindDomain, wantDomain: "tenant1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			// Every constructible scope belongs to the default axis, stored as "".
-			global, axis, domain := ScopeColumns(tt.scope)
-			if global != tt.wantGlobal || axis != "" || domain != tt.wantDomain {
-				t.Errorf("ScopeColumns() = (%v, %q, %q), want (%v, %q, %q)", global, axis, domain, tt.wantGlobal, "", tt.wantDomain)
+			kind, axis, domain := ScopeColumns(tt.scope)
+			if kind != tt.wantKind || axis != "" || domain != tt.wantDomain {
+				t.Errorf("ScopeColumns() = (%q, %q, %q), want (%q, %q, %q)", kind, axis, domain, tt.wantKind, "", tt.wantDomain)
 			}
-			got, err := ScopeFromColumns(global, axis, domain)
+			got, err := ScopeFromColumns(kind, axis, domain)
 			if err != nil {
 				t.Fatalf("ScopeFromColumns() error = %v", err)
 			}
@@ -143,33 +170,59 @@ func Test_ScopeColumns_roundTrip(t *testing.T) {
 	}
 }
 
-// Test_ScopeFromColumns_refusesNamedAxis pins the fail-closed posture: a stored
-// row under an axis this build cannot name is refused rather than folded into
-// the default axis, whatever its other columns say.
-func Test_ScopeFromColumns_refusesNamedAxis(t *testing.T) {
+// Test_ScopeFromColumns_refuses pins the fail-closed posture: a stored row
+// under an axis this build cannot name, or of a kind the stores never write,
+// is refused rather than folded into a partition it was not written for.
+func Test_ScopeFromColumns_refuses(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		global bool
-		axis   string
-		domain string
+		name     string
+		kind     string
+		axis     string
+		domain   string
+		wantText string
 	}{
-		{name: "tenant row under a named axis", axis: "region", domain: "tenant1"},
-		{name: "global row under a named axis", global: true, axis: "region"},
-		{name: "named axis with an empty domain", axis: "region"},
+		{name: "tenant row under a named axis", kind: KindDomain, axis: "region", domain: "tenant1", wantText: "region"},
+		{name: "global row under a named axis", kind: KindGlobal, axis: "region", wantText: "region"},
+		{name: "every-domain row under a named axis", kind: KindEvery, axis: "region", wantText: "region"},
+		{name: "an unknown kind", kind: "all", wantText: `kind "all"`},
+		{name: "an empty kind", kind: "", wantText: `kind ""`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ScopeFromColumns(tt.global, tt.axis, tt.domain)
+			got, err := ScopeFromColumns(tt.kind, tt.axis, tt.domain)
 			if err == nil {
-				t.Fatalf("ScopeFromColumns(%v, %q, %q) = %v, want an error", tt.global, tt.axis, tt.domain, got)
+				t.Fatalf("ScopeFromColumns(%q, %q, %q) = %v, want an error", tt.kind, tt.axis, tt.domain, got)
 			}
-			if !strings.Contains(err.Error(), tt.axis) {
-				t.Errorf("ScopeFromColumns() error = %q, want it to name the axis %q", err, tt.axis)
+			if !strings.Contains(err.Error(), tt.wantText) {
+				t.Errorf("ScopeFromColumns() error = %q, want it to contain %q", err, tt.wantText)
 			}
 		})
+	}
+}
+
+// Test_CompareScopes pins the order a store lists rows in: by kind, then
+// axis, then domain, with the kinds in their name order.
+func Test_CompareScopes(t *testing.T) {
+	t.Parallel()
+
+	scopes := []accesstypes.PolicyScope{
+		accesstypes.GlobalPolicyScope(),
+		accesstypes.EveryDomainPolicyScope(),
+		accesstypes.DomainPolicyScope("b"),
+		accesstypes.DomainPolicyScope("a"),
+	}
+	slices.SortFunc(scopes, CompareScopes)
+	want := []accesstypes.PolicyScope{
+		accesstypes.DomainPolicyScope("a"),
+		accesstypes.DomainPolicyScope("b"),
+		accesstypes.EveryDomainPolicyScope(),
+		accesstypes.GlobalPolicyScope(),
+	}
+	if !slices.Equal(scopes, want) {
+		t.Errorf("sorted scopes = %v, want %v", scopes, want)
 	}
 }

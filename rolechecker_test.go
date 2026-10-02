@@ -26,10 +26,10 @@ func TestClient_ForRole(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees"); err != nil {
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
 
@@ -103,13 +103,13 @@ func TestRoleChecker_PermissionDigest(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1, "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
-	if err := manager.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "employees", "employees.name"); err != nil {
+	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
 		t.Fatalf("AddRolePermissionResources() error = %v", err)
 	}
-	if err := manager.AddRoleGrant(ctx, tenant1, "Editor", "Update", "employees.name", "status = 'open'"); err != nil {
+	if err := manager.AddRoleGrant(ctx, tenant1.PolicyScope(), "Editor", "Update", "employees.name", "status = 'open'"); err != nil {
 		t.Fatalf("AddRoleGrant() error = %v", err)
 	}
 
@@ -151,7 +151,10 @@ func TestRoleChecker_PermissionDigest(t *testing.T) {
 	}
 }
 
-func TestRoleChecker_Domains(t *testing.T) {
+// TestRoleChecker_HasGrants pins the foothold delegate for a session
+// operating as a role: the bound role has a foothold exactly where its grants
+// reach, and none in a scope it holds nothing in or as an unknown role.
+func TestRoleChecker_HasGrants(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
@@ -179,34 +182,38 @@ func TestRoleChecker_Domains(t *testing.T) {
 		{scope: tenant1, role: "Editor", perm: "Read", res: "employees"},
 		{scope: global, role: "Auditor", perm: "List", res: "reports"},
 	} {
-		if err := manager.AddRole(ctx, seed.scope, seed.role); err != nil {
+		if err := manager.AddRole(ctx, seed.scope.PolicyScope(), seed.role); err != nil {
 			t.Fatalf("AddRole() error = %v", err)
 		}
-		if err := manager.AddRolePermissionResources(ctx, seed.scope, seed.role, seed.perm, seed.res); err != nil {
+		if err := manager.AddRolePermissionResources(ctx, seed.scope.PolicyScope(), seed.role, seed.perm, seed.res); err != nil {
 			t.Fatalf("AddRolePermissionResources() error = %v", err)
 		}
 	}
 
 	tests := []struct {
-		name string
-		role accesstypes.Role
-		want []accesstypes.Domain
+		name  string
+		role  accesstypes.Role
+		scope accesstypes.Scope
+		want  bool
 	}{
-		{name: "bound role's footholds list sorted, global excluded", role: "Editor", want: []accesstypes.Domain{"tenant1", "tenant2"}},
-		{name: "global-only role lists no domain", role: "Auditor", want: []accesstypes.Domain{}},
-		{name: "unknown bound role lists nothing", role: "Ghost", want: []accesstypes.Domain{}},
+		{name: "bound role's grant is a foothold", role: "Editor", scope: tenant1, want: true},
+		{name: "a foothold in each tenant it is granted in", role: "Editor", scope: tenant2, want: true},
+		{name: "a global role has a foothold in the global partition", role: "Auditor", scope: global, want: true},
+		{name: "a global role has none in a tenant", role: "Auditor", scope: tenant1, want: false},
+		{name: "a tenant role has none in the global partition", role: "Editor", scope: global, want: false},
+		{name: "an unknown bound role has none", role: "Ghost", scope: tenant1, want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := client.ForRole(tt.role).Domains(t.Context())
+			got, err := client.ForRole(tt.role).HasGrants(t.Context(), tt.scope)
 			if err != nil {
-				t.Fatalf("RoleChecker.Domains() error = %v", err)
+				t.Fatalf("RoleChecker.HasGrants() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("RoleChecker.Domains() (-want +got):\n%s", diff)
+			if got != tt.want {
+				t.Errorf("RoleChecker.HasGrants(%s) = %v, want %v", tt.scope, got, tt.want)
 			}
 		})
 	}

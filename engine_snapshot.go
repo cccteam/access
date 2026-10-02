@@ -37,6 +37,7 @@ const (
 // reload serves the last good snapshot and reports through onError.
 type snapshotEngine struct {
 	store             Store
+	defaults          *defaultRoles        // may be nil: no default roles
 	collection        PermissionCollection // may be nil: grant names are then not checked
 	heartbeatInterval time.Duration
 	signal            ChangeSignal // may be nil
@@ -73,9 +74,10 @@ type snapshotEngine struct {
 	wg          sync.WaitGroup
 }
 
-func newSnapshotEngine(store Store, opts *clientOptions) *snapshotEngine {
+func newSnapshotEngine(store Store, defaults *defaultRoles, opts *clientOptions) *snapshotEngine {
 	return &snapshotEngine{
 		store:             store,
+		defaults:          defaults,
 		collection:        opts.collection,
 		heartbeatInterval: opts.heartbeatInterval,
 		signal:            opts.signal,
@@ -260,13 +262,13 @@ func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.Use
 	return snap.userHasGrants(scope, user), nil
 }
 
-func (s *snapshotEngine) userDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
+func (s *snapshotEngine) userPermissions(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.UserScopePermissions, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
-		return nil, err
+		return accesstypes.UserScopePermissions{}, err
 	}
 
-	return snap.userDomains(user), nil
+	return snap.userPermissions(scope, user), nil
 }
 
 func (s *snapshotEngine) checkRole(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope, perm accesstypes.Permission) (resourceDecision, error) {
@@ -305,13 +307,13 @@ func (s *snapshotEngine) roleHasGrants(ctx context.Context, role accesstypes.Rol
 	return snap.roleHasGrants(scope, role), nil
 }
 
-func (s *snapshotEngine) roleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error) {
+func (s *snapshotEngine) rolePermissions(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (accesstypes.RolePermissionCollection, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return snap.roleDomains(role), nil
+	return snap.rolePermissions(scope, role), nil
 }
 
 // peek returns the current snapshot without triggering loads. Nil until the
@@ -397,7 +399,7 @@ func (s *snapshotEngine) reload(ctx context.Context) (*snapshot, error) {
 		return &fresh, nil
 	}
 
-	snap, skipped, err := newSnapshot(records, s.collection, time.Now())
+	snap, findings, err := newSnapshot(records, s.defaults, s.collection, time.Now())
 	if err != nil {
 		return nil, errors.Wrap(err, "newSnapshot()")
 	}
@@ -405,11 +407,11 @@ func (s *snapshotEngine) reload(ctx context.Context) (*snapshot, error) {
 	s.snap.Store(snap)
 	s.readyOnce.Do(func() { close(s.ready) })
 
-	// The grants this release cannot use are reported once per compiled
-	// snapshot: an unchanged store does not recompile, so a persistent bad
-	// row is not reported on every heartbeat.
-	for _, g := range skipped {
-		s.onError(g)
+	// What the store holds that this release cannot use as written is
+	// reported once per compiled snapshot: an unchanged store does not
+	// recompile, so a persistent finding is not reported on every heartbeat.
+	for _, f := range findings {
+		s.onError(f)
 	}
 
 	return snap, nil

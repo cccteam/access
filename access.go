@@ -3,6 +3,7 @@ package access
 
 import (
 	"context"
+	"time"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/accesstypes/condition"
@@ -17,36 +18,61 @@ type Client struct {
 	evaluator   evaluator
 	snapEngine  *snapshotEngine
 	userManager *userManager
+	store       Store
+	defaults    *defaultRoles
+	collection  PermissionCollection
 }
 
 // New creates a new Client over a policy store built by one of the store
 // subpackages (spannerstore, postgresstore).
 //
 // Permission checks are answered by the snapshot engine, compiled in-memory
-// from the policy store and kept fresh by a background heartbeat plus an
-// optional push hint (see WithChangeSignal). All policy writes (user
-// management, MigrateRoles) go through the same store and refresh the
-// snapshot immediately on this instance.
+// from the release's default roles (WithDefaultRoles) and the policy store,
+// and kept fresh by a background heartbeat plus an optional push hint (see
+// WithChangeSignal). All policy writes (user management) go through the same
+// store and refresh the snapshot immediately on this instance.
 //
 // The store's values — domains, users, resources — are opaque labels to
 // access: referential validity belongs to the callers that write them, and
-// checks fail closed on anything unknown. Whether an operation addresses a
-// tenant domain or the global partition is expressed by accesstypes.Scope,
-// never by a distinguished value.
+// checks fail closed on anything unknown. Where a request is — a tenant
+// domain or the global partition — is an accesstypes.Scope; where policy is
+// held — the global partition, one domain or every domain — is an
+// accesstypes.PolicyScope; neither is ever a distinguished value.
+//
+// New fails when the role file does not parse or does not validate against
+// the collection: a release whose default roles are wrong does not start.
 func New(store Store, opts ...Option) (*Client, error) {
 	options := defaultClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
 
+	var defaults *defaultRoles
+	if options.roleFileSet {
+		if options.collection == nil {
+			return nil, errors.New("access.WithDefaultRoles(): the collection must not be nil; the role file validates against what the release declares")
+		}
+		config, err := options.roleFile.Parse()
+		if err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
+		}
+		defaults, err = compileDefaultRoles(options.collection, config)
+		if err != nil {
+			return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file does not validate")
+		}
+	}
+
 	manager := newStoreManager(store)
-	snapEngine := newSnapshotEngine(store, options)
+	snapEngine := newSnapshotEngine(store, defaults, options)
 	manager.onPolicyChange = snapEngine.policyChanged
 
 	return &Client{
 		evaluator:   snapEngine,
 		snapEngine:  snapEngine,
-		userManager: newUserManager(manager),
+		userManager: newUserManager(manager, defaults, snapEngine),
+		store:       store,
+		defaults:    defaults,
+		collection:  options.collection,
 	}, nil
 }
 
@@ -66,6 +92,40 @@ func (c *Client) Close() error {
 // Handlers returns the Handlers for enforcing access control
 func (c *Client) Handlers(logHandler LogHandler) Handlers {
 	return newHandler(c, logHandler)
+}
+
+// CheckPolicy reads the policy store once and reports everything a deploy
+// should hear about before the release takes traffic: the shapes the role
+// file carries that are legal and probably not what the author wanted
+// (GrantWarning, ConcealingKeyWarning), and what the store holds that this
+// release cannot use as written — a grant it would skip (*SkippedGrant), a
+// custom role a default of the same name shadows (*ShadowedRole), memberships
+// naming a role nothing defines (*OrphanedMembership). It writes nothing: the
+// default roles are the release's and the store holds no row for them, so
+// there is nothing to reconcile. A migrate step calls it and prints each
+// warning on its own line; a store that cannot be read is the error.
+func (c *Client) CheckPolicy(ctx context.Context) ([]Warning, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	records, err := c.store.ReadPolicy(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "access.Store.ReadPolicy()")
+	}
+	_, findings, err := newSnapshot(records, c.defaults, c.collection, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "newSnapshot()")
+	}
+
+	var warnings []Warning
+	if c.defaults != nil {
+		warnings = append(warnings, c.defaults.warnings...)
+	}
+	for _, f := range findings {
+		warnings = append(warnings, f)
+	}
+
+	return warnings, nil
 }
 
 // CheckUser returns the Decision for whether user holds perm scope-wide —
@@ -255,33 +315,16 @@ func (c *Client) CheckRoleResources(
 // store read). It is the visibility question concealed tenancy asks: an
 // application hiding tenant existence answers a caller with no grants in a
 // domain exactly as if the domain did not exist, while a caller with any
-// foothold proceeds to ordinary permission checks. Role membership that
-// resolves to no grants is not a foothold.
+// foothold proceeds to ordinary permission checks. It is also the predicate a
+// tenant picker filters the application's own tenant list by — access holds
+// no tenant list, so it never enumerates domains. Role membership that
+// resolves to no grants is not a foothold; a membership held in every domain
+// is a foothold in each.
 func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	return c.evaluator.userHasGrants(ctx, user, scope)
-}
-
-// UserDomains lists the domains where user holds at least one grant, sorted
-// — the membership question a tenant picker asks, answered from the
-// in-memory policy snapshot with the same foothold predicate as
-// UserHasGrants: a domain is listed exactly when its routes would answer
-// user with ordinary 403s rather than a concealing 404, so a picker built on
-// it can never disagree with concealed tenancy. The global scope is not a
-// domain and is never listed.
-//
-// The answer reports grants, not tenants: a domain the application has since
-// removed still lists while grants in it remain, and tenant existence stays
-// the application's DomainExists seam. Like the digest it is structural and
-// non-folding — no environment, no row data — so it caches cleanly per user
-// for the life of a policy snapshot.
-func (c *Client) UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	return c.evaluator.userDomains(ctx, user)
 }
 
 // UserPermissionDigest returns user's structural grant enumeration within
@@ -316,26 +359,12 @@ func (c *Client) ForUser(user accesstypes.User) *UserChecker {
 // question UserHasGrants answers for a user, asked for a session operating as
 // the role: concealed tenancy answers a role with no grants in a domain
 // exactly as if the domain did not exist. A role that exists but resolves to
-// no grants has no foothold.
+// no grants has no foothold; a domain default role has one in every domain.
 func (c *Client) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	return c.evaluator.roleHasGrants(ctx, role, scope)
-}
-
-// RoleDomains lists the domains where role holds at least one grant, sorted
-// — the tenant picker's membership question for a session operating as the
-// role, answered with the same foothold predicate as RoleHasGrants. A role
-// provisioned into every tenant partition lists every partition its grants
-// reach; the global scope is not a domain and is never listed. Like
-// UserDomains it reports grants, not tenants, and is structural and
-// non-folding.
-func (c *Client) RoleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	return c.evaluator.roleDomains(ctx, role)
 }
 
 // RolePermissionDigest returns role's structural grant enumeration within

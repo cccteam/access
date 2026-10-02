@@ -22,8 +22,21 @@ type snapshot struct {
 	perms     map[accesstypes.Permission]uint16
 	resources map[string]uint16   // base resource name -> dense ID ("" = scope-wide)
 	fields    []map[string]uint16 // by resource ID: field name -> bit position
-	scopes    map[accesstypes.Scope]*scopePolicy
 	loadedAt  time.Time
+
+	// Policy is held in three places and read in two. global is the global
+	// partition. every is what reaches every tenant domain: the release's
+	// domain default roles, the custom roles held in every domain, and the
+	// users holding every-domain memberships. domains holds, for each domain
+	// the store has rows in, what those rows add on top of every: the roles
+	// and users they touch, resolved with every's contribution folded in. A
+	// lookup in a domain reads the domain's entry when it has one for the
+	// subject and every's otherwise, so a membership held in every domain
+	// reaches a tenant the store holds no row in, and a thousand tenants
+	// sharing the release's defaults share one compiled copy of them.
+	global  *scopePolicy
+	every   *scopePolicy
+	domains map[accesstypes.Domain]*scopePolicy
 
 	// permNames and resourceNames are the reverse of perms and resources,
 	// aligned by dense ID: the digest enumeration walks grant maps and needs
@@ -49,13 +62,18 @@ type snapshot struct {
 	writeGen int64
 }
 
-// scopePolicy holds one scope's fully-resolved grants. The scope is the
-// partition grants live in: nothing in here is ever consulted for another
-// scope. Role inheritance and per-user role combination are folded at
-// compile time, so a check is a single subject lookup.
+// scopePolicy holds one partition's fully-resolved grants. Role inheritance
+// and per-user role combination are folded at compile time, so a check is a
+// single subject lookup.
 type scopePolicy struct {
 	roleGrants map[accesstypes.Role]grantMap
 	userGrants map[accesstypes.User]grantMap
+
+	// userRoles and userDirect are the memberships and direct grants the
+	// partition compiled its users from, kept so a domain overlay can resolve
+	// a user again over every's rows with the domain's own added.
+	userRoles  map[accesstypes.User][]accesstypes.Role
+	userDirect map[accesstypes.User]grantMap
 }
 
 // grantKey packs (permission ID, resource ID) into one map key.
@@ -386,40 +404,6 @@ func (s *snapshot) roleHasGrants(scope accesstypes.Scope, role accesstypes.Role)
 	return len(s.roleGrants(scope, role)) > 0
 }
 
-// userDomains lists the domains where user holds at least one grant — the
-// foothold userHasGrants tests, enumerated across every scope the snapshot
-// knows and sorted for a stable payload. The global scope is not a domain and
-// never appears. A domain listed is exactly a domain whose routes answer the
-// user with ordinary 403s rather than a concealing 404.
-func (s *snapshot) userDomains(user accesstypes.User) []accesstypes.Domain {
-	return s.domainsWhere(func(sp *scopePolicy) bool { return len(sp.userGrants[user]) > 0 })
-}
-
-// roleDomains lists the domains where role holds at least one grant — the
-// foothold roleHasGrants tests, enumerated like userDomains. A role
-// provisioned into every tenant partition lists every partition its grants
-// reach; the global scope is never a domain.
-func (s *snapshot) roleDomains(role accesstypes.Role) []accesstypes.Domain {
-	return s.domainsWhere(func(sp *scopePolicy) bool { return len(sp.roleGrants[role]) > 0 })
-}
-
-// domainsWhere lists, sorted, the domains whose scope policy satisfies
-// foothold. The list is never nil, so the wire payload is always a JSON
-// array.
-func (s *snapshot) domainsWhere(foothold func(*scopePolicy) bool) []accesstypes.Domain {
-	domains := make([]accesstypes.Domain, 0)
-	for scope, sp := range s.scopes {
-		domain, ok := scope.Domain()
-		if !ok || !foothold(sp) {
-			continue
-		}
-		domains = append(domains, domain)
-	}
-	slices.Sort(domains)
-
-	return domains
-}
-
 // userDigest returns user's structural grant enumeration within scope: every
 // resource and field the user's grants reach, each mapping permission to
 // granted (an unconditional cover exists) or conditional (only conditional
@@ -484,20 +468,109 @@ func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 	return digest
 }
 
-func (s *snapshot) userGrants(scope accesstypes.Scope, user accesstypes.User) grantMap {
-	if sp := s.scopes[scope]; sp != nil {
-		return sp.userGrants[user]
+// userPermissions enumerates user's effective permissions within scope by
+// name: the permissions held scope-wide and the permissions held on each
+// resource, all-fields grants as Resource.* and field grants as
+// Resource.field, a conditional grant counted as held. The management
+// listing answers from the same compiled policy the checks do.
+func (s *snapshot) userPermissions(scope accesstypes.Scope, user accesstypes.User) accesstypes.UserScopePermissions {
+	out := accesstypes.UserScopePermissions{Resources: make(map[accesstypes.Resource][]accesstypes.Permission)}
+	s.forEachHeld(s.userGrants(scope, user), func(perm accesstypes.Permission, res accesstypes.Resource) {
+		if res == "" {
+			out.ScopeWide = append(out.ScopeWide, perm)
+
+			return
+		}
+		out.Resources[res] = append(out.Resources[res], perm)
+	})
+	slices.Sort(out.ScopeWide)
+	for _, perms := range out.Resources {
+		slices.Sort(perms)
 	}
 
-	return nil
+	return out
 }
 
-func (s *snapshot) roleGrants(scope accesstypes.Scope, role accesstypes.Role) grantMap {
-	if sp := s.scopes[scope]; sp != nil {
-		return sp.roleGrants[role]
+// rolePermissions enumerates role's effective grants within scope by name,
+// inheritance folded, in the shape the management listing speaks: each
+// permission held scope-wide, on resources, or both — the role twin of
+// userPermissions.
+func (s *snapshot) rolePermissions(scope accesstypes.Scope, role accesstypes.Role) accesstypes.RolePermissionCollection {
+	out := make(accesstypes.RolePermissionCollection)
+	s.forEachHeld(s.roleGrants(scope, role), func(perm accesstypes.Permission, res accesstypes.Resource) {
+		pg := out[perm]
+		if res == "" {
+			pg.ScopeWide = true
+		} else {
+			pg.Resources = append(pg.Resources, res)
+		}
+		out[perm] = pg
+	})
+	for perm, pg := range out {
+		slices.Sort(pg.Resources)
+		out[perm] = pg
 	}
 
-	return nil
+	return out
+}
+
+// forEachHeld visits each (permission, target) a grant map holds, by name:
+// the empty resource for a scope-wide grant, the base resource for an
+// endpoint grant, Resource.* for an all-fields grant and Resource.field for a
+// field grant, unconditional and conditional alike. Visit order is the map's.
+func (s *snapshot) forEachHeld(grants grantMap, visit func(perm accesstypes.Permission, res accesstypes.Resource)) {
+	for key, fs := range grants {
+		permID, resID := unpackGrantKey(key)
+		perm := s.permNames[permID]
+		base := accesstypes.Resource(s.resourceNames[resID])
+		if fs.endpoint || (fs.cond != nil && len(fs.cond.endpoint) > 0) {
+			visit(perm, base)
+		}
+		if base == "" {
+			continue
+		}
+		if fs.all || (fs.cond != nil && len(fs.cond.all) > 0) {
+			visit(perm, base.ResourceWithTag("*"))
+		}
+		for field, i := range s.fields[resID] {
+			if fs.bit(i) || (fs.cond != nil && len(fs.cond.fields[i]) > 0) {
+				visit(perm, base.ResourceWithTag(accesstypes.Tag(field)))
+			}
+		}
+	}
+}
+
+// userGrants resolves user's effective grants within scope: the global
+// partition's entry for the global scope; in a domain, the domain's own entry
+// when its rows touched the user and every's otherwise.
+func (s *snapshot) userGrants(scope accesstypes.Scope, user accesstypes.User) grantMap {
+	if scope.IsGlobal() {
+		return s.global.userGrants[user]
+	}
+	domain, _ := scope.Domain()
+	if dp := s.domains[domain]; dp != nil {
+		if gm, ok := dp.userGrants[user]; ok {
+			return gm
+		}
+	}
+
+	return s.every.userGrants[user]
+}
+
+// roleGrants resolves role's effective grants within scope the way userGrants
+// resolves a user's.
+func (s *snapshot) roleGrants(scope accesstypes.Scope, role accesstypes.Role) grantMap {
+	if scope.IsGlobal() {
+		return s.global.roleGrants[role]
+	}
+	domain, _ := scope.Domain()
+	if dp := s.domains[domain]; dp != nil {
+		if gm, ok := dp.roleGrants[role]; ok {
+			return gm
+		}
+	}
+
+	return s.every.roleGrants[role]
 }
 
 // decide answers one resource against a subject's grants. Any unconditional
@@ -569,35 +642,151 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 	return resourceDecision{conditions: conditions, exprs: exprs}
 }
 
-// newSnapshot compiles normalized policy records into an immutable snapshot.
-// A grant the running release cannot use is left out and reported (see
-// SkippedGrant); the collection, when not nil, is what the release declares.
-func newSnapshot(records *policy.Records, collection PermissionCollection, loadedAt time.Time) (*snapshot, []*SkippedGrant, error) {
+// newSnapshot compiles the release's default roles and the store's records
+// into an immutable snapshot, and reports what the store holds that this
+// release cannot use as written: a grant it skipped (SkippedGrant), a custom
+// role a default of the same name shadows, whose grants it skipped
+// (ShadowedRole), and memberships naming a role that is neither a default nor
+// a custom role in their scope, which grant nothing (OrphanedMembership). The
+// findings are sorted for a stable report. defaults and collection may be
+// nil: no default roles, and grant names unchecked.
+func newSnapshot(records *policy.Records, defaults *defaultRoles, collection PermissionCollection, loadedAt time.Time) (*snapshot, []policyFinding, error) {
 	s := &snapshot{
 		perms:       make(map[accesstypes.Permission]uint16),
 		resources:   make(map[string]uint16),
 		condIDs:     make(map[string]uint16),
-		scopes:      make(map[accesstypes.Scope]*scopePolicy),
+		domains:     make(map[accesstypes.Domain]*scopePolicy),
 		loadedAt:    loadedAt,
 		recordsHash: records.Hash(),
 	}
 
-	grants, skipped, err := s.intern(records.Grants, collection)
+	customs, storeGrants, findings := definedRoles(records, defaults)
+	all := make([]policy.Grant, 0, len(defaults.allGrants())+len(storeGrants))
+	all = append(all, defaults.allGrants()...)
+	all = append(all, storeGrants...)
+	grants, skipped, err := s.intern(all, collection)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// Pass 2: group records by scope and compile each scope independently.
-	type scopeRecords struct {
-		grants      []policy.Grant
-		memberships []policy.Membership
+	for _, g := range skipped {
+		findings = append(findings, g)
 	}
-	byScope := make(map[accesstypes.Scope]*scopeRecords)
-	recordsFor := func(scope accesstypes.Scope) *scopeRecords {
-		sr := byScope[scope]
+	memberships, orphaned := resolvedMemberships(records.Memberships, defaults, customs)
+	findings = append(findings, orphaned...)
+	sortFindings(findings)
+
+	// Group the records by where they are held and compile the global
+	// partition and every-domain policy outright; each domain with rows of
+	// its own is then an overlay on every.
+	global, every, byDomain := groupByScope(grants, memberships)
+	s.global = s.compileScope(global.grants, global.memberships)
+	s.every = s.compileScope(every.grants, every.memberships)
+	for domain, sr := range byDomain {
+		s.domains[domain] = s.overlayScope(s.every, sr.grants, sr.memberships)
+	}
+
+	return s, findings, nil
+}
+
+// definedRoles sorts the store's roles against the release's defaults: a
+// custom role whose name a default of its kind has is shadowed — the default
+// wins, so the custom role's grants are left out and its members hold the
+// default's grants — and is reported; the rest are the custom roles the
+// snapshot defines, keyed by where they are held. A role with grants is
+// defined where its grants are held whether or not its row came back: the
+// stores keep a grant under its role row, so this only widens the set for
+// records built by hand. It returns the store's grants less the shadowed
+// roles'.
+func definedRoles(records *policy.Records, defaults *defaultRoles) (customs map[policy.Role]bool, grants []policy.Grant, findings []policyFinding) {
+	customs = make(map[policy.Role]bool, len(records.Roles))
+	shadowed := make(map[policy.Role]bool)
+	for _, r := range records.Roles {
+		if defaults.exists(r.Scope, r.Name) {
+			shadowed[r] = true
+			findings = append(findings, &ShadowedRole{Scope: r.Scope, Role: r.Name})
+
+			continue
+		}
+		customs[r] = true
+	}
+	grants = make([]policy.Grant, 0, len(records.Grants))
+	for _, g := range records.Grants {
+		if g.Subject.Kind == policy.SubjectRole {
+			role := policy.Role{Scope: g.Scope, Name: accesstypes.Role(g.Subject.Name)}
+			if shadowed[role] {
+				continue
+			}
+			if !defaults.exists(role.Scope, role.Name) {
+				customs[role] = true
+			}
+		}
+		grants = append(grants, g)
+	}
+
+	return customs, grants, findings
+}
+
+// resolvedMemberships keeps the memberships whose role is defined as seen
+// from where the membership is held — a default of the scope's kind, a custom
+// role held in the scope, or, for one domain, a custom role held in every
+// domain — and reports the rest once per (scope, role) with their members
+// sorted: an orphaned membership grants nothing anywhere, not even in a
+// domain whose own rows happen to define a role of that name. Role-to-role
+// edges pass through; a parent nothing defines contributes nothing.
+func resolvedMemberships(memberships []policy.Membership, defaults *defaultRoles, customs map[policy.Role]bool) ([]policy.Membership, []policyFinding) {
+	resolves := func(scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+		if defaults.exists(scope, role) || customs[policy.Role{Scope: scope, Name: role}] {
+			return true
+		}
+		if _, oneDomain := scope.Domain(); oneDomain {
+			return customs[policy.Role{Scope: accesstypes.EveryDomainPolicyScope(), Name: role}]
+		}
+
+		return false
+	}
+
+	kept := make([]policy.Membership, 0, len(memberships))
+	orphans := make(map[policy.Role][]accesstypes.User)
+	for _, m := range memberships {
+		if m.Member.Kind == policy.SubjectUser && !resolves(m.Scope, m.Role) {
+			key := policy.Role{Scope: m.Scope, Name: m.Role}
+			orphans[key] = append(orphans[key], accesstypes.User(m.Member.Name))
+
+			continue
+		}
+		kept = append(kept, m)
+	}
+	findings := make([]policyFinding, 0, len(orphans))
+	for key, users := range orphans {
+		slices.Sort(users)
+		findings = append(findings, &OrphanedMembership{Scope: key.Scope, Role: key.Name, Users: slices.Compact(users)})
+	}
+
+	return kept, findings
+}
+
+// scopeRecords is one partition's grants and memberships.
+type scopeRecords struct {
+	grants      []policy.Grant
+	memberships []policy.Membership
+}
+
+// groupByScope sorts records by where they are held: the global partition,
+// every domain, and each domain with rows of its own.
+func groupByScope(grants []policy.Grant, memberships []policy.Membership) (global, every scopeRecords, byDomain map[accesstypes.Domain]*scopeRecords) {
+	byDomain = make(map[accesstypes.Domain]*scopeRecords)
+	recordsFor := func(scope accesstypes.PolicyScope) *scopeRecords {
+		switch {
+		case scope.IsGlobal():
+			return &global
+		case scope.IsEveryDomain():
+			return &every
+		}
+		domain, _ := scope.Domain()
+		sr := byDomain[domain]
 		if sr == nil {
 			sr = &scopeRecords{}
-			byScope[scope] = sr
+			byDomain[domain] = sr
 		}
 
 		return sr
@@ -606,16 +795,12 @@ func newSnapshot(records *policy.Records, collection PermissionCollection, loade
 		sr := recordsFor(g.Scope)
 		sr.grants = append(sr.grants, g)
 	}
-	for _, m := range records.Memberships {
+	for _, m := range memberships {
 		sr := recordsFor(m.Scope)
 		sr.memberships = append(sr.memberships, m)
 	}
 
-	for scope, sr := range byScope {
-		s.scopes[scope] = s.compileScope(sr.grants, sr.memberships)
-	}
-
-	return s, skipped, nil
+	return global, every, byDomain
 }
 
 // intern assigns dense IDs to permissions and resources and bit positions to
@@ -714,6 +899,140 @@ func (s *snapshot) compileScope(grants []policy.Grant, memberships []policy.Memb
 
 	// Fold inheritance: every role referenced anywhere gets its effective
 	// grants (its own plus its transitive parents').
+	roleSet := referencedRoles(roleOwn, inherits, userRoles)
+	dp := &scopePolicy{
+		roleGrants: make(map[accesstypes.Role]grantMap, len(roleSet)),
+		userGrants: make(map[accesstypes.User]grantMap, len(userRoles)+len(userDirect)),
+		userRoles:  userRoles,
+		userDirect: userDirect,
+	}
+	for role := range roleSet {
+		var sources []grantMap
+		for _, r := range inheritanceChain(role, inherits) {
+			if own := roleOwn[r]; own != nil {
+				sources = append(sources, own)
+			}
+		}
+		dp.roleGrants[role] = mergeGrants(sources)
+	}
+
+	users := make(map[accesstypes.User]bool, len(userRoles)+len(userDirect))
+	for user := range userRoles {
+		users[user] = true
+	}
+	for user := range userDirect {
+		users[user] = true
+	}
+	dp.resolveUsers(users, func(role accesstypes.Role) grantMap { return dp.roleGrants[role] }, nil)
+
+	return dp
+}
+
+// overlayScope compiles what one domain's own rows add on top of base, the
+// every-domain policy: a role the rows touch — with grants here, inheriting
+// here, or named by a membership here — resolves to base's effective grants
+// plus the rows' own, and a user the rows touch, or who holds a role the rows
+// changed, resolves again over the union of base's memberships and direct
+// grants and the domain's. Subjects the rows leave alone are absent, so a
+// lookup falls back to base.
+func (s *snapshot) overlayScope(base *scopePolicy, grants []policy.Grant, memberships []policy.Membership) *scopePolicy {
+	roleOwn, userDirect := s.compileSubjectGrants(grants)
+	inherits, userRoles := splitMemberships(memberships)
+
+	dp := &scopePolicy{
+		roleGrants: make(map[accesstypes.Role]grantMap),
+		userGrants: make(map[accesstypes.User]grantMap),
+	}
+	for role := range referencedRoles(roleOwn, inherits, userRoles) {
+		chain := inheritanceChain(role, inherits)
+		if len(chain) == 1 && roleOwn[role] == nil {
+			// Nothing here changes the role: base's answer stands.
+			continue
+		}
+		var sources []grantMap
+		for _, r := range chain {
+			if inherited := base.roleGrants[r]; len(inherited) > 0 {
+				sources = append(sources, inherited)
+			}
+			if own := roleOwn[r]; own != nil {
+				sources = append(sources, own)
+			}
+		}
+		dp.roleGrants[role] = mergeGrants(sources)
+	}
+
+	users := make(map[accesstypes.User]bool, len(userRoles)+len(userDirect))
+	for user := range userRoles {
+		users[user] = true
+	}
+	for user := range userDirect {
+		users[user] = true
+	}
+	for user, roles := range base.userRoles {
+		for _, r := range roles {
+			if _, changed := dp.roleGrants[r]; changed {
+				users[user] = true
+
+				break
+			}
+		}
+	}
+	dp.userRoles, dp.userDirect = userRoles, userDirect
+	dp.resolveUsers(users, func(role accesstypes.Role) grantMap {
+		if gm, ok := dp.roleGrants[role]; ok {
+			return gm
+		}
+
+		return base.roleGrants[role]
+	}, base)
+
+	return dp
+}
+
+// resolveUsers folds each user's effective grants from the roles they hold
+// and their direct grants — in the partition's own rows and, when the
+// partition overlays a base, base's too — deduplicating by role set so users
+// sharing a role combination share one merged map.
+func (dp *scopePolicy) resolveUsers(users map[accesstypes.User]bool, roleGrants func(accesstypes.Role) grantMap, base *scopePolicy) {
+	combos := make(map[string]grantMap)
+	for user := range users {
+		roles := slices.Clone(dp.userRoles[user])
+		direct := []grantMap{dp.userDirect[user]}
+		if base != nil {
+			roles = append(roles, base.userRoles[user]...)
+			direct = append(direct, base.userDirect[user])
+		}
+		slices.Sort(roles)
+		roles = slices.Compact(roles)
+
+		if directGrants := mergeGrants(direct); len(directGrants) > 0 {
+			sources := make([]grantMap, 0, len(roles)+1)
+			for _, r := range roles {
+				sources = append(sources, roleGrants(r))
+			}
+			sources = append(sources, directGrants)
+			dp.userGrants[user] = mergeGrants(sources)
+
+			continue
+		}
+
+		key := joinRoles(roles)
+		combined, ok := combos[key]
+		if !ok {
+			sources := make([]grantMap, 0, len(roles))
+			for _, r := range roles {
+				sources = append(sources, roleGrants(r))
+			}
+			combined = mergeGrants(sources)
+			combos[key] = combined
+		}
+		dp.userGrants[user] = combined
+	}
+}
+
+// referencedRoles is every role a partition's rows name: with grants of its
+// own, on either side of an inheritance edge, or held by a user.
+func referencedRoles(roleOwn map[accesstypes.Role]grantMap, inherits map[accesstypes.Role][]accesstypes.Role, userRoles map[accesstypes.User][]accesstypes.Role) map[accesstypes.Role]bool {
 	roleSet := make(map[accesstypes.Role]bool)
 	for role := range roleOwn {
 		roleSet[role] = true
@@ -730,49 +1049,7 @@ func (s *snapshot) compileScope(grants []policy.Grant, memberships []policy.Memb
 		}
 	}
 
-	dp := &scopePolicy{
-		roleGrants: make(map[accesstypes.Role]grantMap, len(roleSet)),
-		userGrants: make(map[accesstypes.User]grantMap, len(userRoles)+len(userDirect)),
-	}
-	for role := range roleSet {
-		dp.roleGrants[role] = mergeGrants(collectRoleGrants(role, roleOwn, inherits))
-	}
-
-	// Per-user effective grants, deduplicated by role set so users sharing a
-	// role combination share one merged map.
-	combos := make(map[string]grantMap)
-	for user, roles := range userRoles {
-		slices.Sort(roles)
-		if direct := userDirect[user]; direct != nil {
-			sources := make([]grantMap, 0, len(roles)+1)
-			for _, r := range roles {
-				sources = append(sources, dp.roleGrants[r])
-			}
-			sources = append(sources, direct)
-			dp.userGrants[user] = mergeGrants(sources)
-
-			continue
-		}
-
-		key := joinRoles(roles)
-		combined, ok := combos[key]
-		if !ok {
-			sources := make([]grantMap, 0, len(roles))
-			for _, r := range roles {
-				sources = append(sources, dp.roleGrants[r])
-			}
-			combined = mergeGrants(sources)
-			combos[key] = combined
-		}
-		dp.userGrants[user] = combined
-	}
-	for user, direct := range userDirect {
-		if _, ok := dp.userGrants[user]; !ok {
-			dp.userGrants[user] = direct
-		}
-	}
-
-	return dp
+	return roleSet
 }
 
 // compileSubjectGrants builds each subject's raw grant map from one scope's
@@ -859,10 +1136,11 @@ func splitMemberships(memberships []policy.Membership) (inherits map[accesstypes
 	return inherits, userRoles
 }
 
-// collectRoleGrants returns the grant maps contributing to role's effective
-// grants: its own and, transitively, every role it inherits (cycle-safe).
-func collectRoleGrants(role accesstypes.Role, roleOwn map[accesstypes.Role]grantMap, inherits map[accesstypes.Role][]accesstypes.Role) []grantMap {
-	var sources []grantMap
+// inheritanceChain lists role and, transitively, every role it inherits
+// (cycle-safe), role first: the roles whose own grants fold into its
+// effective grants.
+func inheritanceChain(role accesstypes.Role, inherits map[accesstypes.Role][]accesstypes.Role) []accesstypes.Role {
+	var chain []accesstypes.Role
 	visited := make(map[accesstypes.Role]bool)
 	stack := []accesstypes.Role{role}
 	for len(stack) > 0 {
@@ -872,13 +1150,11 @@ func collectRoleGrants(role accesstypes.Role, roleOwn map[accesstypes.Role]grant
 			continue
 		}
 		visited[r] = true
-		if own := roleOwn[r]; own != nil {
-			sources = append(sources, own)
-		}
+		chain = append(chain, r)
 		stack = append(stack, inherits[r]...)
 	}
 
-	return sources
+	return chain
 }
 
 // mergeGrants ORs the sources into one grantMap. With zero or one source it

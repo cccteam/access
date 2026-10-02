@@ -153,21 +153,6 @@ func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
 }
 
-// RoleDomains mocks base method.
-func (m *MockController) RoleDomains(ctx context.Context, role accesstypes.Role) ([]accesstypes.Domain, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RoleDomains", ctx, role)
-	ret0, _ := ret[0].([]accesstypes.Domain)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// RoleDomains indicates an expected call of RoleDomains.
-func (mr *MockControllerMockRecorder) RoleDomains(ctx, role any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleDomains", reflect.TypeOf((*MockController)(nil).RoleDomains), ctx, role)
-}
-
 // RoleHasGrants mocks base method.
 func (m *MockController) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
 	m.ctrl.T.Helper()
@@ -196,21 +181,6 @@ func (m *MockController) RolePermissionDigest(ctx context.Context, role accessty
 func (mr *MockControllerMockRecorder) RolePermissionDigest(ctx, role, scope any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RolePermissionDigest", reflect.TypeOf((*MockController)(nil).RolePermissionDigest), ctx, role, scope)
-}
-
-// UserDomains mocks base method.
-func (m *MockController) UserDomains(ctx context.Context, user accesstypes.User) ([]accesstypes.Domain, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDomains", ctx, user)
-	ret0, _ := ret[0].([]accesstypes.Domain)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserDomains indicates an expected call of UserDomains.
-func (mr *MockControllerMockRecorder) UserDomains(ctx, user any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDomains", reflect.TypeOf((*MockController)(nil).UserDomains), ctx, user)
 }
 
 // UserHasGrants mocks base method.
@@ -282,7 +252,7 @@ func (m *MockUserManager) EXPECT() *MockUserManagerMockRecorder {
 }
 
 // AddRole mocks base method.
-func (m *MockUserManager) AddRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
+func (m *MockUserManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddRole", ctx, scope, role)
 	ret0, _ := ret[0].(error)
@@ -296,7 +266,7 @@ func (mr *MockUserManagerMockRecorder) AddRole(ctx, scope, role any) *gomock.Cal
 }
 
 // AddRoleGrant mocks base method.
-func (m *MockUserManager) AddRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+func (m *MockUserManager) AddRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddRoleGrant", ctx, scope, role, permission, resource, condition)
 	ret0, _ := ret[0].(error)
@@ -310,7 +280,7 @@ func (mr *MockUserManagerMockRecorder) AddRoleGrant(ctx, scope, role, permission
 }
 
 // AddRoleGrants mocks base method.
-func (m *MockUserManager) AddRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, grants ...GrantRow) error {
+func (m *MockUserManager) AddRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants ...GrantRow) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, role}
 	for _, a := range grants {
@@ -329,7 +299,7 @@ func (mr *MockUserManagerMockRecorder) AddRoleGrants(ctx, scope, role any, grant
 }
 
 // AddRolePermission mocks base method.
-func (m *MockUserManager) AddRolePermission(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission) error {
+func (m *MockUserManager) AddRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddRolePermission", ctx, scope, role, permission)
 	ret0, _ := ret[0].(error)
@@ -343,7 +313,7 @@ func (mr *MockUserManagerMockRecorder) AddRolePermission(ctx, scope, role, permi
 }
 
 // AddRolePermissionResources mocks base method.
-func (m *MockUserManager) AddRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
+func (m *MockUserManager) AddRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, role, permission}
 	for _, a := range resources {
@@ -362,7 +332,7 @@ func (mr *MockUserManagerMockRecorder) AddRolePermissionResources(ctx, scope, ro
 }
 
 // AddRoleUsers mocks base method.
-func (m *MockUserManager) AddRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, users ...accesstypes.User) error {
+func (m *MockUserManager) AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, role}
 	for _, a := range users {
@@ -381,7 +351,7 @@ func (mr *MockUserManagerMockRecorder) AddRoleUsers(ctx, scope, role any, users 
 }
 
 // AddUserRoles mocks base method.
-func (m *MockUserManager) AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error {
+func (m *MockUserManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, user}
 	for _, a := range roles {
@@ -400,7 +370,7 @@ func (mr *MockUserManagerMockRecorder) AddUserRoles(ctx, scope, user any, roles 
 }
 
 // ChangeRoleGrants mocks base method.
-func (m *MockUserManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []GrantRow) error {
+func (m *MockUserManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ChangeRoleGrants", ctx, scope, role, removals, additions)
 	ret0, _ := ret[0].(error)
@@ -414,7 +384,7 @@ func (mr *MockUserManagerMockRecorder) ChangeRoleGrants(ctx, scope, role, remova
 }
 
 // DeleteAllRolePermissions mocks base method.
-func (m *MockUserManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
+func (m *MockUserManager) DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAllRolePermissions", ctx, scope, role)
 	ret0, _ := ret[0].(error)
@@ -428,7 +398,7 @@ func (mr *MockUserManagerMockRecorder) DeleteAllRolePermissions(ctx, scope, role
 }
 
 // DeleteRole mocks base method.
-func (m *MockUserManager) DeleteRole(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (m *MockUserManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteRole", ctx, scope, role)
 	ret0, _ := ret[0].(bool)
@@ -443,7 +413,7 @@ func (mr *MockUserManagerMockRecorder) DeleteRole(ctx, scope, role any) *gomock.
 }
 
 // DeleteRoleGrant mocks base method.
-func (m *MockUserManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
+func (m *MockUserManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resource accesstypes.Resource, condition string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteRoleGrant", ctx, scope, role, permission, resource, condition)
 	ret0, _ := ret[0].(error)
@@ -457,7 +427,7 @@ func (mr *MockUserManagerMockRecorder) DeleteRoleGrant(ctx, scope, role, permiss
 }
 
 // DeleteRolePermission mocks base method.
-func (m *MockUserManager) DeleteRolePermission(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission) error {
+func (m *MockUserManager) DeleteRolePermission(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteRolePermission", ctx, scope, role, permission)
 	ret0, _ := ret[0].(error)
@@ -471,7 +441,7 @@ func (mr *MockUserManagerMockRecorder) DeleteRolePermission(ctx, scope, role, pe
 }
 
 // DeleteRolePermissionResources mocks base method.
-func (m *MockUserManager) DeleteRolePermissionResources(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
+func (m *MockUserManager) DeleteRolePermissionResources(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, permission accesstypes.Permission, resources ...accesstypes.Resource) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, role, permission}
 	for _, a := range resources {
@@ -490,7 +460,7 @@ func (mr *MockUserManagerMockRecorder) DeleteRolePermissionResources(ctx, scope,
 }
 
 // DeleteRoleUsers mocks base method.
-func (m *MockUserManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role, users ...accesstypes.User) error {
+func (m *MockUserManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, role}
 	for _, a := range users {
@@ -509,7 +479,7 @@ func (mr *MockUserManagerMockRecorder) DeleteRoleUsers(ctx, scope, role any, use
 }
 
 // DeleteUserRoles mocks base method.
-func (m *MockUserManager) DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error {
+func (m *MockUserManager) DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, user}
 	for _, a := range roles {
@@ -528,7 +498,7 @@ func (mr *MockUserManagerMockRecorder) DeleteUserRoles(ctx, scope, user any, rol
 }
 
 // RoleExists mocks base method.
-func (m *MockUserManager) RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (m *MockUserManager) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, scope, role)
 	ret0, _ := ret[0].(bool)
@@ -543,7 +513,7 @@ func (mr *MockUserManagerMockRecorder) RoleExists(ctx, scope, role any) *gomock.
 }
 
 // RoleGrants mocks base method.
-func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
+func (m *MockUserManager) RoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleGrants", ctx, scope, role)
 	ret0, _ := ret[0].(map[accesstypes.Permission]map[accesstypes.Resource][]string)
@@ -573,7 +543,7 @@ func (mr *MockUserManagerMockRecorder) RolePermissions(ctx, scope, role any) *go
 }
 
 // RoleUsers mocks base method.
-func (m *MockUserManager) RoleUsers(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
+func (m *MockUserManager) RoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleUsers", ctx, scope, role)
 	ret0, _ := ret[0].([]accesstypes.User)
@@ -588,7 +558,7 @@ func (mr *MockUserManagerMockRecorder) RoleUsers(ctx, scope, role any) *gomock.C
 }
 
 // Roles mocks base method.
-func (m *MockUserManager) Roles(ctx context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
+func (m *MockUserManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Roles", ctx, scope)
 	ret0, _ := ret[0].([]accesstypes.Role)
@@ -623,7 +593,7 @@ func (mr *MockUserManagerMockRecorder) UserPermissions(ctx, user any, scopes ...
 }
 
 // UserRoles mocks base method.
-func (m *MockUserManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.RoleCollection, error) {
+func (m *MockUserManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, user}
 	for _, a := range scopes {

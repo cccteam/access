@@ -14,12 +14,12 @@ import (
 var _ Store = (*fakeStore)(nil)
 
 type fakeRoleKey struct {
-	scope accesstypes.Scope
+	scope accesstypes.PolicyScope
 	role  accesstypes.Role
 }
 
 type fakeMembership struct {
-	scope accesstypes.Scope
+	scope accesstypes.PolicyScope
 	user  accesstypes.User
 	role  accesstypes.Role
 }
@@ -31,7 +31,7 @@ type fakeChange struct {
 }
 
 type fakeGrant struct {
-	scope     accesstypes.Scope
+	scope     accesstypes.PolicyScope
 	role      accesstypes.Role
 	perm      accesstypes.Permission
 	resource  string
@@ -40,10 +40,10 @@ type fakeGrant struct {
 }
 
 // fakeStore is an in-memory Store honoring the documented contract: idempotent
-// inserts, no-op deletes of absent rows, FK-style enforcement of the role
-// parent, member-blocked cascade-granted role deletes, and sorted listings.
-// A grant's condition is part of the grant row's identity, matching the
-// stores' contract.
+// inserts, no-op deletes of absent rows, memberships written by role name
+// alone, FK-style enforcement of the role parent for grants, member-blocked
+// cascade-granted role deletes, and sorted listings. A grant's condition is
+// part of the grant row's identity, matching the stores' contract.
 type fakeStore struct {
 	mu          sync.Mutex
 	roles       map[fakeRoleKey]bool
@@ -87,6 +87,9 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	}
 
 	records := &policy.Records{}
+	for r := range f.roles {
+		records.Roles = append(records.Roles, policy.Role{Scope: r.scope, Name: r.role})
+	}
 	for g := range f.grants {
 		records.Grants = append(records.Grants, policy.Grant{
 			Scope:     g.scope,
@@ -108,21 +111,18 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
-	}
-	if !f.roles[fakeRoleKey{scope, role}] {
-		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
 	f.memberships[fakeMembership{scope, user, role}] = true
 
 	return nil
 }
 
-func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.Scope, user accesstypes.User, role accesstypes.Role) error {
+func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -133,7 +133,7 @@ func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.Scope, u
 	return nil
 }
 
-func (f *fakeStore) ListUserRoles(_ context.Context, scope accesstypes.Scope, user accesstypes.User) ([]accesstypes.Role, error) {
+func (f *fakeStore) ListUserRoles(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -150,7 +150,30 @@ func (f *fakeStore) ListUserRoles(_ context.Context, scope accesstypes.Scope, us
 	return roles, nil
 }
 
-func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]accesstypes.User, error) {
+func (f *fakeStore) ListUserMemberships(_ context.Context, user accesstypes.User) ([]policy.Membership, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	memberships := make([]policy.Membership, 0)
+	for m := range f.memberships {
+		if m.user == user {
+			memberships = append(memberships, policy.Membership{Scope: m.scope, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, Role: m.role})
+		}
+	}
+	slices.SortFunc(memberships, func(a, b policy.Membership) int {
+		if c := policy.CompareScopes(a.Scope, b.Scope); c != 0 {
+			return c
+		}
+
+		return strings.Compare(string(a.Role), string(b.Role))
+	})
+
+	return memberships, nil
+}
+
+func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -167,7 +190,7 @@ func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.Scope, ro
 	return users, nil
 }
 
-func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) error {
+func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -178,7 +201,7 @@ func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.Scope, role 
 	return nil
 }
 
-func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.Scope) ([]accesstypes.Role, error) {
+func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -195,19 +218,19 @@ func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.Scope) ([]acc
 	return roles, nil
 }
 
-func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return false, f.failWith
 	}
-	if !f.roles[fakeRoleKey{scope, role}] {
-		return false, nil
-	}
 	for m := range f.memberships {
 		if m.scope == scope && m.role == role {
 			return false, errors.Newf("role %q in scope %q still has members", role, scope)
 		}
+	}
+	if !f.roles[fakeRoleKey{scope, role}] {
+		return false, nil
 	}
 	delete(f.roles, fakeRoleKey{scope, role})
 	for g := range f.grants {
@@ -219,7 +242,7 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.Scope, role 
 	return true, nil
 }
 
-func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -229,7 +252,7 @@ func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.Scope, role 
 	return f.roles[fakeRoleKey{scope, role}], nil
 }
 
-func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
+func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -243,7 +266,7 @@ func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.Scope, role
 	return nil
 }
 
-func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, grants []policy.RoleGrant) error {
+func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, grants []policy.RoleGrant) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.batchWrites++
@@ -260,7 +283,7 @@ func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.Scope, rol
 	return nil
 }
 
-func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
+func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []policy.RoleGrant) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.changeWrites++
@@ -281,7 +304,7 @@ func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.Scope, rol
 	return nil
 }
 
-func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
+func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleteCalls++
@@ -293,7 +316,7 @@ func (f *fakeStore) DeleteGrant(_ context.Context, scope accesstypes.Scope, role
 	return nil
 }
 
-func (f *fakeStore) DeleteGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
+func (f *fakeStore) DeleteGrants(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -308,7 +331,7 @@ func (f *fakeStore) DeleteGrants(_ context.Context, scope accesstypes.Scope, rol
 	return nil
 }
 
-func (f *fakeStore) ListRoleGrants(_ context.Context, scope accesstypes.Scope, role accesstypes.Role) ([]policy.RoleGrant, error) {
+func (f *fakeStore) ListRoleGrants(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.RoleGrant, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {

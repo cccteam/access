@@ -1,6 +1,6 @@
 # access
 
-Go library for role-based access control (RBAC) with domain-partitioned permission management. Policy lives in typed tables owned by this library; permission checks are answered by an immutable in-memory snapshot compiled from those tables — lock-free, allocation-free, and never touching the database on the request path.
+Go library for role-based access control (RBAC) with domain-partitioned permission management. The release's default roles travel with the release, in a role file embedded in the application binary; custom roles and role memberships live in typed tables owned by this library. Permission checks are answered by an immutable in-memory snapshot compiled from both — lock-free, allocation-free, and never touching the database on the request path.
 
 ## Overview
 
@@ -9,12 +9,12 @@ Manages user permissions and roles across multiple domains or tenants. Supports 
 ## Features
 
 - Role-based access control (RBAC)
-- Multi-tenant support with a structural global scope
+- Multi-tenant support with structural global and every-domain scopes
 - Resource- and field-level permissions (`employees`, `employees.name`, `employees.*`)
 - Compiled in-memory snapshot evaluation with near-realtime change propagation
 - User, role, and permission management APIs
 - HTTP handlers for REST endpoints
-- Role migration and bootstrapping
+- Default roles shipped in the application binary, with a deploy-time policy check
 
 ## Installation
 
@@ -24,15 +24,27 @@ go get github.com/cccteam/access
 
 ## Core Concepts
 
-- **Scope**: The partition an operation applies to — the global partition (`accesstypes.GlobalScope()`) or one tenant domain (`accesstypes.DomainScope(domain)`). Global-ness is structural: no domain string means "global", so any tenant name is legal data (a tenant literally named "global" is an ordinary tenant). Scopes are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown tenants.
+- **Scope**: Where a request is — the global partition (`accesstypes.GlobalScope()`) or one tenant domain (`accesstypes.DomainScope(domain)`). Permission checks, permission digests and the foothold question take a `Scope`, because a request is in exactly one partition. Global-ness is structural: no domain string means "global", so any tenant name is legal data (a tenant literally named "global" is an ordinary tenant). Scopes are opaque labels to access — the application owns its tenant list, and checks fail closed on unknown tenants.
+- **PolicyScope**: Where policy is held — a role membership, a custom role and its grants live in the global partition (`accesstypes.GlobalPolicyScope()`), in one tenant domain (`accesstypes.DomainPolicyScope(domain)`), or in every tenant domain (`accesstypes.EveryDomainPolicyScope()`). The policy store and the user manager take a `PolicyScope`. A membership held in every domain reaches every tenant, including a tenant the store holds no other row in, so a tenant created at run time needs nothing written for its every-domain members. Every domain is not a place a request can be in, so nothing converts a `PolicyScope` into a `Scope`, and passing a `PolicyScope` to a check fails to compile. `Scope.PolicyScope()` converts the other way, and `PolicyScope.Covers(scope)` answers whether policy held somewhere applies in a partition.
 - **User**: Individual with assigned roles
-- **Role**: Named collection of permissions, scoped to a scope — role identity is `(scope, role)`
+- **Role**: Named collection of permissions, of one of two kinds. A default role is declared in the release's role file (see Default Roles): a global default is held in the global partition, a domain default in every tenant domain, and the store holds no row for either. A custom role is created at run time through the user manager and held where it was created; its identity is `(policy scope, role)`.
 - **Permission**: Action that can be performed (List, Read, Create, Update, Delete, ...)
 - **Resource**: What a permission applies to. A resource name has at most one dot: `employees` is a parent resource, `employees.name` is one field on it, and `employees.*` grants all fields by implication (covering fields that don't exist yet). An endpoint grant (`employees`) gives no field visibility, and field grants don't grant the endpoint — that separation is the point of field-level control.
 
 ## Policy Stores
 
 Each store owns three tables named `{Prefix}{Store}{Roles|UserRoles|RoleGrants}` — defaults yield `AccessRoles`, `AccessUserRoles`, `AccessRoleGrants`. Applications with several independent permission stores in one database give each a store name (`WithStore("AdminPortal")` → `AccessAdminPortalRoles`, ...); separate tables make cross-store leakage structurally impossible.
+
+The tables hold what is written at run time: custom roles, their grants, and role memberships. The release's default roles have no rows. Each row records where it is held in its own columns, never in a distinguished domain value: `Kind` is `global`, `domain` or `every` and is checked in the database, `Domain` carries the tenant name on a `domain` row and is empty otherwise, and `Axis` is the empty string on every row today. Any tenant name is therefore ordinary data.
+
+The `access.Store` interface the two subpackages implement is sealed: only this module's stores satisfy it. The stores are thin; validation, change signaling and snapshot compilation live in the access package, one code path for every store. Both stores keep the same contract:
+
+- `Roles` holds custom roles only.
+- `UserRoles` stands alone. A membership names its role by name alone, since a default role has no row to reference, so `InsertUserRole` writes by role name; the access package checks that the name resolves before it writes. An index led by the user (`{Prefix}{Store}UserRolesByUser`) serves `ListUserMemberships`, which lists every membership a user holds wherever it is held.
+- `RoleGrants` belongs to its custom role: interleaved in `Roles` on Spanner and a foreign key on PostgreSQL, both with cascading delete. A grant needs its role's row, and deleting a custom role deletes its grants.
+- `DeleteRole` refuses while memberships held in that scope still name the role, checked in the same transaction as the delete.
+- `ReadPolicy` reads the custom roles, their grants and the memberships with one consistent view of the store, for the snapshot to compile.
+- Inserting an existing row and deleting an absent one are no-ops, and list results are sorted.
 
 The library never runs DDL — applications own their schema lifecycle. `DDL()` returns the canonical schema rendered with the configured names; copy it into your migration file. The library's own test suites execute exactly these statements, so the shipped DDL is the tested DDL.
 
@@ -73,6 +85,7 @@ import (
 
     "github.com/cccteam/access"
     "github.com/cccteam/access/postgresstore"
+    "github.com/cccteam/ccc/accesstypes"
     "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -86,6 +99,8 @@ func main() {
         log.Fatal(err)
     }
 
+    // An application that ships default roles adds
+    // access.WithDefaultRoles(collection, roles.File); see Default Roles.
     client, err := access.New(store)
     if err != nil {
         log.Fatal(err)
@@ -94,14 +109,16 @@ func main() {
 
     mgr := client.UserManager()
 
+    // Where the request is, and where the policy for it is held.
     tenant1 := accesstypes.DomainScope("tenant1")
+    tenant1Policy := tenant1.PolicyScope()
 
-    // Create role and grant permissions
-    mgr.AddRole(ctx, tenant1, "admin")
-    mgr.AddRolePermissionResources(ctx, tenant1, "admin", "Read", "documents", "documents.*")
+    // Create a custom role and grant permissions
+    mgr.AddRole(ctx, tenant1Policy, "admin")
+    mgr.AddRolePermissionResources(ctx, tenant1Policy, "admin", "Read", "documents", "documents.*")
 
     // Assign role to user
-    mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin")
+    mgr.AddUserRoles(ctx, tenant1Policy, "john.doe", "admin")
 
     // Check permissions: one Decision per resource, from one policy snapshot.
     env := accesstypes.NewEnvironment() // per-request decision context
@@ -126,23 +143,35 @@ snapshot only when the content changed, so cross-instance staleness is bounded
 by the heartbeat interval even if the signal breaks. Writes made through this
 client are visible to its own checks immediately.
 
+The snapshot compiles the release's default roles from the role file beside the
+store's rows, in three parts: the global partition; the policy held in every
+domain, which is the domain default roles, the custom roles held in every
+domain and the memberships held in every domain; and, for each domain the
+store holds rows in, what that domain's rows add on top of the every-domain
+part. A check in a tenant the store holds no rows for is answered from the
+every-domain part alone, so a membership held in every domain reaches that
+tenant, and a thousand tenants share one compiled copy of the defaults.
+
 ```go
 import "github.com/cccteam/access/postgressignal"
 
 client, err := access.New(store,
+    // The release's default roles: the role file embedded in the binary,
+    // validated against what the release declares (see Default Roles). The
+    // collection also lets a load skip and report a stored grant naming a
+    // permission, resource or field this release does not have, instead of
+    // carrying it. An application with no role file passes
+    // access.WithPermissionCollection(router.Collection()) for that check.
+    access.WithDefaultRoles(router.Collection(), roles.File),
     // Recommended: propagate changes between instances in near-realtime.
     // Rides the app's existing pgx pool.
     access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
     // Optional: tune the heartbeat backstop (default 1m).
     access.WithHeartbeatInterval(30*time.Second),
-    // Optional: what this release declares, so a stored grant naming a
-    // permission, resource or field it does not have is skipped and reported
-    // instead of carried.
-    access.WithPermissionCollection(router.Collection()),
     // Optional: replace the hook that receives background reload/signal
-    // failures and the grants a load skipped. The default writes each one to
-    // the standard log; while reloads fail, checks keep serving the last good
-    // snapshot.
+    // failures and the findings a load reports. The default writes each one
+    // to the standard log; while reloads fail, checks keep serving the last
+    // good snapshot.
     access.WithReloadErrorHandler(func(err error) { alert(err) }),
 )
 
@@ -154,17 +183,28 @@ defer client.Close()
 ```
 
 A grant the running release cannot use — a condition that does not parse, a
-row-referencing condition on a scope-wide grant, or, with
-`WithPermissionCollection`, a permission, resource or field the release does
-not declare — does not stop the load: it is left out of the snapshot and
-reported to the reload-error hook as a `*access.SkippedGrant`. The permission
-it would grant is denied, the rest of the policy loads, and the instance
-becomes ready. That is what makes a stored grant safe to outlive the release
-that wrote it: after a rollback, or after a release removes a field, the grant
-is denied and reported, and everything else keeps working. A role's grant set
-changes through `ChangeRoleGrants`, one store write for the removals and the
-additions together, so a reader never sees a role with neither its old grant
-nor its new one; `MigrateRoles` uses it.
+row-referencing condition on a scope-wide grant, or, with the collection from
+`WithDefaultRoles` or `WithPermissionCollection`, a permission, resource or
+field the release does not declare — does not stop the load: it is left out of
+the snapshot and reported to the reload-error hook as a `*access.SkippedGrant`.
+The permission it would grant is denied, the rest of the policy loads, and the
+instance becomes ready. That is what makes a stored grant safe to outlive the
+release that wrote it: after a rollback, or after a release removes a field,
+the grant is denied and reported, and everything else keeps working.
+
+A load reports two more findings the same way. A custom role whose name a
+default role of the running release has, in the same kind of scope, is a
+`*access.ShadowedRole`: the default wins, the custom role's grants are skipped,
+and its members hold the default role's grants; rename or delete the custom
+role to clear it. Memberships naming a role that is neither a default role nor
+a custom role in their scope are an `*access.OrphanedMembership`: the members
+hold nothing from it, as happens when a release retires a default role and its
+memberships remain. Each finding reaches the hook once per compiled snapshot,
+and `CheckPolicy` returns the same findings to the deploy (see Default Roles).
+
+A custom role's grant set changes through `ChangeRoleGrants`, one store write
+for the removals and the additions together, so a reader never sees a role
+with neither its old grant nor its new one.
 
 The push signal is a latency optimization only — correctness never depends on
 it. For Spanner environments (no LISTEN/NOTIFY), the `firebasesignal`
@@ -224,8 +264,8 @@ impersonated sessions) as well as policy introspection. A role has no
 identity of its own: a `subject` term in a row condition is bound by the
 resource layer to the session's effective identity at render time, and a
 scope-wide condition that needs a subject is a check error, as it is for a
-user. `RoleHasGrants`, `RoleDomains` and `RolePermissionDigest` are the role
-twins of the user foothold, tenant-picker and digest questions.
+user. `RoleHasGrants` and `RolePermissionDigest` are the role twins of the
+user foothold and digest questions.
 
 ```go
 env := accesstypes.NewEnvironment()
@@ -239,11 +279,34 @@ decision, err = client.CheckRole(ctx, env, role, scope, "ExportReports")
 
 A request binds its principal once: `client.ForUser(user)` returns a
 `*UserChecker` and `client.ForRole(role)` a `*RoleChecker`, each carrying
-`Check`, `PermissionDigest` and `Domains` over the bound subject — the
+`Check`, `PermissionDigest` and `HasGrants` over the bound subject — the
 canonical implementations of the resource package's `UserPermissions` and
 `RolePermissions` seams. Only the `UserChecker` has `User()`: a role is not
 anyone, and the session's effective identity is the resource layer's to
 supply.
+
+`UserHasGrants`, and `HasGrants` on a `UserChecker`, answer the foothold
+question: whether a user holds at least one grant in a scope. An application
+that hides which tenants exist answers a caller with no foothold in a domain
+exactly as if the domain did not exist. A tenant picker filters the
+application's own tenant list by it; access holds no tenant list, so it never
+enumerates domains. A membership that resolves to no grants is not a foothold,
+and a membership held in every domain is a foothold in each tenant.
+
+```go
+checker := client.ForUser(user)
+
+var visible []accesstypes.Domain
+for _, tenant := range tenants { // the application's own tenant list
+    ok, err := checker.HasGrants(ctx, accesstypes.DomainScope(tenant))
+    if err != nil {
+        return err
+    }
+    if ok {
+        visible = append(visible, tenant)
+    }
+}
+```
 
 There is no tenant validation on the check path: an unknown tenant scope
 holds no grants, so everything comes back denied (fail closed). If your API
@@ -254,16 +317,34 @@ tenant in your own guard — your application owns the tenant table.
 
 ```go
 mgr := client.UserManager()
-tenant1 := accesstypes.DomainScope("tenant1")
-tenant2 := accesstypes.DomainScope("tenant2")
 
-// Enumeration is scope-explicit: access holds no tenant list of its own.
-roles, err := mgr.UserRoles(ctx, "john.doe", tenant1, tenant2)
-permissions, err := mgr.UserPermissions(ctx, "john.doe", tenant1)
+// Where policy is held: one tenant domain, every tenant domain, or the
+// global partition (accesstypes.GlobalPolicyScope()).
+tenant1 := accesstypes.DomainPolicyScope("tenant1")
+tenant2 := accesstypes.DomainPolicyScope("tenant2")
+everyDomain := accesstypes.EveryDomainPolicyScope()
 
 mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin", "editor")
 mgr.DeleteUserRoles(ctx, tenant1, "john.doe", "editor")
+
+// Held in every domain: john.doe is a Viewer in every tenant, including one
+// created after this call.
+mgr.AddUserRoles(ctx, everyDomain, "john.doe", "Viewer")
+
+// Memberships as stored, keyed by where each is held: with no scopes, every
+// membership the user holds; with scopes, the memberships held in each.
+roles, err := mgr.UserRoles(ctx, "john.doe")
+roles, err = mgr.UserRoles(ctx, "john.doe", tenant1, tenant2)
+
+// Effective permissions are answered where a request is, from the snapshot.
+// Access holds no tenant list of its own, so at least one scope is required.
+permissions, err := mgr.UserPermissions(ctx, "john.doe", accesstypes.DomainScope("tenant1"))
 ```
+
+`UserRoles` reports memberships where they are held, so a membership held in
+every domain is one entry under `EveryDomainPolicyScope()`, never one per
+tenant. `UserPermissions` reports what the user holds in each scope from the
+memberships held there and in every domain, default and custom roles alike.
 
 ### Role Management
 
@@ -278,9 +359,25 @@ users, err := mgr.RoleUsers(ctx, tenant1, "admin")
 mgr.AddRoleUsers(ctx, tenant1, "admin", "user1", "user2")
 mgr.DeleteRoleUsers(ctx, tenant1, "admin", "user1")
 
+// A custom role held in every domain exists in each tenant.
+mgr.AddRole(ctx, everyDomain, "Auditor")
+users, err = mgr.RoleUsers(ctx, everyDomain, "Auditor")
+
 // Global-scope roles live in their own partition.
-mgr.AddRole(ctx, accesstypes.GlobalScope(), "SystemAdmin")
+mgr.AddRole(ctx, accesstypes.GlobalPolicyScope(), "SystemAdmin")
 ```
+
+`Roles` lists the roles that exist in a scope: the release's default roles of
+the scope's kind and the custom roles held there, and, for one domain, the
+custom roles held in every domain too. `RoleExists` in one domain is true for a
+domain default role, a custom role held in that domain, or a custom role held
+in every domain. A custom role held in one domain alone cannot be assigned in
+every domain.
+
+A default role's name is taken: `AddRole` refuses it, and `DeleteRole` refuses
+to delete a default role. `DeleteRole` also refuses while users hold the role
+in that scope. A custom role held in every domain is changed where it is held,
+through `EveryDomainPolicyScope()`, not through one domain.
 
 ### Permission Management
 
@@ -294,12 +391,19 @@ mgr.DeleteRolePermissionResources(ctx, tenant1, "editor", "Read", "documents.*")
 mgr.AddRolePermission(ctx, tenant1, "admin", "CreateUsers")
 mgr.DeleteRolePermission(ctx, tenant1, "admin", "CreateUsers")
 
-permissions, err := mgr.RolePermissions(ctx, tenant1, "admin")
+// What the role holds where a request is, from the snapshot, inheritance
+// folded: the file's grants for a default role, the store's for a custom one.
+permissions, err := mgr.RolePermissions(ctx, accesstypes.DomainScope("tenant1"), "admin")
+
+// The role's resource grants as held, with the conditions each is granted under.
+grants, err := mgr.RoleGrants(ctx, tenant1, "admin")
 ```
 
 Grant writes enforce the resource shape fail-closed: at most one dot, both
 segments non-empty (`a.b.c`, `.name`, and `employees.` are rejected at
-declaration time).
+declaration time). The grant methods change custom roles only: a default
+role's grants are the release's, so a call naming one is refused; copy its
+grants into a custom role under another name to change them.
 
 ## HTTP Handlers
 
@@ -314,75 +418,124 @@ logHandler := func(handler func(w http.ResponseWriter, r *http.Request) error) h
 
 handlers := client.Handlers(logHandler)
 
-http.HandleFunc("/roles", handlers.Roles())
-http.HandleFunc("/roles/add", handlers.AddRole())
+r := chi.NewRouter()
+r.Get("/domains/{domain}/roles", handlers.Roles())
+r.Post("/domains/{domain}/roles", handlers.AddRole())
+r.Delete("/domains/{domain}/roles/{role}", handlers.DeleteRole())
+r.Get("/domains/{domain}/roles/{role}/permissions", handlers.RolePermissions())
+r.Get("/domains/{domain}/roles/{role}/users", handlers.RoleUsers())
+r.Post("/domains/{domain}/roles/{role}/users", handlers.AddRoleUsers())
+r.Delete("/domains/{domain}/roles/{role}/users", handlers.DeleteRoleUsers())
+
+// Memberships held in every tenant domain have no domain to name.
+r.Get("/every-domain/roles/{role}/users", handlers.RoleUsersEveryDomain())
+r.Post("/every-domain/roles/{role}/users", handlers.AddRoleUsersEveryDomain())
+r.Delete("/every-domain/roles/{role}/users", handlers.DeleteRoleUsersEveryDomain())
 ```
 
-## Role Migration
+The handlers read the `{domain}` and `{role}` path parameters from a chi
+router; the paths are the application's choice. The `{domain}` forms address
+roles and memberships held in one tenant domain. `AddRoleUsersEveryDomain`,
+`DeleteRoleUsersEveryDomain` and `RoleUsersEveryDomain` address memberships
+held in every tenant domain. No handler addresses the global partition.
+`Roles` lists the domain's default roles and the custom roles held there or in
+every domain, and `RolePermissions` answers what a role holds in the domain,
+read as the scope of a request, for default and custom roles alike.
 
-`MigrateRoles` reconciles role and permission configuration across the given
-domains: it creates missing roles and grants and removes extras. The
-configuration is the complete statement of the store's roles: every role a
-login can hold is declared in it, so the warnings below and `ValidateRoles` see
-every grant the store will carry. Run it from your migrate job on every deploy.
+## Default Roles
 
-The caller states its tenant universe explicitly as plain domain names — any
-string is a legal tenant name; the global scope is always included
-structurally, so global-only applications pass no domains at all. Construct the
-migrate job's client with a change signal so running instances pick up the new
-configuration immediately.
+Default roles are policy that travels with the release. They are authored as a
+role file, JSON in the `RoleConfig` shape (see JSON Configuration), embedded in
+the application binary and handed to `New` through `WithDefaultRoles`. `New`
+parses the file and validates it against the collection the release declares:
+a file that does not parse, declares a role twice or at both scopes, grants
+what the collection does not declare, or carries a condition the vocabulary
+refuses fails `New`, so a release whose default roles are wrong does not start.
+
+The store holds no row for a default role. A global default role is held in the
+global partition and a domain default role in every tenant domain. A membership
+names a default role by name alone, the snapshot compiles its grants from the
+file, and the user manager, with the HTTP handlers over it, lists it beside the
+custom roles, refuses to create, change or delete it, and answers its grants
+from the file. Nothing copies the file into the store, so a deploy has no step to run
+per tenant and a rollback has no step of its own: the running binary's file is
+the default policy.
 
 ### Usage
 
+Embed the role file in a package of the application:
+
 ```go
+// Package roles holds the release's default roles.
+package roles
+
 import (
-    "context"
+    _ "embed"
 
     "github.com/cccteam/access"
-    "github.com/cccteam/ccc/accesstypes"
-    "github.com/cccteam/ccc/resource"
 )
 
-func migrateRoles(ctx context.Context, client *access.Client, store *resource.GeneratedCollection, tenants []accesstypes.Domain) error {
-    roleConfig := &access.RoleConfig{
-        Roles: access.ScopedRoles{
-            Domain: []*access.Role{
-                {
-                    Name: "Editor",
-                    Permissions: map[accesstypes.Permission][]access.Grant{
-                        accesstypes.List:   {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author"}}},
-                        accesstypes.Read:   {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author", "body"}}},
-                        accesstypes.Create: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "body"}}},
-                        accesstypes.Update: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "body"}, Condition: "author = subject"}},
-                    },
-                },
-                {
-                    Name: "Viewer",
-                    Permissions: map[accesstypes.Permission][]access.Grant{
-                        accesstypes.List: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author"}}},
-                        accesstypes.Read: {{Resource: "Documents", Fields: []accesstypes.Tag{"title", "author", "body"}}},
-                    },
-                },
-            },
-        },
-    }
+// File is the release's role file.
+//
+//go:embed roles.json
+var File access.RoleFile
+```
 
-    return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig, tenants...)
+Hand it to `New` with the collection it validates against:
+
+```go
+client, err := access.New(store,
+    access.WithDefaultRoles(router.Collection(), roles.File),
+    access.WithChangeSignal(postgressignal.New(pool, "access_policy_changed")),
+)
+if err != nil {
+    return err // includes a role file that does not parse or does not validate
 }
 ```
 
+`WithDefaultRoles` also gives the client the collection `WithPermissionCollection`
+would, so an application with a role file passes only `WithDefaultRoles`.
+
+The deploy's migrate step calls `CheckPolicy`. It reads the store once and
+returns the role file's warnings (see Warnings) beside what the store holds that
+this release cannot use as written: a grant the load would skip
+(`*access.SkippedGrant`), a custom role a default of the same name shadows
+(`*access.ShadowedRole`), and memberships naming a role nothing defines
+(`*access.OrphanedMembership`). It writes nothing; a store that cannot be read
+is the error.
+
+```go
+func checkPolicy(ctx context.Context, client *access.Client) error {
+    warnings, err := client.CheckPolicy(ctx)
+    if err != nil {
+        return err
+    }
+    for _, w := range warnings {
+        fmt.Printf("Warning: %s\n", w)
+    }
+
+    return nil
+}
+```
+
+Every warning prints as one line. A consumer that wants the fields switches on
+the kind: `access.GrantWarning` and `access.ConcealingKeyWarning` come from the
+role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
+`*access.OrphanedMembership` from the store.
+
 ### Behavior
 
-- Applies roles across the global scope plus a tenant scope for every domain passed in
-- Creates missing roles and adds missing permissions
-- Removes permissions not in configuration
-- Removes roles not in configuration. A role a user still holds cannot be removed, so the migration fails naming it; remove the memberships, or author the role under that name in the configuration
-- Creates a role whose configuration entry has no grants; it holds nothing until a grant is authored
-- Validates resources, permissions, and conditions against the resource store before touching it
+- A global default role is held in the global partition; a domain default role is held in every tenant domain, including a tenant created after the release started, with nothing written for it
+- A membership names a default role by name alone: a global default is assigned in the global partition, a domain default in one domain or in every domain
+- `Roles` and `RoleExists` include the default roles of the scope's kind, and `RolePermissions` and `RoleGrants` answer a default role's grants from the file
+- `AddRole` refuses a default role's name, `DeleteRole` refuses a default role, and the grant methods refuse to change one; copy its grants into a custom role under another name to change them
+- A role whose file entry has no grants exists and holds nothing until a grant is authored
+- Validates resources, permissions, and conditions against the collection before the client starts, and refuses a grant on a resource whose scope is not its role's
 - Prevents update permissions on immutable resources
 - Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List, or a conditional List on a concealing field the resource sorts or filters by (see Warnings)
+- A release that introduces a default role under a custom role's name shadows the custom role, and a release that retires a default role leaves its memberships holding nothing; both are reported, and the store is left as it is
 
-**Note**: Safe to run multiple times — applies changes only when state differs from configuration, and a rollback that re-runs an older release's migrate job converges the store back to that release's defaults. The input configuration is not modified.
+**Note**: `CheckPolicy` writes nothing, so it is safe to run on every deploy and from any tool. A rollback's binary carries its own role file, and what the store holds that the older release cannot use is reported the same way.
 
 ### Warnings
 
@@ -391,15 +544,15 @@ and answer NotFound when it is absent, then evaluate the grant's condition and a
 Forbidden when it fails. A read hides a row its condition does not select behind the same
 NotFound. So a role holding a conditional write on a row it can neither Read nor List
 learns, from the response code alone, that a row exists in its tenant, without changing
-it. `MigrateRoles` provisions such a grant as written and prints one line for it beside
-its Added and Removed lines:
+it. The role file may carry such a grant, and the release enforces it as written;
+`CheckPolicy` returns one warning for it, which the migrate step prints as one line:
 
 ```
 Warning: role Paymaster: Delete on Missions is granted under "state = 'open'" without Read or List on Missions: a Forbidden answer tells the caller a Missions row exists where a read would answer NotFound. Grant Read or List on Missions in this role or in a role assigned with it, or accept the disclosure; a Read whose condition is narrower than this one leaks the same way.
 ```
 
 The check is per role. A reader role meant to be assigned alongside the writer role does
-not silence it, because `MigrateRoles` never sees assignments; the line tells the role's
+not silence it, because the role file holds no assignments; the line tells the role's
 author which role to change. Unconditional writes are not flagged: they reveal existence
 only by succeeding, which is what the grant permits. The check is a heuristic. Holding
 Read does not close the channel when the Read condition is narrower than the write's.
@@ -412,7 +565,7 @@ tenant's whole partition. The query drops the `CASE` when the row filter has alr
 proven the field's condition on every surviving row, which is the case when every field
 the role lists on the resource is granted under a condition that implies the field's own;
 it keeps the `CASE` when the role lists another field unconditionally, or under a
-condition the field's condition does not cover. `MigrateRoles` warns exactly there, for a
+condition the field's condition does not cover. The warning is raised exactly there, for a
 field the resource orders by (`@order`, so every page pays) or admits as a sort or filter
 key (an indexed or `allow_filter` field, so a page sorted or filtered by it pays), and
 only where the field's masked cells conceal. The resource package's `masking:"positional"`
@@ -434,15 +587,21 @@ grant implies them (`state = 'completed'` is one of `state IN ('completed', 'fai
 'stood_down')`); her fee, granted on completed alone, is the one warning above, because
 the closed-states grant admits rows the fee's condition does not select.
 
-`ValidateRoles` runs the same validation and returns the warnings as `[]access.Warning`
-with no store client involved, so a project test or a tool gets the answer the deploy
-would. Every warning prints as one line; a consumer that wants the fields switches on the
-kind, `access.GrantWarning` or `access.ConcealingKeyWarning`:
+Both warnings are about the role file's roles. A custom role's grants are written at run
+time through the user manager, and these two checks do not run on them.
+
+`ValidateRoles` runs the validation `New` runs on the role file and returns its warnings
+as `[]access.Warning`, with no store and no client involved, so a project test or a tool
+gets the answer the release's start would:
 
 ```go
-warnings, err := access.ValidateRoles(store, roleConfig)
+config, err := roles.File.Parse()
 if err != nil {
-    return err // the refusals MigrateRoles would answer
+    return err
+}
+warnings, err := access.ValidateRoles(router.Collection(), config)
+if err != nil {
+    return err // the refusals that would fail New
 }
 for _, w := range warnings {
     fmt.Println(w)
@@ -454,19 +613,19 @@ for _, w := range warnings {
 A deployment whose sites each generate their own collection over one schema shares one
 policy store: a login is one identity and a role is one set of powers across the
 application. `UnionCollection` presents the sites' collections as one registry for
-`MigrateRoles`: the registries merge, the subject namespace is the union of the sites'
+`WithDefaultRoles`: the registries merge, the subject namespace is the union of the sites'
 declarations, and every other question about a resource is answered by the first
 collection registering it. A resource several sites serve must be declared identically
 in each; `UnionCollection` refuses collections that disagree on a shared resource's
 permissions (fields included), scope, immutability, computed marking, or method target.
 
 ```go
-store, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
+collection, err := access.UnionCollection(consolerouter.Collection(), portalrouter.Collection())
 if err != nil {
     return err
 }
 
-return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig, tenants...)
+client, err := access.New(store, access.WithDefaultRoles(collection, roles.File))
 ```
 
 ### JSON Configuration
@@ -497,12 +656,16 @@ return access.MigrateRoles(ctx, client.UserManager(), store, roleConfig, tenants
 }
 ```
 
-```go
-data, _ := os.ReadFile("roles.json")
-var config access.RoleConfig
-json.Unmarshal(data, &config)
-access.MigrateRoles(ctx, client.UserManager(), store, &config, tenants...)
-```
+Each role is declared under exactly one scope key. A `global` role carries grants on
+global-scoped resources and is held in the global partition; a `domain` role carries
+grants on domain-scoped resources and is held in every tenant domain. A job function that
+needs both kinds of powers is two roles assigned to one user. Each grant names a base
+`resource`, the `fields` it covers as their wire tags, and an optional `condition`; a role
+may carry several grants on one resource for one permission, each under its own condition.
+
+The file is decoded strictly: a key the shape does not declare is an error, since a
+misspelled key would otherwise silently drop the roles under it. `RoleFile.Parse` decodes
+it the way `New` does, for a test or a tool that wants the `RoleConfig`.
 
 ## License
 

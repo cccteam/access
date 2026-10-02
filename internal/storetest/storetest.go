@@ -17,20 +17,25 @@ import (
 )
 
 // Fixture names shared by the suite's ordered phases. Scopes are variables
-// because accesstypes.Scope is a struct.
+// because accesstypes.PolicyScope is a struct.
 var (
-	tenant1     = accesstypes.DomainScope("tenant1")
-	tenant2     = accesstypes.DomainScope("tenant2")
-	globalScope = accesstypes.GlobalScope()
+	tenant1     = accesstypes.DomainPolicyScope("tenant1")
+	tenant2     = accesstypes.DomainPolicyScope("tenant2")
+	globalScope = accesstypes.GlobalPolicyScope()
+	everyDomain = accesstypes.EveryDomainPolicyScope()
 )
 
 const (
 	editor = accesstypes.Role("Editor")
 	admin  = accesstypes.Role("Admin")
 	viewer = accesstypes.Role("Viewer")
+	// chief is a release default role: it has no row anywhere, and
+	// memberships name it by name alone.
+	chief = accesstypes.Role("Chief")
 
 	alice = accesstypes.User("alice")
 	bob   = accesstypes.User("bob")
+	carol = accesstypes.User("carol")
 
 	readPerm   = accesstypes.Permission("Read")
 	updatePerm = accesstypes.Permission("Update")
@@ -52,9 +57,10 @@ func Run(t *testing.T, store access.Store) {
 
 	t.Run("roles", func(t *testing.T) { runRoles(t, store) })
 	t.Run("memberships", func(t *testing.T) { runMemberships(t, store) })
+	t.Run("user memberships", func(t *testing.T) { runUserMemberships(t, store) })
 	t.Run("grants", func(t *testing.T) { runGrants(t, store) })
 	t.Run("change grants", func(t *testing.T) { runChangeGrants(t, store) })
-	t.Run("global scope", func(t *testing.T) { runGlobalScope(t, store) })
+	t.Run("global and every domain", func(t *testing.T) { runPartitions(t, store) })
 	t.Run("delete role", func(t *testing.T) { runDeleteRole(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
@@ -99,8 +105,10 @@ func runMemberships(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
-	if err := store.InsertUserRole(ctx, tenant1, alice, "Ghost"); err == nil {
-		t.Fatal("InsertUserRole() with absent role must fail (parent enforcement), got nil")
+	// A membership names its role by name alone: the release's default roles
+	// have no row, so no row is required.
+	if err := store.InsertUserRole(ctx, tenant1, alice, chief); err != nil {
+		t.Fatalf("InsertUserRole() of a role with no row must succeed, got error = %v", err)
 	}
 
 	for _, m := range []struct {
@@ -123,7 +131,7 @@ func runMemberships(t *testing.T, store access.Store) {
 	if err != nil {
 		t.Fatalf("ListUserRoles() error = %v", err)
 	}
-	if diff := cmp.Diff([]accesstypes.Role{editor, viewer}, userRoles); diff != "" {
+	if diff := cmp.Diff([]accesstypes.Role{chief, editor, viewer}, userRoles); diff != "" {
 		t.Errorf("ListUserRoles() (-want +got):\n%s", diff)
 	}
 	if roles, err := store.ListUserRoles(ctx, tenant2, alice); err != nil || len(roles) != 0 {
@@ -146,6 +154,68 @@ func runMemberships(t *testing.T, store access.Store) {
 	}
 	if users, err := store.ListRoleUsers(ctx, tenant1, editor); err != nil || len(users) != 1 || users[0] != alice {
 		t.Errorf("ListRoleUsers() after delete = (%v, %v), want ([%s], nil)", users, err, alice)
+	}
+	if err := store.DeleteUserRole(ctx, tenant1, alice, chief); err != nil {
+		t.Fatalf("DeleteUserRole() error = %v", err)
+	}
+}
+
+// runUserMemberships holds ListUserMemberships to its contract: every
+// membership the user holds, wherever it is held — one domain, the global
+// partition, every domain — sorted by scope then role, and nothing of other
+// users'. It leaves the memberships as runMemberships did.
+func runUserMemberships(t *testing.T, store access.Store) {
+	t.Helper()
+	ctx := t.Context()
+
+	for _, m := range []struct {
+		scope accesstypes.PolicyScope
+		role  accesstypes.Role
+	}{
+		{tenant2, viewer},
+		{globalScope, admin},
+		{everyDomain, chief},
+	} {
+		if err := store.InsertUserRole(ctx, m.scope, alice, m.role); err != nil {
+			t.Fatalf("InsertUserRole(%v, %q) error = %v", m.scope, m.role, err)
+		}
+	}
+	if err := store.InsertUserRole(ctx, everyDomain, carol, chief); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
+	}
+
+	got, err := store.ListUserMemberships(ctx, alice)
+	if err != nil {
+		t.Fatalf("ListUserMemberships() error = %v", err)
+	}
+	member := policy.Subject{Kind: policy.SubjectUser, Name: string(alice)}
+	want := []policy.Membership{
+		{Scope: tenant1, Member: member, Role: editor},
+		{Scope: tenant1, Member: member, Role: viewer},
+		{Scope: tenant2, Member: member, Role: viewer},
+		{Scope: everyDomain, Member: member, Role: chief},
+		{Scope: globalScope, Member: member, Role: admin},
+	}
+	if diff := cmp.Diff(want, got, cmpopts.EquateComparable(accesstypes.PolicyScope{})); diff != "" {
+		t.Errorf("ListUserMemberships() must list every scope, sorted by scope then role (-want +got):\n%s", diff)
+	}
+	if got, err := store.ListUserMemberships(ctx, "nobody"); err != nil || len(got) != 0 {
+		t.Errorf("ListUserMemberships() of an unknown user = (%v, %v), want none", got, err)
+	}
+
+	for _, m := range []struct {
+		scope accesstypes.PolicyScope
+		user  accesstypes.User
+		role  accesstypes.Role
+	}{
+		{tenant2, alice, viewer},
+		{globalScope, alice, admin},
+		{everyDomain, alice, chief},
+		{everyDomain, carol, chief},
+	} {
+		if err := store.DeleteUserRole(ctx, m.scope, m.user, m.role); err != nil {
+			t.Fatalf("DeleteUserRole(%v, %q, %q) error = %v", m.scope, m.user, m.role, err)
+		}
 	}
 }
 
@@ -355,32 +425,39 @@ func runChangeGrants(t *testing.T, store access.Store) {
 	}
 }
 
-func runGlobalScope(t *testing.T, store access.Store) {
+// runPartitions pins that where a row is held is structural: the global
+// partition, every domain, and tenants literally named "global" or "every"
+// are four distinct places, and a delete in one touches nothing in the
+// others.
+func runPartitions(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
-	tenantNamedGlobal := accesstypes.DomainScope("global")
+	tenantNamedGlobal := accesstypes.DomainPolicyScope("global")
+	tenantNamedEvery := accesstypes.DomainPolicyScope("every")
 
-	if err := store.InsertRole(ctx, globalScope, admin); err != nil {
-		t.Fatalf("InsertRole(global scope) error = %v", err)
+	for _, scope := range []accesstypes.PolicyScope{globalScope, everyDomain, tenantNamedGlobal, tenantNamedEvery} {
+		if err := store.InsertRole(ctx, scope, admin); err != nil {
+			t.Fatalf("InsertRole(%v) error = %v", scope, err)
+		}
 	}
-	if err := store.InsertRole(ctx, tenantNamedGlobal, admin); err != nil {
-		t.Fatalf("InsertRole(tenant named global) error = %v", err)
+	for _, scope := range []accesstypes.PolicyScope{globalScope, everyDomain, tenantNamedGlobal, tenantNamedEvery} {
+		if exists, err := store.RoleExists(ctx, scope, admin); err != nil || !exists {
+			t.Fatalf("RoleExists(%v) = (%v, %v), want (true, nil)", scope, exists, err)
+		}
 	}
-
-	// The global partition and a tenant literally named "global" are distinct
-	// rows: scope is structural, never a domain value.
-	if exists, err := store.RoleExists(ctx, globalScope, admin); err != nil || !exists {
-		t.Fatalf("RoleExists(global scope) = (%v, %v), want (true, nil)", exists, err)
+	for _, scope := range []accesstypes.PolicyScope{tenantNamedGlobal, tenantNamedEvery} {
+		if deleted, err := store.DeleteRole(ctx, scope, admin); err != nil || !deleted {
+			t.Fatalf("DeleteRole(%v) = (%v, %v), want (true, nil)", scope, deleted, err)
+		}
 	}
-	if exists, err := store.RoleExists(ctx, tenantNamedGlobal, admin); err != nil || !exists {
-		t.Fatalf("RoleExists(tenant named global) = (%v, %v), want (true, nil)", exists, err)
+	for _, scope := range []accesstypes.PolicyScope{globalScope, everyDomain} {
+		if exists, err := store.RoleExists(ctx, scope, admin); err != nil || !exists {
+			t.Fatalf("RoleExists(%v) after the tenant deletes = (%v, %v), want (true, nil): deleting a tenant's row must not touch the structural partitions", scope, exists, err)
+		}
 	}
-	if deleted, err := store.DeleteRole(ctx, tenantNamedGlobal, admin); err != nil || !deleted {
-		t.Fatalf("DeleteRole(tenant named global) = (%v, %v), want (true, nil)", deleted, err)
-	}
-	if exists, err := store.RoleExists(ctx, globalScope, admin); err != nil || !exists {
-		t.Fatalf("RoleExists(global scope) after tenant delete = (%v, %v), want (true, nil): deleting the tenant row must not touch the global partition", exists, err)
+	if roles, err := store.ListRoles(ctx, everyDomain); err != nil || !slices.Equal(roles, []accesstypes.Role{admin}) {
+		t.Errorf("ListRoles(every domain) = (%v, %v), want [%s]", roles, err, admin)
 	}
 
 	// A scope-wide grant is stored as an empty resource+field row — a spot no
@@ -396,13 +473,22 @@ func runGlobalScope(t *testing.T, store access.Store) {
 	if diff := cmp.Diff(want, grants); diff != "" {
 		t.Errorf("ListRoleGrants(global scope) (-want +got):\n%s", diff)
 	}
+
+	// A grant on a role held in every domain lists under every domain alone.
+	if err := store.InsertGrant(ctx, everyDomain, admin, readPerm, widgets, "", ""); err != nil {
+		t.Fatalf("InsertGrant(every domain) error = %v", err)
+	}
+	if grants, err := store.ListRoleGrants(ctx, tenant1, admin); err != nil || len(grants) != 0 {
+		t.Errorf("ListRoleGrants(tenant1, Admin) = (%v, %v), want none: an every-domain row is not a tenant's row", grants, err)
+	}
 }
 
 func runDeleteRole(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
-	// alice still holds Editor: memberships must block the delete.
+	// alice still holds Editor in tenant1: memberships held in the scope block
+	// the delete, checked in the delete's own transaction.
 	if _, err := store.DeleteRole(ctx, tenant1, editor); err == nil {
 		t.Fatal("DeleteRole() with members must fail, got nil")
 	}
@@ -410,6 +496,10 @@ func runDeleteRole(t *testing.T, store access.Store) {
 		t.Fatalf("RoleExists() after blocked delete = (%v, %v), want (true, nil)", exists, err)
 	}
 
+	// A membership in another scope does not block.
+	if err := store.InsertUserRole(ctx, tenant2, bob, editor); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
+	}
 	if err := store.DeleteUserRole(ctx, tenant1, alice, editor); err != nil {
 		t.Fatalf("DeleteUserRole() error = %v", err)
 	}
@@ -419,17 +509,40 @@ func runDeleteRole(t *testing.T, store access.Store) {
 	}
 
 	// Grants cascaded with the role; the same role name in another domain is
-	// untouched (the delete is domain-scoped).
+	// untouched (the delete is domain-scoped), and so is the membership
+	// there.
 	if grants, err := store.ListRoleGrants(ctx, tenant1, editor); err != nil || len(grants) != 0 {
 		t.Errorf("ListRoleGrants() after role delete = (%v, %v), want no grants", grants, err)
 	}
 	if exists, err := store.RoleExists(ctx, tenant2, editor); err != nil || !exists {
 		t.Errorf("RoleExists(tenant2) after tenant1 delete = (%v, %v), want (true, nil)", exists, err)
 	}
+	if users, err := store.ListRoleUsers(ctx, tenant2, editor); err != nil || !slices.Equal(users, []accesstypes.User{bob}) {
+		t.Errorf("ListRoleUsers(tenant2) after tenant1 delete = (%v, %v), want [%s]", users, err, bob)
+	}
 
 	deleted, err = store.DeleteRole(ctx, tenant1, editor)
 	if err != nil || deleted {
 		t.Fatalf("DeleteRole() of absent role = (%v, %v), want (false, nil)", deleted, err)
+	}
+
+	// Memberships block by name: a membership naming a role with no row still
+	// refuses the delete, and once it is gone the delete of the absent role
+	// is the no-op.
+	if err := store.InsertUserRole(ctx, tenant1, alice, chief); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
+	}
+	if _, err := store.DeleteRole(ctx, tenant1, chief); err == nil {
+		t.Fatal("DeleteRole() of a role with no row but a member must fail, got nil")
+	}
+	if err := store.DeleteUserRole(ctx, tenant1, alice, chief); err != nil {
+		t.Fatalf("DeleteUserRole() error = %v", err)
+	}
+	if deleted, err := store.DeleteRole(ctx, tenant1, chief); err != nil || deleted {
+		t.Fatalf("DeleteRole() of a role with no row = (%v, %v), want (false, nil)", deleted, err)
+	}
+	if err := store.DeleteUserRole(ctx, tenant2, bob, editor); err != nil {
+		t.Fatalf("DeleteUserRole() error = %v", err)
 	}
 }
 
@@ -438,14 +551,18 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	ctx := t.Context()
 
 	// State accumulated above: roles tenant1/{Admin,Viewer}, tenant2/Editor,
-	// global/Admin with a scope-wide Export grant; membership alice->Viewer in
-	// tenant1. Add grants to a surviving role so the read covers grants too,
-	// one of them conditional.
+	// global/Admin with a scope-wide Export grant, every-domain/Admin with
+	// Read on widgets; membership alice->Viewer in tenant1. Add grants to a
+	// surviving role so the read covers grants too, one of them conditional,
+	// and a membership of a role with no row.
 	if err := store.InsertGrant(ctx, tenant1, viewer, "List", widgets, "*", ""); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 	if err := store.InsertGrant(ctx, tenant1, viewer, readPerm, widgets, "name", "owner = @subject"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
+	}
+	if err := store.InsertUserRole(ctx, everyDomain, carol, chief); err != nil {
+		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
 	records, err := store.ReadPolicy(ctx)
@@ -453,20 +570,35 @@ func runReadPolicy(t *testing.T, store access.Store) {
 		t.Fatalf("ReadPolicy() error = %v", err)
 	}
 
+	roleSubject := func(role accesstypes.Role) policy.Subject {
+		return policy.Subject{Kind: policy.SubjectRole, Name: string(role)}
+	}
+	userSubject := func(user accesstypes.User) policy.Subject {
+		return policy.Subject{Kind: policy.SubjectUser, Name: string(user)}
+	}
 	want := &policy.Records{
+		Roles: []policy.Role{
+			{Scope: tenant1, Name: admin},
+			{Scope: tenant1, Name: viewer},
+			{Scope: tenant2, Name: editor},
+			{Scope: everyDomain, Name: admin},
+			{Scope: globalScope, Name: admin},
+		},
 		Grants: []policy.Grant{
-			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: "List", Resource: widgets, Field: "*"},
-			{Scope: tenant1, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(viewer)}, Perm: readPerm, Resource: widgets, Field: nameField, Condition: ownerCondition},
-			{Scope: globalScope, Subject: policy.Subject{Kind: policy.SubjectRole, Name: string(admin)}, Perm: "Export", Resource: "", Field: ""},
+			{Scope: tenant1, Subject: roleSubject(viewer), Perm: "List", Resource: widgets, Field: "*"},
+			{Scope: tenant1, Subject: roleSubject(viewer), Perm: readPerm, Resource: widgets, Field: nameField, Condition: ownerCondition},
+			{Scope: everyDomain, Subject: roleSubject(admin), Perm: readPerm, Resource: widgets},
+			{Scope: globalScope, Subject: roleSubject(admin), Perm: "Export", Resource: "", Field: ""},
 		},
 		Memberships: []policy.Membership{
-			{Scope: tenant1, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(alice)}, Role: viewer},
+			{Scope: tenant1, Member: userSubject(alice), Role: viewer},
+			{Scope: everyDomain, Member: userSubject(carol), Role: chief},
 		},
 	}
 	sortRecords(records)
 	sortRecords(want)
-	// Scope is comparable with unexported fields; compare it by ==.
-	if diff := cmp.Diff(want, records, cmpopts.EquateComparable(accesstypes.Scope{})); diff != "" {
+	// PolicyScope is comparable with unexported fields; compare it by ==.
+	if diff := cmp.Diff(want, records, cmpopts.EquateComparable(accesstypes.PolicyScope{})); diff != "" {
 		t.Errorf("ReadPolicy() (-want +got):\n%s", diff)
 	}
 }
@@ -490,23 +622,13 @@ func sortRecords(r *policy.Records) {
 
 		return 0
 	}
-	compareScopes := func(a, b accesstypes.Scope) int {
-		ag, ax, ad := policy.ScopeColumns(a)
-		bg, bx, bd := policy.ScopeColumns(b)
-		gi := func(g bool) int {
-			if g {
-				return 1
-			}
 
-			return 0
-		}
-
-		return cmpChain(gi(ag)-gi(bg), strings.Compare(ax, bx), strings.Compare(ad, bd))
-	}
-
+	slices.SortFunc(r.Roles, func(a, b policy.Role) int {
+		return cmpChain(policy.CompareScopes(a.Scope, b.Scope), strings.Compare(string(a.Name), string(b.Name)))
+	})
 	slices.SortFunc(r.Grants, func(a, b policy.Grant) int {
 		return cmpChain(
-			compareScopes(a.Scope, b.Scope),
+			policy.CompareScopes(a.Scope, b.Scope),
 			compareSubjects(a.Subject, b.Subject),
 			strings.Compare(string(a.Perm), string(b.Perm)),
 			strings.Compare(a.Resource, b.Resource),
@@ -515,7 +637,7 @@ func sortRecords(r *policy.Records) {
 	})
 	slices.SortFunc(r.Memberships, func(a, b policy.Membership) int {
 		return cmpChain(
-			compareScopes(a.Scope, b.Scope),
+			policy.CompareScopes(a.Scope, b.Scope),
 			compareSubjects(a.Member, b.Member),
 			strings.Compare(string(a.Role), string(b.Role)),
 		)
