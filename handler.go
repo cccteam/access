@@ -6,15 +6,21 @@ import (
 	"github.com/cccteam/ccc/resource"
 )
 
-// Handlers provides HTTP handlers for managing user roles.
+// Handlers provides HTTP handlers for managing roles and their members. The
+// {domain} forms address memberships and roles held in one tenant domain; the
+// EveryDomain forms address memberships held in every tenant domain, which
+// have no domain to name.
 type Handlers interface {
 	AddRole() http.HandlerFunc
 	AddRoleUsers() http.HandlerFunc
+	AddRoleUsersEveryDomain() http.HandlerFunc
 	DeleteRole() http.HandlerFunc
 	DeleteRoleUsers() http.HandlerFunc
+	DeleteRoleUsersEveryDomain() http.HandlerFunc
 	RolePermissions() http.HandlerFunc
 	Roles() http.HandlerFunc
 	RoleUsers() http.HandlerFunc
+	RoleUsersEveryDomain() http.HandlerFunc
 }
 
 // LogHandler wraps handlers with logging. Converts error-returning handler to http.HandlerFunc.
