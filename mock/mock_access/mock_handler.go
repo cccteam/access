@@ -68,6 +68,20 @@ func (mr *MockHandlersMockRecorder) AddRoleUsers() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRoleUsers", reflect.TypeOf((*MockHandlers)(nil).AddRoleUsers))
 }
 
+// AddRoleUsersEveryDomain mocks base method.
+func (m *MockHandlers) AddRoleUsersEveryDomain() http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddRoleUsersEveryDomain")
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// AddRoleUsersEveryDomain indicates an expected call of AddRoleUsersEveryDomain.
+func (mr *MockHandlersMockRecorder) AddRoleUsersEveryDomain() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRoleUsersEveryDomain", reflect.TypeOf((*MockHandlers)(nil).AddRoleUsersEveryDomain))
+}
+
 // DeleteRole mocks base method.
 func (m *MockHandlers) DeleteRole() http.HandlerFunc {
 	m.ctrl.T.Helper()
@@ -96,6 +110,20 @@ func (mr *MockHandlersMockRecorder) DeleteRoleUsers() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRoleUsers", reflect.TypeOf((*MockHandlers)(nil).DeleteRoleUsers))
 }
 
+// DeleteRoleUsersEveryDomain mocks base method.
+func (m *MockHandlers) DeleteRoleUsersEveryDomain() http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRoleUsersEveryDomain")
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// DeleteRoleUsersEveryDomain indicates an expected call of DeleteRoleUsersEveryDomain.
+func (mr *MockHandlersMockRecorder) DeleteRoleUsersEveryDomain() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRoleUsersEveryDomain", reflect.TypeOf((*MockHandlers)(nil).DeleteRoleUsersEveryDomain))
+}
+
 // RolePermissions mocks base method.
 func (m *MockHandlers) RolePermissions() http.HandlerFunc {
 	m.ctrl.T.Helper()
@@ -122,6 +150,20 @@ func (m *MockHandlers) RoleUsers() http.HandlerFunc {
 func (mr *MockHandlersMockRecorder) RoleUsers() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleUsers", reflect.TypeOf((*MockHandlers)(nil).RoleUsers))
+}
+
+// RoleUsersEveryDomain mocks base method.
+func (m *MockHandlers) RoleUsersEveryDomain() http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RoleUsersEveryDomain")
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// RoleUsersEveryDomain indicates an expected call of RoleUsersEveryDomain.
+func (mr *MockHandlersMockRecorder) RoleUsersEveryDomain() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleUsersEveryDomain", reflect.TypeOf((*MockHandlers)(nil).RoleUsersEveryDomain))
 }
 
 // Roles mocks base method.

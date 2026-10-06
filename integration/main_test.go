@@ -1,6 +1,6 @@
 // Package integration drives access against a real PostgreSQL container:
-// the LISTEN/NOTIFY change signal and cross-client policy propagation over
-// the typed policy tables.
+// cross-client policy propagation over the typed policy tables, through the
+// change signal and through the heartbeat alone.
 package integration
 
 import (
