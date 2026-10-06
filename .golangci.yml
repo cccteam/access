@@ -59,7 +59,6 @@ linters:
           files:
             - $all
           allow:
-            - cloud.google.com/go/firestore
             - cloud.google.com/go/spanner
             - github.com/cccteam
             - github.com/go-chi/chi/v5
@@ -134,10 +133,24 @@ linters:
           - nlreturn
           - scopelint
         path: _test\.go
+      # Property tests use a seeded math/rand generator on purpose: failures
+      # must reproduce; nothing here is security-sensitive randomness.
+      - linters:
+          - gosec
+        path: _test\.go
+        text: G404
       - linters:
           - gocognit
         path: migrate\.go
         text: bootstrapRoles
+      # The normalized policy records (policy.Grant at 128 bytes, policy.Membership
+      # at 80) sit on gocritic's copy-size thresholds since Scope carries its axis.
+      # The snapshot compiler ranges over them by value once per policy load, and
+      # slices.SortFunc requires value-typed comparators, so the copies stay.
+      - linters:
+          - gocritic
+        path: (internal/policy/policy|snapshot)\.go
+        text: (rangeValCopy|hugeParam)
       - linters:
           - gomoddirectives
         path: go\.mod
