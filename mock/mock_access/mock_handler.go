@@ -54,20 +54,6 @@ func (mr *MockHandlersMockRecorder) AddRole() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRole", reflect.TypeOf((*MockHandlers)(nil).AddRole))
 }
 
-// AddRolePermissions mocks base method.
-func (m *MockHandlers) AddRolePermissions() http.HandlerFunc {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddRolePermissions")
-	ret0, _ := ret[0].(http.HandlerFunc)
-	return ret0
-}
-
-// AddRolePermissions indicates an expected call of AddRolePermissions.
-func (mr *MockHandlersMockRecorder) AddRolePermissions() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRolePermissions", reflect.TypeOf((*MockHandlers)(nil).AddRolePermissions))
-}
-
 // AddRoleUsers mocks base method.
 func (m *MockHandlers) AddRoleUsers() http.HandlerFunc {
 	m.ctrl.T.Helper()
@@ -94,20 +80,6 @@ func (m *MockHandlers) DeleteRole() http.HandlerFunc {
 func (mr *MockHandlersMockRecorder) DeleteRole() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRole", reflect.TypeOf((*MockHandlers)(nil).DeleteRole))
-}
-
-// DeleteRolePermissions mocks base method.
-func (m *MockHandlers) DeleteRolePermissions() http.HandlerFunc {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteRolePermissions")
-	ret0, _ := ret[0].(http.HandlerFunc)
-	return ret0
-}
-
-// DeleteRolePermissions indicates an expected call of DeleteRolePermissions.
-func (mr *MockHandlersMockRecorder) DeleteRolePermissions() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRolePermissions", reflect.TypeOf((*MockHandlers)(nil).DeleteRolePermissions))
 }
 
 // DeleteRoleUsers mocks base method.
@@ -164,32 +136,4 @@ func (m *MockHandlers) Roles() http.HandlerFunc {
 func (mr *MockHandlersMockRecorder) Roles() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Roles", reflect.TypeOf((*MockHandlers)(nil).Roles))
-}
-
-// User mocks base method.
-func (m *MockHandlers) User() http.HandlerFunc {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "User")
-	ret0, _ := ret[0].(http.HandlerFunc)
-	return ret0
-}
-
-// User indicates an expected call of User.
-func (mr *MockHandlersMockRecorder) User() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockHandlers)(nil).User))
-}
-
-// Users mocks base method.
-func (m *MockHandlers) Users() http.HandlerFunc {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Users")
-	ret0, _ := ret[0].(http.HandlerFunc)
-	return ret0
-}
-
-// Users indicates an expected call of Users.
-func (mr *MockHandlersMockRecorder) Users() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Users", reflect.TypeOf((*MockHandlers)(nil).Users))
 }
