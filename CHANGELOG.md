@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/cccteam/access/compare/v0.10.0...v0.10.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* accesstypes is pinned at its release v0.6.0 in place of the pseudo-version of the same commit, so the next access release depends on released code alone ([#218](https://github.com/cccteam/access/issues/218)) ([35fefa8](https://github.com/cccteam/access/commit/35fefa8683485a572ad42e933f58862211cf7df4))
+
 ## [0.10.0](https://github.com/cccteam/access/compare/v0.9.11...v0.10.0) (2026-10-06)
 
 
