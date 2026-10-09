@@ -3,7 +3,7 @@ package access
 import (
 	"net/http"
 
-	"github.com/cccteam/ccc/resource"
+	"github.com/cccteam/httpio"
 )
 
 // Handlers provides HTTP handlers for managing roles and their members. The
@@ -41,9 +41,10 @@ func newHandler(client *Client, logHandler LogHandler) *HandlerClient {
 	}
 }
 
-// newDecoder creates a struct decoder with validation for HTTP requests. Panics on error.
-func newDecoder[T any]() *resource.StructDecoder[T] {
-	decoder, err := resource.NewStructDecoder[T]()
+// newDecoder builds the decoder for a handler's request body. Construction fails only
+// for a malformed request struct, a programming error, so it panics at startup.
+func newDecoder[T any]() *httpio.StructDecoder[T] {
+	decoder, err := httpio.NewStructDecoder[T]()
 	if err != nil {
 		panic(err)
 	}
