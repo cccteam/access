@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/cccteam/access/compare/v0.10.2...v0.10.3) (2026-10-09)
+
+
+### Bug Fixes
+
+* request bodies decode with httpio's StructDecoder; the module no longer requires resource ([#224](https://github.com/cccteam/access/issues/224)) ([3b7863c](https://github.com/cccteam/access/commit/3b7863c3cc16e7d355e858b72ea90c00815c9651))
+
 ## [0.10.2](https://github.com/cccteam/access/compare/v0.10.1...v0.10.2) (2026-10-09)
 
 
