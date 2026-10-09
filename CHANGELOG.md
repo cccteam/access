@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/cccteam/access/compare/v0.10.1...v0.10.2) (2026-10-09)
+
+
+### Code Upgrade
+
+* **deps:** Go 1.26.9 and golang.org/x/net v0.60.0; net/http GO-2026-6612, GO-2026-6613 and GO-2026-6617 fixed ([#221](https://github.com/cccteam/access/issues/221)) ([6f6d1cb](https://github.com/cccteam/access/commit/6f6d1cbad80a329a7ee3905aedb33369306909d9))
+
 ## [0.10.1](https://github.com/cccteam/access/compare/v0.10.0...v0.10.1) (2026-10-06)
 
 
