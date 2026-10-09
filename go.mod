@@ -5,10 +5,9 @@ go 1.26.9
 require (
 	cloud.google.com/go/spanner v1.95.1
 	github.com/cccteam/ccc/accesstypes v0.6.0
-	github.com/cccteam/ccc/resource v0.10.6
 	github.com/cccteam/ccc/tracer v0.1.7
 	github.com/cccteam/db-initiator v0.4.0
-	github.com/cccteam/httpio v0.7.19
+	github.com/cccteam/httpio v0.7.21
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/google/go-cmp v0.7.0
@@ -37,10 +36,8 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.58.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.58.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/cccteam/ccc v0.3.2 // indirect
+	github.com/cccteam/ccc v0.3.3 // indirect
 	github.com/cccteam/logger v0.1.27 // indirect
-	github.com/cccteam/session v0.9.1 // indirect
-	github.com/cccteam/spxscan v0.0.14 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudspannerecosystem/memefish v0.8.1 // indirect
