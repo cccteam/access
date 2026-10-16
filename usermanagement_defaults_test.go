@@ -105,47 +105,75 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	return m, store
 }
 
-// Test_userManager_defaults_RoleExists pins where each kind of role exists: a
-// default of a scope's kind everywhere that kind reaches, a custom role where
-// it is held — and, held in every domain, in any one domain.
-func Test_userManager_defaults_RoleExists(t *testing.T) {
+// Test_userManager_defaults_ResolveRole pins where each kind of role exists and
+// how a name finds it: a default of a scope's kind everywhere that kind reaches,
+// a custom role where it is held — and, held in every domain, in any one domain
+// — matched without regard to case and answered in the spelling the store holds.
+func Test_userManager_defaults_ResolveRole(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		scope accesstypes.PolicyScope
-		role  accesstypes.Role
-		want  bool
+		name      string
+		scope     accesstypes.PolicyScope
+		role      string
+		want      accesstypes.Role
+		wantFound bool
 	}{
-		{name: "a global default exists in the global partition", scope: globalPolicy, role: globalDefault, want: true},
-		{name: "a global default does not exist in one domain", scope: tenant1Policy, role: globalDefault},
-		{name: "a global default does not exist in every domain", scope: everyDomainPolicy, role: globalDefault},
-		{name: "a domain default exists in one domain", scope: tenant1Policy, role: domainDefault, want: true},
-		{name: "a domain default exists in a domain the store holds no row in", scope: neverSeenScope.PolicyScope(), role: domainDefault, want: true},
-		{name: "a domain default exists in every domain", scope: everyDomainPolicy, role: domainDefault, want: true},
-		{name: "a domain default does not exist in the global partition", scope: globalPolicy, role: domainDefault},
-		{name: "a custom role held in every domain exists there", scope: everyDomainPolicy, role: "Everywhere", want: true},
-		{name: "a custom role held in every domain exists in any one domain", scope: tenant2Policy, role: "Everywhere", want: true},
+		{name: "a global default exists in the global partition", scope: globalPolicy, role: string(globalDefault), want: globalDefault, wantFound: true},
+		{name: "a global default does not exist in one domain", scope: tenant1Policy, role: string(globalDefault)},
+		{name: "a global default does not exist in every domain", scope: everyDomainPolicy, role: string(globalDefault)},
+		{name: "a domain default exists in one domain", scope: tenant1Policy, role: string(domainDefault), want: domainDefault, wantFound: true},
+		{name: "a domain default exists in a domain the store holds no row in", scope: neverSeenScope.PolicyScope(), role: string(domainDefault), want: domainDefault, wantFound: true},
+		{name: "a domain default exists in every domain", scope: everyDomainPolicy, role: string(domainDefault), want: domainDefault, wantFound: true},
+		{name: "a domain default does not exist in the global partition", scope: globalPolicy, role: string(domainDefault)},
+		{name: "a custom role held in every domain exists there", scope: everyDomainPolicy, role: "Everywhere", want: "Everywhere", wantFound: true},
+		{name: "a custom role held in every domain exists in any one domain", scope: tenant2Policy, role: "Everywhere", want: "Everywhere", wantFound: true},
 		{name: "a custom role held in every domain does not exist in the global partition", scope: globalPolicy, role: "Everywhere"},
-		{name: "a custom role held in one domain exists there", scope: tenant1Policy, role: "Zed", want: true},
+		{name: "a custom role held in one domain exists there", scope: tenant1Policy, role: "Zed", want: "Zed", wantFound: true},
 		{name: "a custom role held in one domain does not exist in another", scope: tenant2Policy, role: "Zed"},
 		{name: "a custom role held in one domain does not exist in every domain", scope: everyDomainPolicy, role: "Zed"},
-		{name: "a custom role held in the global partition exists there", scope: globalPolicy, role: "Gob", want: true},
+		{name: "a custom role held in the global partition exists there", scope: globalPolicy, role: "Gob", want: "Gob", wantFound: true},
 		{name: "a role nothing defines does not exist", scope: tenant1Policy, role: "Ghost"},
+		{name: "a domain default resolves from its lowercase name, in the file's spelling", scope: tenant1Policy, role: strings.ToLower(string(domainDefault)), want: domainDefault, wantFound: true},
+		{name: "a global default resolves from its uppercase name", scope: globalPolicy, role: strings.ToUpper(string(globalDefault)), want: globalDefault, wantFound: true},
+		{name: "a custom role held in every domain resolves from a mixed-case name in one domain", scope: tenant2Policy, role: "eVERYwhere", want: "Everywhere", wantFound: true},
+		{name: "a custom role held in the global partition resolves from its lowercase name", scope: globalPolicy, role: "gob", want: "Gob", wantFound: true},
+		{name: "a lowercase name of a role held in another domain only does not resolve", scope: tenant2Policy, role: "zed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			m, _ := defaultsManager(t)
 
-			got, err := m.RoleExists(t.Context(), tt.scope, tt.role)
+			got, found, err := m.ResolveRole(t.Context(), tt.scope, tt.role)
 			if err != nil {
-				t.Fatalf("RoleExists() error = %v", err)
+				t.Fatalf("ResolveRole() error = %v", err)
 			}
-			if got != tt.want {
-				t.Errorf("RoleExists(%s, %s) = %v, want %v", tt.scope, tt.role, got, tt.want)
+			if found != tt.wantFound || got != tt.want {
+				t.Errorf("ResolveRole(%s, %q) = (%q, %v), want (%q, %v)", tt.scope, tt.role, got, found, tt.want, tt.wantFound)
 			}
 		})
+	}
+}
+
+// Test_userManager_defaults_ResolveRole_ambiguous pins the one case the rule
+// cannot answer: a store written before AddRole refused case twins holds two
+// custom roles that differ only in case. The exact spelling still resolves; a
+// name matching both is an error, never a guess.
+func Test_userManager_defaults_ResolveRole_ambiguous(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	m, store := defaultsManager(t)
+	store.roles[fakeRoleKey{scope: tenant1Policy, role: "zed"}] = true
+
+	if got, found, err := m.ResolveRole(ctx, tenant1Policy, "Zed"); err != nil || !found || got != "Zed" {
+		t.Errorf("ResolveRole(Zed) = (%q, %v, %v), want the exact spelling", got, found, err)
+	}
+	if got, found, err := m.ResolveRole(ctx, tenant1Policy, "zed"); err != nil || !found || got != "zed" {
+		t.Errorf("ResolveRole(zed) = (%q, %v, %v), want the exact spelling", got, found, err)
+	}
+	if _, _, err := m.ResolveRole(ctx, tenant1Policy, "ZED"); !httpio.HasConflict(err) {
+		t.Errorf("ResolveRole(ZED) error = %v, want a conflict naming both spellings", err)
 	}
 }
 
@@ -201,6 +229,10 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a name held in every domain is refused in one domain", scope: tenant2Policy, role: "Everywhere", wantErr: httpio.HasConflict},
 		{name: "the empty name is refused", scope: tenant1Policy, role: "", wantErr: httpio.HasBadRequest},
 		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed"},
+		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToLower(string(domainDefault))), wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "everywhere", wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "zed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -214,8 +246,8 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 				if err != nil {
 					t.Fatalf("AddRole() error = %v", err)
 				}
-				if exists, err := m.RoleExists(ctx, tt.scope, tt.role); err != nil || !exists {
-					t.Errorf("RoleExists() after AddRole = (%v, %v), want (true, nil)", exists, err)
+				if got, exists, err := m.ResolveRole(ctx, tt.scope, string(tt.role)); err != nil || !exists || got != tt.role {
+					t.Errorf("ResolveRole() after AddRole = (%q, %v, %v), want (%q, true, nil)", got, exists, err, tt.role)
 				}
 
 				return
@@ -243,7 +275,7 @@ func Test_userManager_defaults_DeleteRole(t *testing.T) {
 		role        accesstypes.Role
 		wantErr     bool
 		wantDeleted bool
-		// wantExists is asked of RoleExists in scope after the call.
+		// wantExists is asked of ResolveRole in scope after the call.
 		wantExists bool
 	}{
 		{name: "a domain default is refused in one domain", scope: tenant1Policy, role: domainDefault, wantErr: true, wantExists: true},
@@ -282,12 +314,12 @@ func Test_userManager_defaults_DeleteRole(t *testing.T) {
 			if !tt.wantDeleted && len(store.roles) != rolesBefore {
 				t.Errorf("DeleteRole() removed a role row on a call that deleted nothing")
 			}
-			exists, err := m.RoleExists(ctx, tt.scope, tt.role)
+			_, exists, err := m.ResolveRole(ctx, tt.scope, string(tt.role))
 			if err != nil {
-				t.Fatalf("RoleExists() error = %v", err)
+				t.Fatalf("ResolveRole() error = %v", err)
 			}
 			if exists != tt.wantExists {
-				t.Errorf("RoleExists() after DeleteRole = %v, want %v", exists, tt.wantExists)
+				t.Errorf("ResolveRole() after DeleteRole = %v, want %v", exists, tt.wantExists)
 			}
 		})
 	}

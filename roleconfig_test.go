@@ -50,6 +50,16 @@ func Test_validateRoleNames(t *testing.T) {
 			name:  "Administrator is an ordinary name and passes",
 			roles: ScopedRoles{Global: []*Role{role("Administrator")}},
 		},
+		{
+			name:    "two names differing only in case in one list are rejected",
+			roles:   ScopedRoles{Domain: []*Role{role("Pilot"), role("pilot")}},
+			wantErr: "differ only in case",
+		},
+		{
+			name:    "two names differing only in case across the scopes are rejected",
+			roles:   ScopedRoles{Global: []*Role{role("Steward")}, Domain: []*Role{role("STEWARD")}},
+			wantErr: "differ only in case",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

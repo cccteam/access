@@ -279,10 +279,13 @@ func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]
 }
 
 // validateRoleNames enforces the declaration grammar: every role name is
-// declared once, at exactly one scope. Any name is legal; no name is reserved
-// or provisioned outside the configuration.
+// declared once, at exactly one scope, and no two names differ only in case,
+// since a directory names roles without regard to case (a Google group is an
+// email address) and ResolveRole could never tell the pair apart. Any name is
+// legal; no name is reserved or provisioned outside the configuration.
 func validateRoleNames(roles ScopedRoles) error {
 	seen := make(map[accesstypes.Role]string)
+	folded := make(map[string]accesstypes.Role)
 	check := func(list []*Role, kind string) error {
 		for _, r := range list {
 			if prev, taken := seen[r.Name]; taken {
@@ -292,7 +295,11 @@ func validateRoleNames(roles ScopedRoles) error {
 
 				return errors.Newf("role %s is declared in both the global and domain roles — a role describes powers at exactly one scope; declare two roles with distinct names", r.Name)
 			}
+			if other, taken := folded[strings.ToLower(string(r.Name))]; taken {
+				return errors.Newf("roles %s and %s differ only in case — a directory names roles without regard to case, so the two could never be told apart; declare two roles with distinct names", other, r.Name)
+			}
 			seen[r.Name] = kind
+			folded[strings.ToLower(string(r.Name))] = r.Name
 		}
 
 		return nil

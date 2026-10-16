@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
@@ -41,7 +42,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	roleFound, err := u.RoleExists(ctx, scope, role)
+	roleFound, err := u.roleExists(ctx, scope, role)
 	if err != nil {
 		return err
 	}
@@ -69,7 +70,7 @@ func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.Policy
 	defer span.End()
 
 	for _, role := range roles {
-		roleFound, err := u.RoleExists(ctx, scope, role)
+		roleFound, err := u.roleExists(ctx, scope, role)
 		if err != nil {
 			return err
 		}
@@ -97,7 +98,7 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	roleFound, err := u.RoleExists(ctx, scope, role)
+	roleFound, err := u.roleExists(ctx, scope, role)
 	if err != nil {
 		return err
 	}
@@ -231,12 +232,17 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 		return httpio.NewConflictMessagef("role %q is one of the release's default roles; a custom role cannot take its name", string(role))
 	}
 
-	roleDoesExist, err := u.RoleExists(ctx, scope, role)
+	// A name is taken under any spelling: a directory names roles without regard
+	// to case, so two roles that differ only in case could never be told apart.
+	held, roleDoesExist, err := u.ResolveRole(ctx, scope, string(role))
 	if err != nil {
 		return err
 	}
-	if roleDoesExist {
+	if roleDoesExist && held == role {
 		return httpio.NewConflictMessagef("role %q already exists", string(role))
+	}
+	if roleDoesExist {
+		return httpio.NewConflictMessagef("role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held", string(role), string(held), scope)
 	}
 
 	if err := u.store.addRole(ctx, scope, role); err != nil {
@@ -480,7 +486,7 @@ func (u *userManager) RolePermissions(ctx context.Context, scope accesstypes.Sco
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	roleFound, err := u.RoleExists(ctx, scope.PolicyScope(), role)
+	roleFound, err := u.roleExists(ctx, scope.PolicyScope(), role)
 	if err != nil {
 		return nil, err
 	}
@@ -523,10 +529,46 @@ func (u *userManager) RoleGrants(ctx context.Context, scope accesstypes.PolicySc
 	return grants, nil
 }
 
-// RoleExists reports whether role exists in scope: a default role of scope's
-// kind, a custom role held in scope, or — for one domain — a custom role held
-// in every domain.
-func (u *userManager) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+// ResolveRole returns the role scope holds under name, matched without regard
+// to case, in the spelling the store holds it: a default role of scope's kind,
+// a custom role held in scope, or — for one domain — a custom role held in
+// every domain. The exact spelling wins when it exists; otherwise the one role
+// that matches case-insensitively; two such roles with no exact match is an
+// error, never a guess (AddRole and the role file refuse the pair, so only a
+// store written before this rule can hold one).
+func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	roles, err := u.Roles(ctx, scope)
+	if err != nil {
+		return "", false, err
+	}
+	if slices.Contains(roles, accesstypes.Role(name)) {
+		return accesstypes.Role(name), true, nil
+	}
+	var matches []accesstypes.Role
+	for _, role := range roles {
+		if strings.EqualFold(string(role), name) {
+			matches = append(matches, role)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", false, nil
+	case 1:
+		return matches[0], true, nil
+	default:
+		return "", false, httpio.NewConflictMessagef("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches)
+	}
+}
+
+// roleExists reports whether role exists in scope under exactly that spelling:
+// a default role of scope's kind, a custom role held in scope, or — for one
+// domain — a custom role held in every domain. The membership and grant
+// methods take a role as it is held; ResolveRole is where a name from outside
+// finds its spelling.
+func (u *userManager) roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
