@@ -210,7 +210,10 @@ The engine announces on the change signal after every successful policy write
 and watches it for the hints other instances announce. A hint only nudges the
 background loop to re-read the policy store: the signal carries no policy, so a
 lost or duplicated hint costs latency and nothing else. Announce failures and
-watch errors reach the reload-error hook and never fail the write.
+watch errors reach the reload-error hook and never fail the write. `Close`
+waits for an announcement still in flight, bounded by a few seconds, so a write
+made right before it (a migrate command's seed) is heard by the other instances
+before the application closes the channel.
 
 The application supplies the signal as an adapter over its one signal channel,
 through `access.ChangeSignalFunc(announce, watch)`. `announce` publishes the

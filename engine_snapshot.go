@@ -72,6 +72,11 @@ type snapshotEngine struct {
 	closed      bool
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
+	// announcing counts the change announcements in flight, so close waits
+	// for them: a write right before Close, the migrate command's seed, must
+	// reach the other instances before the application closes the channel
+	// the signal rides on.
+	announcing sync.WaitGroup
 }
 
 func newSnapshotEngine(store Store, defaults *defaultRoles, opts *clientOptions) *snapshotEngine {
@@ -110,11 +115,16 @@ func (s *snapshotEngine) hint() {
 	}
 }
 
+// announceAsync broadcasts the change without holding up the write. The
+// announcement is bounded by announceTimeout and counted, so close waits for
+// it instead of letting the process close the channel under it.
 func (s *snapshotEngine) announceAsync() {
 	if s.signal == nil {
 		return
 	}
+	s.announcing.Add(1)
 	go func() {
+		defer s.announcing.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), announceTimeout)
 		defer cancel()
 		if err := s.signal.Announce(ctx); err != nil {
@@ -134,7 +144,8 @@ func (s *snapshotEngine) waitReady(ctx context.Context) error {
 	}
 }
 
-// close stops the background loops. Checks keep serving the last snapshot.
+// close stops the background loops and waits for the announcements in flight,
+// each bounded by announceTimeout. Checks keep serving the last snapshot.
 func (s *snapshotEngine) close() error {
 	s.lifecycleMu.Lock()
 	if s.closed {
@@ -150,6 +161,7 @@ func (s *snapshotEngine) close() error {
 		cancel()
 	}
 	s.wg.Wait()
+	s.announcing.Wait()
 
 	return nil
 }

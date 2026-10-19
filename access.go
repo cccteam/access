@@ -84,7 +84,10 @@ func (c *Client) WaitReady(ctx context.Context) error {
 }
 
 // Close stops the Client's background policy reloading and change-signal
-// watch. Permission checks keep answering from the last loaded snapshot.
+// watch, and waits for a change announcement still in flight (bounded by a
+// few seconds), so a policy write made right before Close reaches the other
+// instances before the application closes the channel the signal rides on.
+// Permission checks keep answering from the last loaded snapshot.
 func (c *Client) Close() error {
 	return c.snapEngine.close()
 }
