@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/cccteam/access/compare/v0.11.0...v0.11.1) (2026-10-19)
+
+
+### Code Upgrade
+
+* **deps:** bump the go-dependencies group across 1 directory with 7 updates ([#231](https://github.com/cccteam/access/issues/231)) ([e905442](https://github.com/cccteam/access/commit/e9054422be716e22a7838887f960937bd4c3e7c2))
+
 ## [0.11.0](https://github.com/cccteam/access/compare/v0.10.3...v0.11.0) (2026-10-19)
 
 
