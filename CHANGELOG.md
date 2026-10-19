@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.0](https://github.com/cccteam/access/compare/v0.10.3...v0.11.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* ResolveRole replaces RoleExists on UserManager: a role name is matched without regard to case and answered in the store's spelling ([#228](https://github.com/cccteam/access/issues/228))
+
+### Features
+
+* ResolveRole replaces RoleExists on UserManager: a role name is matched without regard to case and answered in the store's spelling ([#228](https://github.com/cccteam/access/issues/228)) ([1a09d4b](https://github.com/cccteam/access/commit/1a09d4b7f871ce66a1ee677f1b393b8bc7bf2726))
+
+
+### Bug Fixes
+
+* Close waits for the change announcement a write started, so a seed right before exit reaches the other instances ([#229](https://github.com/cccteam/access/issues/229)) ([6ef3e61](https://github.com/cccteam/access/commit/6ef3e6171d167808663e68bb49f21090d397f02a))
+
 ## [0.10.3](https://github.com/cccteam/access/compare/v0.10.2...v0.10.3) (2026-10-09)
 
 
