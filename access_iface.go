@@ -142,10 +142,16 @@ type UserManager interface {
 	// in scope, or its name is a default role's.
 	AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 
-	// RoleExists reports whether role exists in scope: a default role of
+	// ResolveRole returns the role scope holds under name, matched without
+	// regard to case, in the spelling the store holds it: a default role of
 	// scope's kind, a custom role held in scope, or — for one domain — a
-	// custom role held in every domain.
-	RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
+	// custom role held in every domain. The exact spelling wins when it
+	// exists; otherwise the one role that matches case-insensitively. Two
+	// such roles with no exact match is an error, never a guess. A
+	// directory names roles without regard to case (a Google group is an
+	// email address), so the name it asserts resolves here to the spelling
+	// the role file or AddRole gave the role.
+	ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error)
 
 	// Roles returns the roles that exist in scope, sorted: the default roles
 	// of scope's kind and the custom roles held in scope, and in every domain

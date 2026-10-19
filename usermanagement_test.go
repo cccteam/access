@@ -343,13 +343,13 @@ func Test_userManager_roles(t *testing.T) {
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				exists, err := m.RoleExists(ctx, tenant1Policy, "Editor")
+				_, exists, err := m.ResolveRole(ctx, tenant1Policy, "Editor")
 				if err != nil || exists {
-					t.Errorf("RoleExists() after delete = (%v, %v), want (false, nil)", exists, err)
+					t.Errorf("ResolveRole() after delete = (%v, %v), want (false, nil)", exists, err)
 				}
 				// Viewer in tenant2 is untouched (delete is domain-scoped).
-				if exists, err := m.RoleExists(ctx, tenant2Policy, "Viewer"); err != nil || !exists {
-					t.Errorf("RoleExists(tenant2, Viewer) = (%v, %v), want (true, nil)", exists, err)
+				if _, exists, err := m.ResolveRole(ctx, tenant2Policy, "Viewer"); err != nil || !exists {
+					t.Errorf("ResolveRole(tenant2, Viewer) = (%v, %v), want (true, nil)", exists, err)
 				}
 			},
 		},
@@ -528,8 +528,8 @@ func Test_userManager_storeErrorsPropagate(t *testing.T) {
 	m, store := seededManager(t)
 	store.setFail(errors.New("store down"))
 
-	if _, err := m.RoleExists(ctx, tenant1Policy, "Editor"); err == nil {
-		t.Error("RoleExists() expected error, got nil")
+	if _, _, err := m.ResolveRole(ctx, tenant1Policy, "Editor"); err == nil {
+		t.Error("ResolveRole() expected error, got nil")
 	}
 	if err := m.AddRoleUsers(ctx, tenant1Policy, "Editor", "bob"); err == nil {
 		t.Error("AddRoleUsers() expected error, got nil")

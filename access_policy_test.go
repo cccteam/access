@@ -191,12 +191,12 @@ func TestClient_WithDefaultRoles(t *testing.T) {
 		everyDomainPolicy: "Reader",
 		globalPolicy:      "Steward",
 	} {
-		exists, err := manager.RoleExists(ctx, scope, role)
+		got, exists, err := manager.ResolveRole(ctx, scope, string(role))
 		if err != nil {
-			t.Fatalf("RoleExists(%s, %s) error = %v", scope, role, err)
+			t.Fatalf("ResolveRole(%s, %s) error = %v", scope, role, err)
 		}
-		if !exists {
-			t.Errorf("RoleExists(%s, %s) = false, want the default seen", scope, role)
+		if !exists || got != role {
+			t.Errorf("ResolveRole(%s, %s) = (%q, %v), want the default seen", scope, role, got, exists)
 		}
 	}
 	if err := manager.AddRoleUsers(ctx, everyDomainPolicy, "Reader", "dana"); err != nil {

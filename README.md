@@ -391,7 +391,7 @@ mgr.AddRole(ctx, tenant1, "moderator")
 deleted, err := mgr.DeleteRole(ctx, tenant1, "moderator") // scoped to tenant1
 
 roles, err := mgr.Roles(ctx, tenant1)
-exists, err := mgr.RoleExists(ctx, tenant1, "admin")
+role, exists, err := mgr.ResolveRole(ctx, tenant1, "admin") // the spelling the store holds, matched without regard to case
 
 users, err := mgr.RoleUsers(ctx, tenant1, "admin")
 mgr.AddRoleUsers(ctx, tenant1, "admin", "user1", "user2")
@@ -407,10 +407,20 @@ mgr.AddRole(ctx, accesstypes.GlobalPolicyScope(), "SystemAdmin")
 
 `Roles` lists the roles that exist in a scope: the release's default roles of
 the scope's kind and the custom roles held there, and, for one domain, the
-custom roles held in every domain too. `RoleExists` in one domain is true for a
-domain default role, a custom role held in that domain, or a custom role held
-in every domain. A custom role held in one domain alone cannot be assigned in
-every domain.
+custom roles held in every domain too. `ResolveRole` finds the role a scope holds
+under a name, matched without regard to case, and returns it in the spelling the
+store holds: in one domain a domain default role, a custom role held in that
+domain, or a custom role held in every domain. The exact spelling wins when it
+exists; otherwise the one role that matches case-insensitively, and two such roles
+with no exact match is an error. It is how a name from outside the application,
+a directory's group (a Google group is an email address, so its name is
+lowercase), finds the role the role file spelled. A custom role held in one
+domain alone cannot be assigned in every domain.
+
+No two roles in a scope differ only in case: the role file is refused at `New`
+when it declares such a pair, and `AddRole` refuses a custom role whose name
+matches an existing role of the scope without regard to case, so a resolution
+is never ambiguous.
 
 A default role's name is taken: `AddRole` refuses it, and `DeleteRole` refuses
 to delete a default role. `DeleteRole` also refuses while users hold the role
@@ -565,7 +575,7 @@ role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 
 - A global default role is held in the global partition; a domain default role is held in every tenant domain, including a tenant created after the release started, with nothing written for it
 - A membership names a default role by name alone: a global default is assigned in the global partition, a domain default in one domain or in every domain
-- `Roles` and `RoleExists` include the default roles of the scope's kind, and `RolePermissions` and `RoleGrants` answer a default role's grants from the file
+- `Roles` and `ResolveRole` include the default roles of the scope's kind, and `RolePermissions` and `RoleGrants` answer a default role's grants from the file
 - `AddRole` refuses a default role's name, `DeleteRole` refuses a default role, and the grant methods refuse to change one; copy its grants into a custom role under another name to change them
 - A role whose file entry has no grants exists and holds nothing until a grant is authored
 - Validates resources, permissions, and conditions against the collection before the client starts, and refuses a grant on a resource whose scope is not its role's

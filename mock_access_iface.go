@@ -497,19 +497,20 @@ func (mr *MockUserManagerMockRecorder) DeleteUserRoles(ctx, scope, user any, rol
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteUserRoles), varargs...)
 }
 
-// RoleExists mocks base method.
-func (m *MockUserManager) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+// ResolveRole mocks base method.
+func (m *MockUserManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RoleExists", ctx, scope, role)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret := m.ctrl.Call(m, "ResolveRole", ctx, scope, name)
+	ret0, _ := ret[0].(accesstypes.Role)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
-// RoleExists indicates an expected call of RoleExists.
-func (mr *MockUserManagerMockRecorder) RoleExists(ctx, scope, role any) *gomock.Call {
+// ResolveRole indicates an expected call of ResolveRole.
+func (mr *MockUserManagerMockRecorder) ResolveRole(ctx, scope, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleExists", reflect.TypeOf((*MockUserManager)(nil).RoleExists), ctx, scope, role)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveRole", reflect.TypeOf((*MockUserManager)(nil).ResolveRole), ctx, scope, name)
 }
 
 // RoleGrants mocks base method.
