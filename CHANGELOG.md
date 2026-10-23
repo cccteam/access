@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.3](https://github.com/cccteam/access/compare/v0.11.2...v0.11.3) (2026-10-23)
+
+
+### Code Upgrade
+
+* **deps:** bump cccteam/github-workflows/.github/workflows/release-please.yml from 7.0.0 to 8.2.3 in the github-actions group across 1 directory ([#227](https://github.com/cccteam/access/issues/227)) ([881edb4](https://github.com/cccteam/access/commit/881edb483c950f8fc58e0bfe832949331f76bc3a))
+
 ## [0.11.2](https://github.com/cccteam/access/compare/v0.11.1...v0.11.2) (2026-10-22)
 
 
