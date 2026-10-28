@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.12.0](https://github.com/cccteam/access/compare/v0.11.2...v0.12.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* every role carries a description, a role name follows one grammar, and Roles lists each role's name and description ([#239](https://github.com/cccteam/access/issues/239))
+
+### Features
+
+* every role carries a description, a role name follows one grammar, and Roles lists each role's name and description ([#239](https://github.com/cccteam/access/issues/239)) ([3c91679](https://github.com/cccteam/access/commit/3c916793c6c54a8b82effd1565cdeee73603c0c4))
+
+
+### Code Upgrade
+
+* **deps:** bump cccteam/github-workflows/.github/workflows/release-please.yml from 7.0.0 to 8.2.3 in the github-actions group across 1 directory ([#227](https://github.com/cccteam/access/issues/227)) ([881edb4](https://github.com/cccteam/access/commit/881edb483c950f8fc58e0bfe832949331f76bc3a))
+* **deps:** bump google.golang.org/api from 0.304.0 to 0.306.0 in the go-dependencies group ([#238](https://github.com/cccteam/access/issues/238)) ([a522aa5](https://github.com/cccteam/access/commit/a522aa50d492bed8a455b69870beb48fe4612e3b))
+
 ## [0.11.2](https://github.com/cccteam/access/compare/v0.11.1...v0.11.2) (2026-10-22)
 
 
