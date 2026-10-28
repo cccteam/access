@@ -1135,7 +1135,7 @@ func engineFakeStore(t *testing.T) *fakeStore {
 	ctx := context.Background()
 	store := newFakeStore()
 	for _, err := range []error{
-		store.InsertRole(ctx, tenant1Policy, "Editor"),
+		store.InsertRole(ctx, tenant1Policy, "Editor", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Editor", "Read", "employees", "", ""),
 		store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor"),
 	} {

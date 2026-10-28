@@ -114,14 +114,14 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "one condition on every field prunes the CASE: the Veteran raises nothing",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Veteran", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Veteran", Description: "Reads the missions it served on.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {{Resource: "Missions", Fields: []accesstypes.Tag{"title", "hazard", "fee", "deadline"}, Condition: "NOT (hazard IN (1, 2) OR fee < 5000)"}},
 			}}}},
 		},
 		{
 			name:  "the Archivist's completed grant implies the closed states: the default order is covered, the narrower fee is not",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Description: "Keeps the archive.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {archivistRows, archivistMoney},
 			}}}},
 			want: []Warning{
@@ -131,7 +131,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "a sibling condition outside the key's IN list is not implied: the default order warns",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title", "deadline"}, Condition: closedStates},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"hazard"}, Condition: "state = 'open'"},
@@ -144,7 +144,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "the key's equalities merge into one set that a sibling's IN list implies",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title"}, Condition: "state IN ('failed', 'stood_down')"},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"deadline"}, Condition: "state = 'failed' OR state = 'stood_down'"},
@@ -154,7 +154,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "a sibling's conjunction implies the key's condition through one conjunct; the conjunction itself is implied by nothing",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title", "deadline"}, Condition: closedStates},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"fee"}, Condition: "state = 'completed' AND fee > 0"},
@@ -167,7 +167,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "a positional deadline is not the collection's to report: only the fee warns",
 			store: positionalDeadlineCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Description: "Keeps the archive.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {archivistRows, archivistMoney},
 			}}}},
 			want: []Warning{
@@ -177,7 +177,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "an unconditional sibling field keeps every CASE",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title"}},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"fee"}, Condition: completed},
@@ -190,7 +190,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "a key the role is not granted is refused as a sort, so nothing masks",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title"}, Condition: closedStates},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"hazard"}, Condition: completed},
@@ -200,7 +200,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "a key granted unconditionally is a plain column",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"fee", "deadline"}},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title"}, Condition: completed},
@@ -210,7 +210,7 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "a key granted under both of the role's conditions covers the row predicate",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Clerk", Description: "Keeps the records.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {
 					{Resource: "Missions", Fields: []accesstypes.Tag{"title", "fee", "deadline"}, Condition: closedStates},
 					{Resource: "Missions", Fields: []accesstypes.Tag{"hazard", "fee", "deadline"}, Condition: completed},
@@ -223,14 +223,14 @@ func TestValidateRoles_concealingKeyWarnings(t *testing.T) {
 		{
 			name:  "Read grants sort nothing",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Archivist", Description: "Keeps the archive.", Permissions: map[accesstypes.Permission][]Grant{
 				"Read": {archivistRows, archivistMoney},
 			}}}},
 		},
 		{
 			name:  "a role without List field grants on the resource raises nothing",
 			store: concealingCollection{},
-			roles: ScopedRoles{Domain: []*Role{{Name: "Gatekeeper", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Gatekeeper", Description: "Admits the crews.", Permissions: map[accesstypes.Permission][]Grant{
 				"List": {{Resource: "Missions", Condition: completed}},
 			}}}},
 		},

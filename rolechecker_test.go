@@ -26,7 +26,7 @@ func TestClient_ForRole(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor", aDescription); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
 	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees"); err != nil {
@@ -103,7 +103,7 @@ func TestRoleChecker_PermissionDigest(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor", aDescription); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
 	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
@@ -182,7 +182,7 @@ func TestRoleChecker_HasGrants(t *testing.T) {
 		{scope: tenant1, role: "Editor", perm: "Read", res: "employees"},
 		{scope: global, role: "Auditor", perm: "List", res: "reports"},
 	} {
-		if err := manager.AddRole(ctx, seed.scope.PolicyScope(), seed.role); err != nil {
+		if err := manager.AddRole(ctx, seed.scope.PolicyScope(), seed.role, aDescription); err != nil {
 			t.Fatalf("AddRole() error = %v", err)
 		}
 		if err := manager.AddRolePermissionResources(ctx, seed.scope.PolicyScope(), seed.role, seed.perm, seed.res); err != nil {

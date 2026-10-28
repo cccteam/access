@@ -79,6 +79,16 @@ type Role struct {
 	Name  accesstypes.Role
 }
 
+// RoleRow is one custom role row less its scope columns: the name the role
+// is held under and the description its creator gave it — the shape a store
+// returns for a scope's role listing, as RoleGrant is for a role's grants.
+// The description is not policy: the snapshot compiler never reads it, so
+// ReadPolicy leaves it out and Role, the row's identity, does not carry it.
+type RoleRow struct {
+	Name        accesstypes.Role
+	Description string
+}
+
 // Records is a reader's complete, store-agnostic output.
 type Records struct {
 	Grants      []Grant

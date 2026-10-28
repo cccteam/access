@@ -43,10 +43,11 @@ type fakeGrant struct {
 // inserts, no-op deletes of absent rows, memberships written by role name
 // alone, FK-style enforcement of the role parent for grants, member-blocked
 // cascade-granted role deletes, and sorted listings. A grant's condition is
-// part of the grant row's identity, matching the stores' contract.
+// part of the grant row's identity, matching the stores' contract. A role
+// row holds the description it was created with.
 type fakeStore struct {
 	mu          sync.Mutex
-	roles       map[fakeRoleKey]bool
+	roles       map[fakeRoleKey]string
 	memberships map[fakeMembership]bool
 	grants      map[fakeGrant]bool
 	// batchWrites counts InsertGrants calls, so tests can pin that a bulk
@@ -73,7 +74,7 @@ func (f *fakeStore) setFail(err error) {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		roles:       make(map[fakeRoleKey]bool),
+		roles:       make(map[fakeRoleKey]string),
 		memberships: make(map[fakeMembership]bool),
 		grants:      make(map[fakeGrant]bool),
 	}
@@ -190,32 +191,46 @@ func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.PolicySco
 	return users, nil
 }
 
-func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+// InsertRole creates the role with its description; an existing role is left
+// as it is, description included.
+func (f *fakeStore) InsertRole(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	f.roles[fakeRoleKey{scope, role}] = true
+	if _, exists := f.roles[fakeRoleKey{scope, role}]; exists {
+		return nil
+	}
+	f.roles[fakeRoleKey{scope, role}] = description
 
 	return nil
 }
 
-func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
+func (f *fakeStore) ListRoles(_ context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return nil, f.failWith
 	}
-	roles := make([]accesstypes.Role, 0)
-	for k := range f.roles {
+	roles := make([]policy.RoleRow, 0)
+	for k, description := range f.roles {
 		if k.scope == scope {
-			roles = append(roles, k.role)
+			roles = append(roles, policy.RoleRow{Name: k.role, Description: description})
 		}
 	}
-	slices.Sort(roles)
+	slices.SortFunc(roles, func(a, b policy.RoleRow) int {
+		return strings.Compare(string(a.Name), string(b.Name))
+	})
 
 	return roles, nil
+}
+
+// hasRole reports whether the role row exists; the caller holds mu.
+func (f *fakeStore) hasRole(scope accesstypes.PolicyScope, role accesstypes.Role) bool {
+	_, exists := f.roles[fakeRoleKey{scope, role}]
+
+	return exists
 }
 
 func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
@@ -229,7 +244,7 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 			return false, errors.Newf("role %q in scope %q still has members", role, scope)
 		}
 	}
-	if !f.roles[fakeRoleKey{scope, role}] {
+	if !f.hasRole(scope, role) {
 		return false, nil
 	}
 	delete(f.roles, fakeRoleKey{scope, role})
@@ -249,7 +264,7 @@ func (f *fakeStore) RoleExists(_ context.Context, scope accesstypes.PolicyScope,
 		return false, f.failWith
 	}
 
-	return f.roles[fakeRoleKey{scope, role}], nil
+	return f.hasRole(scope, role), nil
 }
 
 func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
@@ -258,7 +273,7 @@ func (f *fakeStore) InsertGrant(_ context.Context, scope accesstypes.PolicyScope
 	if f.failWith != nil {
 		return f.failWith
 	}
-	if !f.roles[fakeRoleKey{scope, role}] {
+	if !f.hasRole(scope, role) {
 		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
 	f.grants[fakeGrant{scope, role, perm, resource, field, condition}] = true
@@ -273,7 +288,7 @@ func (f *fakeStore) InsertGrants(_ context.Context, scope accesstypes.PolicyScop
 	if f.failWith != nil {
 		return f.failWith
 	}
-	if !f.roles[fakeRoleKey{scope, role}] {
+	if !f.hasRole(scope, role) {
 		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
 	for _, g := range grants {
@@ -291,7 +306,7 @@ func (f *fakeStore) ChangeGrants(_ context.Context, scope accesstypes.PolicyScop
 	if f.failWith != nil {
 		return f.failWith
 	}
-	if len(additions) > 0 && !f.roles[fakeRoleKey{scope, role}] {
+	if len(additions) > 0 && !f.hasRole(scope, role) {
 		return errors.Newf("role %q does not exist in scope %q", role, scope)
 	}
 	for _, g := range removals {

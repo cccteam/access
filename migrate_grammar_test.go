@@ -253,7 +253,7 @@ func TestExpandRoleGrants(t *testing.T) {
 			if declared == "" {
 				declared = accesstypes.DomainPermissionScope
 			}
-			role := &Role{Name: "Tester", Permissions: map[accesstypes.Permission][]Grant{tt.perm: tt.grants}}
+			role := &Role{Name: "Tester", Description: "Exercises the grant grammar.", Permissions: map[accesstypes.Permission][]Grant{tt.perm: tt.grants}}
 			got, err := expandRoleGrants(grammarCollection{}, role, declared)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {

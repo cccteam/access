@@ -98,7 +98,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 	}{
 		{
 			name: "a conditional Delete without Read or List warns",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 			}}}},
 			want: []Warning{
@@ -107,27 +107,27 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		},
 		{
 			name: "Read on the resource under any condition closes it",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Read":   {{Resource: "Missions", Fields: []accesstypes.Tag{"state"}, Condition: "hazard < 3"}},
 				"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 			}}}},
 		},
 		{
 			name: "List alone is a read path",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"List":   {{Resource: "Missions", Fields: []accesstypes.Tag{"state"}}},
 				"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 			}}}},
 		},
 		{
 			name: "an unconditional Delete reveals existence only by succeeding",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Delete": {{Resource: "Missions"}},
 			}}}},
 		},
 		{
 			name: "a conditional Update warns once for its base row, not once per field",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Update": {{Resource: "Missions", Fields: []accesstypes.Tag{"hazard", "state"}, Condition: "state = 'open'"}},
 			}}}},
 			want: []Warning{
@@ -136,7 +136,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		},
 		{
 			name: "each conditional grant on the resource is its own warning",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Delete": {
 					{Resource: "Missions", Condition: "state = 'open'"},
 					{Resource: "Missions", Condition: "hazard < 3"},
@@ -149,7 +149,7 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		},
 		{
 			name: "a conditional Execute on a targeted method warns for the @target row",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Cadet", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Cadet", Description: "Trains on the missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Execute": {{Resource: "ClaimMission", Condition: "hazard < 3"}},
 			}}}},
 			want: []Warning{
@@ -158,24 +158,24 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		},
 		{
 			name: "Read on the @target closes it",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Cadet", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Cadet", Description: "Trains on the missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Read":    {{Resource: "Missions", Fields: []accesstypes.Tag{"hazard"}}},
 				"Execute": {{Resource: "ClaimMission", Condition: "hazard < 3"}},
 			}}}},
 		},
 		{
 			name: "a method without a @target locates no row",
-			roles: ScopedRoles{Global: []*Role{{Name: "BulletinOfficer", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Global: []*Role{{Name: "BulletinOfficer", Description: "Posts the bulletins.", Permissions: map[accesstypes.Permission][]Grant{
 				"Execute": {{Resource: "IssueBulletin", Condition: "now < '2027-06-30T00:00:00Z'"}},
 			}}}},
 		},
 		{
 			name: "Read held by another role does not close it: the check is per role",
 			roles: ScopedRoles{Domain: []*Role{
-				{Name: "CrewCommon", Permissions: map[accesstypes.Permission][]Grant{
+				{Name: "CrewCommon", Description: "Reads what every crew shares.", Permissions: map[accesstypes.Permission][]Grant{
 					"Read": {{Resource: "Missions", Fields: []accesstypes.Tag{"state"}}},
 				}},
-				{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+				{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 					"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 				}},
 			}},
@@ -186,12 +186,12 @@ func TestValidateRoles_grantWarnings(t *testing.T) {
 		{
 			name: "warnings follow declaration order across roles, then permission order within one",
 			roles: ScopedRoles{Domain: []*Role{
-				{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+				{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 					"Update":  {{Resource: "Missions", Fields: []accesstypes.Tag{"state"}, Condition: "state = 'open'"}},
 					"Execute": {{Resource: "ClaimMission", Condition: "hazard < 3"}},
 					"Delete":  {{Resource: "Missions", Condition: "state = 'open'"}},
 				}},
-				{Name: "Cadet", Permissions: map[accesstypes.Permission][]Grant{
+				{Name: "Cadet", Description: "Trains on the missions.", Permissions: map[accesstypes.Permission][]Grant{
 					"Execute": {{Resource: "ClaimMission", Condition: "hazard < 3"}},
 				}},
 			}},
@@ -231,14 +231,14 @@ func TestValidateRoles_errors(t *testing.T) {
 	}{
 		{
 			name: "a grant on an unknown resource",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Delete": {{Resource: "Nowhere"}},
 			}}}},
 			wantErr: "does not require a permission or does not exist",
 		},
 		{
 			name: "a condition naming an attribute the resource lacks",
-			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+			roles: ScopedRoles{Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 				"Delete": {{Resource: "Missions", Condition: "owner = subject"}},
 			}}}},
 			wantErr: "is not an attribute of Missions",

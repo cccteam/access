@@ -252,17 +252,17 @@ func (m *MockUserManager) EXPECT() *MockUserManagerMockRecorder {
 }
 
 // AddRole mocks base method.
-func (m *MockUserManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+func (m *MockUserManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddRole", ctx, scope, role)
+	ret := m.ctrl.Call(m, "AddRole", ctx, scope, role, description)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AddRole indicates an expected call of AddRole.
-func (mr *MockUserManagerMockRecorder) AddRole(ctx, scope, role any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) AddRole(ctx, scope, role, description any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRole", reflect.TypeOf((*MockUserManager)(nil).AddRole), ctx, scope, role)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRole", reflect.TypeOf((*MockUserManager)(nil).AddRole), ctx, scope, role, description)
 }
 
 // AddRoleGrant mocks base method.
@@ -559,10 +559,10 @@ func (mr *MockUserManagerMockRecorder) RoleUsers(ctx, scope, role any) *gomock.C
 }
 
 // Roles mocks base method.
-func (m *MockUserManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
+func (m *MockUserManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Roles", ctx, scope)
-	ret0, _ := ret[0].([]accesstypes.Role)
+	ret0, _ := ret[0].([]RoleInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

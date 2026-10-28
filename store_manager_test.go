@@ -83,7 +83,7 @@ func Test_storeManager_grants(t *testing.T) {
 			notified := 0
 			manager.onPolicyChange = func() { notified++ }
 
-			if err := manager.addRole(ctx, tenant1Policy, "Editor"); err != nil {
+			if err := manager.addRole(ctx, tenant1Policy, "Editor", aDescription); err != nil {
 				t.Fatalf("addRole() error = %v", err)
 			}
 
@@ -124,7 +124,7 @@ func Test_storeManager_roleGrants_reassembly(t *testing.T) {
 
 	store := newFakeStore()
 	manager := newStoreManager(store)
-	if err := manager.addRole(ctx, tenant1Policy, "Editor"); err != nil {
+	if err := manager.addRole(ctx, tenant1Policy, "Editor", aDescription); err != nil {
 		t.Fatalf("addRole() error = %v", err)
 	}
 	for _, resource := range []accesstypes.Resource{"employees", "employees.name", "employees.*", "widgets"} {
@@ -236,7 +236,7 @@ func Test_storeManager_deleteRole(t *testing.T) {
 
 func mustAddRole(t *testing.T, m *storeManager, scope accesstypes.PolicyScope, role accesstypes.Role) {
 	t.Helper()
-	if err := m.addRole(context.Background(), scope, role); err != nil {
+	if err := m.addRole(context.Background(), scope, role, aDescription); err != nil {
 		t.Fatalf("addRole(%q, %q) error = %v", scope, role, err)
 	}
 }
@@ -343,7 +343,7 @@ func Test_storeManager_addGrants(t *testing.T) {
 			t.Parallel()
 			store := newFakeStore()
 			manager := newStoreManager(store)
-			if err := manager.addRole(ctx, tenant1Policy, "Editor"); err != nil {
+			if err := manager.addRole(ctx, tenant1Policy, "Editor", aDescription); err != nil {
 				t.Fatalf("addRole() error = %v", err)
 			}
 			notified := 0

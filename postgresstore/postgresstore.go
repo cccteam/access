@@ -11,7 +11,8 @@
 // partition, one domain or every domain — never a distinguished domain value
 // — and the axis is the name of the axis the domain belongs to, "" for the
 // default axis, which is every scope today. The Roles table holds custom
-// roles only; a membership names a role by name alone, since the release's
+// roles only, each with the description its creator gave it; a membership
+// names a role by name alone, since the release's
 // default roles have no row, so UserRoles stands alone with an index led by
 // the user for the no-scope listing. Separate tables per store make
 // cross-store leakage structurally impossible: there is no store-key WHERE
@@ -146,11 +147,11 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		pool:  pool,
 		names: names,
 
-		sqlInsertRole:          fmt.Sprintf(`insert into %s ("Kind", "Axis", "Domain", "Role") values ($1, $2, $3, $4) on conflict do nothing`, names.roles),
+		sqlInsertRole:          fmt.Sprintf(`insert into %s ("Kind", "Axis", "Domain", "Role", "Description") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.roles),
 		sqlDeleteRole:          fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4`, names.roles),
 		sqlRoleHasMembers:      fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4)`, names.userRoles),
 		sqlRoleExists:          fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4)`, names.roles),
-		sqlListRoles:           fmt.Sprintf(`select "Role" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 order by "Role"`, names.roles),
+		sqlListRoles:           fmt.Sprintf(`select "Role", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 order by "Role"`, names.roles),
 		sqlInsertUserRole:      fmt.Sprintf(`insert into %s ("Kind", "Axis", "Domain", "Role", "User") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.userRoles),
 		sqlDeleteUserRole:      fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "User" = $5`, names.userRoles),
 		sqlListUserRoles:       fmt.Sprintf(`select "Role" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "User" = $4 order by "Role"`, names.userRoles),
@@ -189,6 +190,7 @@ func (s *Store) DDL() []string {
   "Axis" TEXT NOT NULL,
   "Domain" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
+  "Description" TEXT NOT NULL,
   "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY ("Kind", "Axis", "Domain", "Role"),
   %s
@@ -388,25 +390,34 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope
 	return users, nil
 }
 
-// InsertRole creates the (scope, role) row; re-inserting an existing role is
-// a no-op.
-func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+// InsertRole creates the (scope, role) row with its description;
+// re-inserting an existing role is a no-op that leaves the stored description
+// as it is.
+func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlInsertRole, kind, axis, domain, role); err != nil {
+	if _, err := s.pool.Exec(ctx, s.sqlInsertRole, kind, axis, domain, role, description); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() insert role")
 	}
 
 	return nil
 }
 
-// ListRoles returns the scope's roles, sorted.
-func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
+// ListRoles returns the scope's roles with their descriptions, sorted by
+// name.
+func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	rows, err := s.pool.Query(ctx, s.sqlListRoles, kind, axis, domain)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgxpool.Pool.Query() roles")
 	}
-	roles, err := pgx.CollectRows(rows, pgx.RowTo[accesstypes.Role])
+	roles, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.RoleRow, error) {
+		var r policy.RoleRow
+		if err := row.Scan(&r.Name, &r.Description); err != nil {
+			return policy.RoleRow{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
+		}
+
+		return r, nil
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "pgx.CollectRows() roles")
 	}

@@ -48,6 +48,12 @@ const (
 	salaryField    = "salary"
 	ownerCondition = "owner = @subject"
 	priceCondition = "price < 100"
+
+	// The descriptions the custom roles are created with: opaque text to the
+	// store, written with the row and read back with it.
+	editorDescription = "Edits the records of the tenant."
+	adminDescription  = "Administers the tenant."
+	viewerDescription = "Reads the records of the tenant."
 )
 
 // Run exercises the full access.Store contract against an empty, ready store.
@@ -73,15 +79,21 @@ func runRoles(t *testing.T, store access.Store) {
 		t.Fatalf("RoleExists() on empty store = (%v, %v), want (false, nil)", exists, err)
 	}
 
-	for _, role := range []accesstypes.Role{editor, admin, viewer} {
-		if err := store.InsertRole(ctx, tenant1, role); err != nil {
-			t.Fatalf("InsertRole(%q) error = %v", role, err)
+	for _, r := range []policy.RoleRow{
+		{Name: editor, Description: editorDescription},
+		{Name: admin, Description: adminDescription},
+		{Name: viewer, Description: viewerDescription},
+	} {
+		if err := store.InsertRole(ctx, tenant1, r.Name, r.Description); err != nil {
+			t.Fatalf("InsertRole(%q) error = %v", r.Name, err)
 		}
 	}
-	if err := store.InsertRole(ctx, tenant1, editor); err != nil {
+	// A re-insert is the no-op whatever description it carries: the stored
+	// one stays.
+	if err := store.InsertRole(ctx, tenant1, editor, "A second description, which must not land."); err != nil {
 		t.Fatalf("InsertRole() re-insert must be a no-op, got error = %v", err)
 	}
-	if err := store.InsertRole(ctx, tenant2, editor); err != nil {
+	if err := store.InsertRole(ctx, tenant2, editor, editorDescription); err != nil {
 		t.Fatalf("InsertRole(tenant2) error = %v", err)
 	}
 
@@ -96,8 +108,13 @@ func runRoles(t *testing.T, store access.Store) {
 	if err != nil {
 		t.Fatalf("ListRoles() error = %v", err)
 	}
-	if diff := cmp.Diff([]accesstypes.Role{admin, editor, viewer}, roles); diff != "" {
-		t.Errorf("ListRoles() must be sorted and domain-scoped (-want +got):\n%s", diff)
+	want := []policy.RoleRow{
+		{Name: admin, Description: adminDescription},
+		{Name: editor, Description: editorDescription},
+		{Name: viewer, Description: viewerDescription},
+	}
+	if diff := cmp.Diff(want, roles); diff != "" {
+		t.Errorf("ListRoles() must be sorted and domain-scoped, each role with the description it was created with (-want +got):\n%s", diff)
 	}
 }
 
@@ -437,7 +454,7 @@ func runPartitions(t *testing.T, store access.Store) {
 	tenantNamedEvery := accesstypes.DomainPolicyScope("every")
 
 	for _, scope := range []accesstypes.PolicyScope{globalScope, everyDomain, tenantNamedGlobal, tenantNamedEvery} {
-		if err := store.InsertRole(ctx, scope, admin); err != nil {
+		if err := store.InsertRole(ctx, scope, admin, adminDescription); err != nil {
 			t.Fatalf("InsertRole(%v) error = %v", scope, err)
 		}
 	}
@@ -456,8 +473,8 @@ func runPartitions(t *testing.T, store access.Store) {
 			t.Fatalf("RoleExists(%v) after the tenant deletes = (%v, %v), want (true, nil): deleting a tenant's row must not touch the structural partitions", scope, exists, err)
 		}
 	}
-	if roles, err := store.ListRoles(ctx, everyDomain); err != nil || !slices.Equal(roles, []accesstypes.Role{admin}) {
-		t.Errorf("ListRoles(every domain) = (%v, %v), want [%s]", roles, err, admin)
+	if roles, err := store.ListRoles(ctx, everyDomain); err != nil || !slices.Equal(roles, []policy.RoleRow{{Name: admin, Description: adminDescription}}) {
+		t.Errorf("ListRoles(every domain) = (%v, %v), want [%s] with its description", roles, err, admin)
 	}
 
 	// A scope-wide grant is stored as an empty resource+field row — a spot no

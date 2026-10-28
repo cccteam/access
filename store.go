@@ -71,9 +71,13 @@ type Store interface {
 	ListUserMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error)
 	ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
 
-	// Roles
-	InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
-	ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error)
+	// Roles. A role row carries the description its creator gave it, as
+	// opaque text: InsertRole writes it with the row and, for a (scope, role)
+	// that exists, is the documented no-op, so the stored description stays
+	// as it is. ListRoles returns each role with its description, sorted by
+	// name.
+	InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
+	ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error)
 	DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 	RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 
