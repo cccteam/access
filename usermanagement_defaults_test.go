@@ -24,6 +24,9 @@ import (
 const (
 	globalDefault accesstypes.Role = "Steward"
 	domainDefault accesstypes.Role = "Reader"
+
+	globalDefaultDescription = "Runs the global method."
+	domainDefaultDescription = "Reads widgets and their names."
 )
 
 // neverSeenScope is a request in a domain the store holds no row in: a tenant
@@ -34,10 +37,10 @@ var neverSeenScope = accesstypes.DomainScope("never-seen")
 // global method, Reader reads Widgets and its name field.
 func defaultsRoleConfig() *RoleConfig {
 	return &RoleConfig{Roles: ScopedRoles{
-		Global: []*Role{{Name: globalDefault, Permissions: map[accesstypes.Permission][]Grant{
+		Global: []*Role{{Name: globalDefault, Description: globalDefaultDescription, Permissions: map[accesstypes.Permission][]Grant{
 			"Execute": {{Resource: "DoThing"}},
 		}}},
-		Domain: []*Role{{Name: domainDefault, Permissions: map[accesstypes.Permission][]Grant{
+		Domain: []*Role{{Name: domainDefault, Description: domainDefaultDescription, Permissions: map[accesstypes.Permission][]Grant{
 			"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
 		}}},
 	}}
@@ -64,7 +67,8 @@ func defaultsTestEngine(t *testing.T, store Store, defaults *defaultRoles) *snap
 // release's default roles compiled in and custom roles seeded through the
 // manager's own write path: Zed held in tenant1 with Read on Widgets,
 // Everywhere held in every domain with a conditional Read on Widgets, Dup held
-// both in tenant1 and in every domain, and Gob held in the global partition.
+// both in tenant1 and in every domain, each with its own description, and
+// Gob held in the global partition.
 // The store manager's change hook is wired to the engine, so a write is seen
 // by the next evaluator answer.
 func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
@@ -82,16 +86,17 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	m := newUserManager(manager, defaults, engine)
 
 	for _, seed := range []struct {
-		scope accesstypes.PolicyScope
-		role  accesstypes.Role
+		scope       accesstypes.PolicyScope
+		role        accesstypes.Role
+		description string
 	}{
-		{tenant1Policy, "Zed"},
-		{everyDomainPolicy, "Everywhere"},
-		{tenant1Policy, "Dup"},
-		{everyDomainPolicy, "Dup"},
-		{globalPolicy, "Gob"},
+		{tenant1Policy, "Zed", zedDescription},
+		{everyDomainPolicy, "Everywhere", everywhereDescription},
+		{tenant1Policy, "Dup", dupTenantDescription},
+		{everyDomainPolicy, "Dup", dupEverywhereDescription},
+		{globalPolicy, "Gob", gobDescription},
 	} {
-		if err := m.AddRole(ctx, seed.scope, seed.role); err != nil {
+		if err := m.AddRole(ctx, seed.scope, seed.role, seed.description); err != nil {
 			t.Fatalf("AddRole(%q, %q) error = %v", seed.scope, seed.role, err)
 		}
 	}
@@ -164,7 +169,7 @@ func Test_userManager_defaults_ResolveRole_ambiguous(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	m, store := defaultsManager(t)
-	store.roles[fakeRoleKey{scope: tenant1Policy, role: "zed"}] = true
+	store.roles[fakeRoleKey{scope: tenant1Policy, role: "zed"}] = "A case twin written before the rule."
 
 	if got, found, err := m.ResolveRole(ctx, tenant1Policy, "Zed"); err != nil || !found || got != "Zed" {
 		t.Errorf("ResolveRole(Zed) = (%q, %v, %v), want the exact spelling", got, found, err)
@@ -179,21 +184,32 @@ func Test_userManager_defaults_ResolveRole_ambiguous(t *testing.T) {
 
 // Test_userManager_defaults_Roles pins the listing: the defaults of the
 // scope's kind, the custom roles held in the scope and, for one domain, the
-// custom roles held in every domain — sorted, a name once however many places
-// hold it.
+// custom roles held in every domain — sorted by name, each with its
+// description, a default's from the role file and a custom role's from the
+// store; a name once however many places hold it, described by the first
+// place that does, the scope's own row before the every-domain one.
 func Test_userManager_defaults_Roles(t *testing.T) {
 	t.Parallel()
 
+	var (
+		reader        = RoleInfo{Name: domainDefault, Description: domainDefaultDescription}
+		steward       = RoleInfo{Name: globalDefault, Description: globalDefaultDescription}
+		zed           = RoleInfo{Name: "Zed", Description: zedDescription}
+		everywhere    = RoleInfo{Name: "Everywhere", Description: everywhereDescription}
+		dupTenant     = RoleInfo{Name: "Dup", Description: dupTenantDescription}
+		dupEverywhere = RoleInfo{Name: "Dup", Description: dupEverywhereDescription}
+		gob           = RoleInfo{Name: "Gob", Description: gobDescription}
+	)
 	tests := []struct {
 		name  string
 		scope accesstypes.PolicyScope
-		want  []accesstypes.Role
+		want  []RoleInfo
 	}{
-		{name: "the global partition lists the global default and the global customs", scope: globalPolicy, want: []accesstypes.Role{"Gob", globalDefault}},
-		{name: "one domain lists the domain default, its own customs and the every-domain customs once", scope: tenant1Policy, want: []accesstypes.Role{"Dup", "Everywhere", domainDefault, "Zed"}},
-		{name: "another domain does not see a custom role held in the first", scope: tenant2Policy, want: []accesstypes.Role{"Dup", "Everywhere", domainDefault}},
-		{name: "a domain the store holds no row in lists the defaults and the every-domain customs", scope: neverSeenScope.PolicyScope(), want: []accesstypes.Role{"Dup", "Everywhere", domainDefault}},
-		{name: "every domain lists the domain default and the every-domain customs", scope: everyDomainPolicy, want: []accesstypes.Role{"Dup", "Everywhere", domainDefault}},
+		{name: "the global partition lists the global default and the global customs", scope: globalPolicy, want: []RoleInfo{gob, steward}},
+		{name: "one domain lists the domain default, its own customs and the every-domain customs once, its own row's description first", scope: tenant1Policy, want: []RoleInfo{dupTenant, everywhere, reader, zed}},
+		{name: "another domain does not see a custom role held in the first", scope: tenant2Policy, want: []RoleInfo{dupEverywhere, everywhere, reader}},
+		{name: "a domain the store holds no row in lists the defaults and the every-domain customs", scope: neverSeenScope.PolicyScope(), want: []RoleInfo{dupEverywhere, everywhere, reader}},
+		{name: "every domain lists the domain default and the every-domain customs", scope: everyDomainPolicy, want: []RoleInfo{dupEverywhere, everywhere, reader}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -213,26 +229,30 @@ func Test_userManager_defaults_Roles(t *testing.T) {
 
 // Test_userManager_defaults_AddRole pins the names a custom role cannot take:
 // a default's of the scope's kind (a conflict), a name a custom role held in
-// every domain already answers to in one domain, and the empty name.
+// every domain already answers to in one domain, and the empty name — and
+// that a role without a description, or with whitespace for one, is refused.
 func Test_userManager_defaults_AddRole(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		scope   accesstypes.PolicyScope
-		role    accesstypes.Role
-		wantErr func(error) bool
+		name        string
+		scope       accesstypes.PolicyScope
+		role        accesstypes.Role
+		description string
+		wantErr     func(error) bool
 	}{
-		{name: "a domain default's name is refused in one domain", scope: tenant1Policy, role: domainDefault, wantErr: httpio.HasConflict},
-		{name: "a domain default's name is refused in every domain", scope: everyDomainPolicy, role: domainDefault, wantErr: httpio.HasConflict},
-		{name: "a global default's name is refused in the global partition", scope: globalPolicy, role: globalDefault, wantErr: httpio.HasConflict},
-		{name: "a name held in every domain is refused in one domain", scope: tenant2Policy, role: "Everywhere", wantErr: httpio.HasConflict},
-		{name: "the empty name is refused", scope: tenant1Policy, role: "", wantErr: httpio.HasBadRequest},
-		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed"},
-		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToLower(string(domainDefault))), wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "everywhere", wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "zed"},
+		{name: "a domain default's name is refused in one domain", scope: tenant1Policy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a domain default's name is refused in every domain", scope: everyDomainPolicy, role: domainDefault, description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a global default's name is refused in the global partition", scope: globalPolicy, role: globalDefault, description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a name held in every domain is refused in one domain", scope: tenant2Policy, role: "Everywhere", description: aDescription, wantErr: httpio.HasConflict},
+		{name: "the empty name is refused", scope: tenant1Policy, role: "", description: aDescription, wantErr: httpio.HasBadRequest},
+		{name: "a role without a description is refused", scope: tenant2Policy, role: "Zed", description: "", wantErr: httpio.HasBadRequest},
+		{name: "a whitespace description is refused", scope: tenant2Policy, role: "Zed", description: " \t\n", wantErr: httpio.HasBadRequest},
+		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed", description: aDescription},
+		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToLower(string(domainDefault))), description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "everywhere", description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "zed", description: aDescription},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -241,13 +261,16 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 			m, store := defaultsManager(t)
 			rolesBefore := len(store.roles)
 
-			err := m.AddRole(ctx, tt.scope, tt.role)
+			err := m.AddRole(ctx, tt.scope, tt.role, tt.description)
 			if tt.wantErr == nil {
 				if err != nil {
 					t.Fatalf("AddRole() error = %v", err)
 				}
 				if got, exists, err := m.ResolveRole(ctx, tt.scope, string(tt.role)); err != nil || !exists || got != tt.role {
 					t.Errorf("ResolveRole() after AddRole = (%q, %v, %v), want (%q, true, nil)", got, exists, err, tt.role)
+				}
+				if got := store.roles[fakeRoleKey{scope: tt.scope, role: tt.role}]; got != tt.description {
+					t.Errorf("AddRole() stored description %q, want %q", got, tt.description)
 				}
 
 				return
@@ -807,3 +830,13 @@ func Test_userManager_defaults_RoleGrants(t *testing.T) {
 		})
 	}
 }
+
+// The descriptions the seeded custom roles are created with, each its own, so
+// the listing proves which row a description came from.
+const (
+	zedDescription           = "Reads the widgets of tenant1."
+	everywhereDescription    = "Reads cheap widgets in every tenant."
+	dupTenantDescription     = "Held in tenant1."
+	dupEverywhereDescription = "Held in every domain."
+	gobDescription           = "Audits the global partition."
+)

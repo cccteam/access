@@ -20,16 +20,21 @@ const (
 	paramRole   httpio.ParamType = "role"
 )
 
-// AddRole is the handler to add a custom role held in the domain
+// AddRole is the handler to add a custom role held in the domain. The
+// request carries the role's name and its description, one or two plain
+// sentences saying what the role is for; the manager refuses a role without
+// one.
 //
 // Permissions Required: AddRole
 func (a *HandlerClient) AddRole() http.HandlerFunc {
 	type request struct {
-		RoleName accesstypes.Role `json:"roleName"`
+		RoleName    accesstypes.Role `json:"roleName"`
+		Description string           `json:"description"`
 	}
 
 	type response struct {
-		Role accesstypes.Role `json:"role"`
+		Role        accesstypes.Role `json:"role"`
+		Description string           `json:"description"`
 	}
 
 	decoder := newDecoder[request]()
@@ -44,12 +49,13 @@ func (a *HandlerClient) AddRole() http.HandlerFunc {
 		}
 
 		scope := accesstypes.DomainPolicyScope(httpio.Param[accesstypes.Domain](r, paramDomain))
-		if err := a.manager.AddRole(ctx, scope, req.RoleName); err != nil {
+		if err := a.manager.AddRole(ctx, scope, req.RoleName, req.Description); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		resp := &response{
-			Role: req.RoleName,
+			Role:        req.RoleName,
+			Description: req.Description,
 		}
 
 		return httpio.NewEncoder(w).Ok(resp)
@@ -146,14 +152,14 @@ func (a *HandlerClient) deleteRoleUsers(scopeOf func(*http.Request) accesstypes.
 	})
 }
 
-// Roles is the handler to get the list of roles that exist in a given domain:
-// the release's domain default roles and the custom roles held there or in
-// every domain
+// Roles is the handler to get the list of roles that exist in a given domain,
+// each with its name and description: the release's domain default roles and
+// the custom roles held there or in every domain
 //
 // Permissions Required: ListRoles
 func (a *HandlerClient) Roles() http.HandlerFunc {
 	type response struct {
-		Roles []accesstypes.Role `json:"roles,omitempty"`
+		Roles []RoleInfo `json:"roles,omitempty"`
 	}
 
 	return a.handler(func(w http.ResponseWriter, r *http.Request) error {

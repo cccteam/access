@@ -74,7 +74,7 @@ func TestStore_isolation(t *testing.T) {
 		t.Fatalf("applying DDL: %v", err)
 	}
 
-	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor"); err != nil {
+	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
 	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor"); err != nil {
@@ -116,7 +116,7 @@ func TestDDL_keys(t *testing.T) {
 		want []string
 	}{
 		{name: "roles", stmt: 0, want: []string{
-			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL",
+			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL", "Description STRING(MAX) NOT NULL",
 			"CONSTRAINT AccessRolesKind CHECK (Kind IN ('global', 'domain', 'every'))",
 			"PRIMARY KEY (Kind, Axis, Domain, Role)",
 		}},

@@ -24,10 +24,10 @@ import (
 var grammarRoleFile = RoleFile(`{
   "roles": {
     "global": [
-      {"name": "Steward", "permissions": {"Execute": [{"resource": "DoThing"}]}}
+      {"name": "Steward", "description": "Runs the global method.", "permissions": {"Execute": [{"resource": "DoThing"}]}}
     ],
     "domain": [
-      {"name": "Reader", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name"]}]}}
+      {"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "fields": ["name"]}]}}
     ]
   }
 }`)
@@ -38,7 +38,7 @@ var grammarRoleFile = RoleFile(`{
 var probeRoleFile = RoleFile(`{
   "roles": {
     "domain": [
-      {"name": "Paymaster", "permissions": {"Delete": [{"resource": "Missions", "condition": "state = 'open'"}]}}
+      {"name": "Paymaster", "description": "Settles the open missions.", "permissions": {"Delete": [{"resource": "Missions", "condition": "state = 'open'"}]}}
     ]
   }
 }`)
@@ -64,8 +64,11 @@ func newPolicyClient(t *testing.T, store Store, opts ...Option) *Client {
 }
 
 // TestRoleFile_Parse pins the file's parse rules: the RoleConfig shape, an
-// empty file and malformed JSON refused, and a key the shape does not declare
-// refused at any depth, so a misspelled key cannot silently drop roles.
+// empty file and malformed JSON refused, a key the shape does not declare
+// refused at any depth, so a misspelled key cannot silently drop roles — and
+// the shape rules a tool checks with no permission collection: every role
+// name in the grammar, every role described, every grant well-formed with a
+// condition that parses.
 func TestRoleFile_Parse(t *testing.T) {
 	t.Parallel()
 
@@ -79,10 +82,10 @@ func TestRoleFile_Parse(t *testing.T) {
 			name: "a valid file parses into its configuration",
 			file: grammarRoleFile,
 			want: &RoleConfig{Roles: ScopedRoles{
-				Global: []*Role{{Name: "Steward", Permissions: map[accesstypes.Permission][]Grant{
+				Global: []*Role{{Name: "Steward", Description: "Runs the global method.", Permissions: map[accesstypes.Permission][]Grant{
 					"Execute": {{Resource: "DoThing"}},
 				}}},
-				Domain: []*Role{{Name: "Reader", Permissions: map[accesstypes.Permission][]Grant{
+				Domain: []*Role{{Name: "Reader", Description: "Reads widgets and their names.", Permissions: map[accesstypes.Permission][]Grant{
 					"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
 				}}},
 			}},
@@ -91,7 +94,7 @@ func TestRoleFile_Parse(t *testing.T) {
 			name: "a condition parses with its grant",
 			file: probeRoleFile,
 			want: &RoleConfig{Roles: ScopedRoles{
-				Domain: []*Role{{Name: "Paymaster", Permissions: map[accesstypes.Permission][]Grant{
+				Domain: []*Role{{Name: "Paymaster", Description: "Settles the open missions.", Permissions: map[accesstypes.Permission][]Grant{
 					"Delete": {{Resource: "Missions", Condition: "state = 'open'"}},
 				}}},
 			}},
@@ -102,7 +105,66 @@ func TestRoleFile_Parse(t *testing.T) {
 		{name: "an unknown top-level key is refused", file: RoleFile(`{"roles": {}, "extras": []}`), wantErr: "unknown field"},
 		{name: "an unknown scope key is refused", file: RoleFile(`{"roles": {"tenant": []}}`), wantErr: "unknown field"},
 		{name: "an unknown role key is refused", file: RoleFile(`{"roles": {"domain": [{"name": "Reader", "perms": {}}]}}`), wantErr: "unknown field"},
-		{name: "an unknown grant key is refused", file: RoleFile(`{"roles": {"domain": [{"name": "Reader", "permissions": {"Read": [{"resource": "Widgets", "field": "name"}]}}]}}`), wantErr: "unknown field"},
+		{name: "an unknown grant key is refused", file: RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets", "field": "name"}]}}]}}`), wantErr: "unknown field"},
+		{
+			name:    "a role name with an underscore is refused",
+			file:    RoleFile(`{"roles": {"global": [{"name": "Administrator_Global", "description": "Administers everything.", "permissions": {}}]}}`),
+			wantErr: "role Administrator_Global: a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name",
+		},
+		{
+			name:    "a role name starting lowercase is refused",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "reader", "description": "Reads widgets.", "permissions": {}}]}}`),
+			wantErr: "role reader: a role name is letters and digits starting with a capital letter",
+		},
+		{
+			name:    "a role name with a space is refused",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Tenant Administrator", "description": "Administers the tenant.", "permissions": {}}]}}`),
+			wantErr: "role Tenant Administrator: a role name is letters and digits starting with a capital letter",
+		},
+		{
+			name:    "a role name with a dot is refused",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader.Domain", "description": "Reads widgets.", "permissions": {}}]}}`),
+			wantErr: "role Reader.Domain: a role name is letters and digits starting with a capital letter",
+		},
+		{
+			name:    "a role without a description is refused",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader", "permissions": {}}]}}`),
+			wantErr: "role Reader: a role carries a description, one or two plain sentences saying what the role is for",
+		},
+		{
+			name:    "a whitespace description is refused",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": " \n\t", "permissions": {}}]}}`),
+			wantErr: "role Reader: a role carries a description",
+		},
+		{
+			name:    "a grant naming no resource is refused",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets.", "permissions": {"Read": [{"fields": ["name"]}]}}]}}`),
+			wantErr: "role Reader: a Read grant names no resource",
+		},
+		{
+			name:    "a dotted resource with fields is refused with no collection",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets.", "permissions": {"Read": [{"resource": "Widgets.name", "fields": ["name"]}]}}]}}`),
+			wantErr: "role Reader: grant on Widgets.name: a dotted field resource takes no Fields or Condition",
+		},
+		{
+			name:    "a resource granted twice unconditionally is refused with no collection",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets.", "permissions": {"Read": [{"resource": "Widgets"}, {"resource": "Widgets", "fields": ["name"]}]}}]}}`),
+			wantErr: "role Reader: two unconditional Read grants on Widgets",
+		},
+		{
+			name:    "a condition that does not parse is refused with no collection",
+			file:    RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets.", "permissions": {"Read": [{"resource": "Widgets", "condition": "owner = = subject"}]}}]}}`),
+			wantErr: "role Reader: Read grant on Widgets",
+		},
+		{
+			name: "a described role in the grammar with a condition that parses loads with no collection",
+			file: RoleFile(`{"roles": {"domain": [{"name": "Tier2Reader", "description": "Reads the widgets it owns.", "permissions": {"Read": [{"resource": "Nowhere", "condition": "owner = subject"}]}}]}}`),
+			want: &RoleConfig{Roles: ScopedRoles{
+				Domain: []*Role{{Name: "Tier2Reader", Description: "Reads the widgets it owns.", Permissions: map[accesstypes.Permission][]Grant{
+					"Read": {{Resource: "Nowhere", Condition: "owner = subject"}},
+				}}},
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,9 +192,10 @@ func TestRoleFile_Parse(t *testing.T) {
 }
 
 // TestNew_withDefaultRoles_refusals pins what New refuses with
-// WithDefaultRoles: a nil collection, a file that does not parse, and a file
-// naming what the collection does not declare — a release whose default
-// roles are wrong does not start.
+// WithDefaultRoles: a nil collection, a file that does not parse, a file
+// whose shape is wrong — a role name outside the grammar, a role with no
+// description — and a file naming what the collection does not declare: a
+// release whose default roles are wrong does not start.
 func TestNew_withDefaultRoles_refusals(t *testing.T) {
 	t.Parallel()
 
@@ -146,15 +209,27 @@ func TestNew_withDefaultRoles_refusals(t *testing.T) {
 		{name: "a file that does not parse", collection: grammarCollection{}, file: RoleFile(`{"roles": `), wantErr: "does not parse"},
 		{name: "an empty file", collection: grammarCollection{}, file: RoleFile(""), wantErr: "empty"},
 		{
+			name:       "a file naming a role outside the grammar",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "reader", "description": "Reads widgets.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
+			wantErr:    "role reader: a role name is letters and digits starting with a capital letter",
+		},
+		{
+			name:       "a file whose role has no description",
+			collection: grammarCollection{},
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
+			wantErr:    "role Reader: a role carries a description",
+		},
+		{
 			name:       "a file naming a resource the collection does not declare",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "permissions": {"Read": [{"resource": "Nowhere"}]}}]}}`),
+			file:       RoleFile(`{"roles": {"domain": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Nowhere"}]}}]}}`),
 			wantErr:    "does not validate",
 		},
 		{
 			name:       "a file granting a domain resource to a global role",
 			collection: grammarCollection{},
-			file:       RoleFile(`{"roles": {"global": [{"name": "Reader", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
+			file:       RoleFile(`{"roles": {"global": [{"name": "Reader", "description": "Reads widgets and their names.", "permissions": {"Read": [{"resource": "Widgets"}]}}]}}`),
 			wantErr:    "does not validate",
 		},
 	}
@@ -293,7 +368,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "a custom role a default of its kind shadows",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				return store.InsertRole(ctx, tenant1Policy, "Paymaster")
+				return store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription)
 			},
 			want:     []Warning{paymasterWarning, &ShadowedRole{Scope: tenant1Policy, Role: "Paymaster"}},
 			wantText: []string{"without Read or List", "custom role Paymaster in scope tenant1"},
@@ -301,7 +376,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "a custom role of a default's name in the other kind of scope is not shadowed",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				return store.InsertRole(ctx, globalPolicy, "Paymaster")
+				return store.InsertRole(ctx, globalPolicy, "Paymaster", aDescription)
 			},
 			want:     []Warning{paymasterWarning},
 			wantText: []string{"without Read or List"},
@@ -329,7 +404,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "a membership in one domain of a custom role held in every domain resolves",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				if err := store.InsertRole(ctx, everyDomainPolicy, "Scout"); err != nil {
+				if err := store.InsertRole(ctx, everyDomainPolicy, "Scout", aDescription); err != nil {
 					return err
 				}
 
@@ -341,7 +416,7 @@ func TestClient_CheckPolicy(t *testing.T) {
 		{
 			name: "a grant naming a resource the release does not declare",
 			seed: func(ctx context.Context, store *fakeStore) error {
-				if err := store.InsertRole(ctx, tenant1Policy, "Rogue"); err != nil {
+				if err := store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription); err != nil {
 					return err
 				}
 
@@ -355,8 +430,8 @@ func TestClient_CheckPolicy(t *testing.T) {
 			seed: func(ctx context.Context, store *fakeStore) error {
 				for _, err := range []error{
 					store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost"),
-					store.InsertRole(ctx, tenant1Policy, "Paymaster"),
-					store.InsertRole(ctx, tenant1Policy, "Rogue"),
+					store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
+					store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 					store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 				} {
 					if err != nil {
@@ -434,9 +509,9 @@ func TestClient_CheckPolicy_findingsAreErrors(t *testing.T) {
 
 	store := newFakeStore()
 	for _, err := range []error{
-		store.InsertRole(ctx, tenant1Policy, "Paymaster"),
+		store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
 		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost"),
-		store.InsertRole(ctx, tenant1Policy, "Rogue"),
+		store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 	} {
 		if err != nil {
@@ -568,9 +643,9 @@ func TestClient_CheckPolicy_findingsReachReloadHook(t *testing.T) {
 
 	store := newFakeStore()
 	for _, err := range []error{
-		store.InsertRole(ctx, tenant1Policy, "Paymaster"),
+		store.InsertRole(ctx, tenant1Policy, "Paymaster", aDescription),
 		store.InsertUserRole(ctx, tenant1Policy, "zed", "Ghost"),
-		store.InsertRole(ctx, tenant1Policy, "Rogue"),
+		store.InsertRole(ctx, tenant1Policy, "Rogue", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Rogue", "Read", "Nowhere", "", ""),
 	} {
 		if err != nil {

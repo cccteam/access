@@ -3,6 +3,7 @@ package access
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -63,9 +64,15 @@ type PermissionCollection interface {
 // names what its collection does not declare does not start.
 type RoleFile []byte
 
-// Parse decodes the file into its configuration. The shape is RoleConfig's;
-// a field the shape does not declare is an error, since a misspelled key
-// would otherwise silently drop the roles under it.
+// Parse decodes the file into its configuration and checks its shape: the
+// JSON shape is RoleConfig's, and a field the shape does not declare is an
+// error, since a misspelled key would otherwise silently drop the roles
+// under it; every role name is in the grammar (see Role) and declared once,
+// every role carries a description, and every grant is well-formed with a
+// condition that parses. Nothing here needs the permission collection, so a
+// tool checks a role file with Parse alone and gets the refusals New would
+// give before it looks at the collection; what the file grants is validated
+// against the collection by New and ValidateRoles.
 func (f RoleFile) Parse() (*RoleConfig, error) {
 	if len(bytes.TrimSpace(f)) == 0 {
 		return nil, errors.New("the role file is empty")
@@ -75,6 +82,9 @@ func (f RoleFile) Parse() (*RoleConfig, error) {
 	config := &RoleConfig{}
 	if err := decoder.Decode(config); err != nil {
 		return nil, errors.Wrap(err, "the role file does not parse")
+	}
+	if err := validateRoleShape(config); err != nil {
+		return nil, err
 	}
 
 	return config, nil
@@ -99,9 +109,23 @@ type ScopedRoles struct {
 	Domain []*Role `json:"domain"`
 }
 
-// Role defines role name and permissions granted.
+// Role is one default role as the file declares it: its name, what it is
+// for, and the permissions it grants.
 type Role struct {
-	Name        accesstypes.Role                   `json:"name"`
+	// Name is the role's name, in the one grammar every role name follows:
+	// letters and digits starting with a capital letter, such as
+	// Administrator or TenantAdministrator — no underscore, hyphen, space or
+	// dot. The scope is never part of the name: a role is declared under its
+	// scope key, and a global and a domain role never share a name.
+	Name accesstypes.Role `json:"name"`
+
+	// Description says what the role is for: one or two plain sentences,
+	// the way a cloud provider describes its roles ("Reads and edits the
+	// documents of the tenant."). Every role carries one; a file whose role
+	// has none, or only whitespace, is refused. The listing returns it
+	// beside the name, so a person choosing a role reads what it is for.
+	Description string `json:"description"`
+
 	Permissions map[accesstypes.Permission][]Grant `json:"permissions"`
 }
 
@@ -148,11 +172,11 @@ func (g Grant) expand() []accesstypes.Resource {
 }
 
 // ValidateRoles checks a role configuration the way New does before it
-// accepts the file — role names, grant grammar, every condition against the
-// collection's vocabulary, each grant at its role's declared scope — and
-// returns the warnings the configuration raises (see Warning), with no store
-// client involved. A project test or a tool gets the answer the release's
-// start would.
+// accepts the file — role names and descriptions, grant grammar, every
+// condition against the collection's vocabulary, each grant at its role's
+// declared scope — and returns the warnings the configuration raises (see
+// Warning), with no store client involved. A project test or a tool gets
+// the answer the release's start would.
 func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warning, error) {
 	defaults, err := compileDefaultRoles(store, roleConfig)
 	if err != nil {
@@ -163,15 +187,23 @@ func ValidateRoles(store PermissionCollection, roleConfig *RoleConfig) ([]Warnin
 }
 
 // defaultRoles is a role configuration validated and expanded: the release's
-// default roles, each kind's roles beside their grant sets, the warnings the
-// configuration raises, and the grants as policy records the snapshot
-// compiles — global roles held in the global partition, domain roles held in
-// every domain. A nil *defaultRoles is a release with no default roles.
+// default roles, each kind's roles beside their descriptions and grant sets,
+// the warnings the configuration raises, and the grants as policy records
+// the snapshot compiles — global roles held in the global partition, domain
+// roles held in every domain. A nil *defaultRoles is a release with no
+// default roles.
 type defaultRoles struct {
-	global   map[accesstypes.Role]grantSet
-	domain   map[accesstypes.Role]grantSet
+	global   map[accesstypes.Role]defaultRole
+	domain   map[accesstypes.Role]defaultRole
 	warnings []Warning
 	grants   []policy.Grant
+}
+
+// defaultRole is one default role compiled: the description the file gave it
+// and its expanded grant set.
+type defaultRole struct {
+	description string
+	grants      grantSet
 }
 
 // compileDefaultRoles validates and expands the configuration.
@@ -179,10 +211,13 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig) (*d
 	if err := validateRoleNames(roleConfig.Roles); err != nil {
 		return nil, err
 	}
+	if err := validateRoleDescriptions(roleConfig.Roles); err != nil {
+		return nil, err
+	}
 
 	d := &defaultRoles{
-		global: make(map[accesstypes.Role]grantSet, len(roleConfig.Roles.Global)),
-		domain: make(map[accesstypes.Role]grantSet, len(roleConfig.Roles.Domain)),
+		global: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Global)),
+		domain: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Domain)),
 	}
 	globalGrants, globalWarnings, err := expandAllRoleGrants(store, roleConfig.Roles.Global, accesstypes.GlobalPermissionScope)
 	if err != nil {
@@ -194,11 +229,11 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig) (*d
 	}
 	d.warnings = slices.Concat(globalWarnings, domainWarnings)
 	for i, r := range roleConfig.Roles.Global {
-		d.global[r.Name] = globalGrants[i]
+		d.global[r.Name] = defaultRole{description: r.Description, grants: globalGrants[i]}
 		d.grants = append(d.grants, grantRecords(accesstypes.GlobalPolicyScope(), r.Name, globalGrants[i])...)
 	}
 	for i, r := range roleConfig.Roles.Domain {
-		d.domain[r.Name] = domainGrants[i]
+		d.domain[r.Name] = defaultRole{description: r.Description, grants: domainGrants[i]}
 		d.grants = append(d.grants, grantRecords(accesstypes.EveryDomainPolicyScope(), r.Name, domainGrants[i])...)
 	}
 
@@ -237,24 +272,30 @@ func (d *defaultRoles) exists(scope accesstypes.PolicyScope, role accesstypes.Ro
 	return ok
 }
 
-// names lists the default roles of scope's kind, sorted. Nil-safe.
-func (d *defaultRoles) names(scope accesstypes.PolicyScope) []accesstypes.Role {
+// list lists the default roles of scope's kind with their descriptions,
+// sorted by name. Nil-safe.
+func (d *defaultRoles) list(scope accesstypes.PolicyScope) []RoleInfo {
 	roles := d.kind(scope)
-	names := make([]accesstypes.Role, 0, len(roles))
-	for role := range roles {
-		names = append(names, role)
+	listed := make([]RoleInfo, 0, len(roles))
+	for name, role := range roles {
+		listed = append(listed, RoleInfo{Name: name, Description: role.description})
 	}
-	slices.Sort(names)
+	slices.SortFunc(listed, compareRoleInfo)
 
-	return names
+	return listed
+}
+
+// compareRoleInfo orders listed roles by name.
+func compareRoleInfo(a, b RoleInfo) int {
+	return strings.Compare(string(a.Name), string(b.Name))
 }
 
 // grantsOf returns the grant set of a default role of scope's kind, and
 // whether there is one. Nil-safe.
 func (d *defaultRoles) grantsOf(scope accesstypes.PolicyScope, role accesstypes.Role) (grantSet, bool) {
-	set, ok := d.kind(scope)[role]
+	compiled, ok := d.kind(scope)[role]
 
-	return set, ok
+	return compiled.grants, ok
 }
 
 // allGrants returns the defaults' grants as policy records. Nil-safe.
@@ -267,7 +308,7 @@ func (d *defaultRoles) allGrants() []policy.Grant {
 }
 
 // kind returns the default roles of scope's kind. Nil-safe.
-func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]grantSet {
+func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]defaultRole {
 	if d == nil {
 		return nil
 	}
@@ -278,16 +319,55 @@ func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]
 	return d.domain
 }
 
-// validateRoleNames enforces the declaration grammar: every role name is
+// roleNamePattern is the one grammar every role name follows: letters and
+// digits starting with a capital letter.
+var roleNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// validateRoleShape checks what a role file settles on its own, with no
+// permission collection: the names, the descriptions, and each grant's
+// grammar and condition syntax. Parse runs it, so a tool gets these
+// refusals without the collection; compileDefaultRoles checks the same
+// rules on its way to the collection.
+func validateRoleShape(config *RoleConfig) error {
+	if err := validateRoleNames(config.Roles); err != nil {
+		return err
+	}
+	if err := validateRoleDescriptions(config.Roles); err != nil {
+		return err
+	}
+	for _, r := range slices.Concat(config.Roles.Global, config.Roles.Domain) {
+		if err := validateGrantGrammar(r); err != nil {
+			return err
+		}
+		for perm, grants := range r.Permissions {
+			for _, grant := range grants {
+				if grant.Condition == "" {
+					continue
+				}
+				if _, err := accesstypes.NewCondition(grant.Condition); err != nil {
+					return errors.Wrapf(err, "role %s: %s grant on %s", r.Name, perm, grant.Resource)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateRoleNames enforces the name grammar and the declaration rules:
+// every role name is letters and digits starting with a capital letter, is
 // declared once, at exactly one scope, and no two names differ only in case,
 // since a directory names roles without regard to case (a Google group is an
-// email address) and ResolveRole could never tell the pair apart. Any name is
-// legal; no name is reserved or provisioned outside the configuration.
+// email address) and ResolveRole could never tell the pair apart. No name is
+// reserved or provisioned outside the configuration.
 func validateRoleNames(roles ScopedRoles) error {
 	seen := make(map[accesstypes.Role]string)
 	folded := make(map[string]accesstypes.Role)
 	check := func(list []*Role, kind string) error {
 		for _, r := range list {
+			if !roleNamePattern.MatchString(string(r.Name)) {
+				return errors.Newf("role %s: a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name", r.Name)
+			}
 			if prev, taken := seen[r.Name]; taken {
 				if prev == kind {
 					return errors.Newf("role %s is declared twice in the %s roles", r.Name, kind)
@@ -309,6 +389,45 @@ func validateRoleNames(roles ScopedRoles) error {
 	}
 
 	return check(roles.Domain, "domain")
+}
+
+// validateRoleDescriptions refuses a role whose description is empty or
+// whitespace alone: every role says what it is for.
+func validateRoleDescriptions(roles ScopedRoles) error {
+	for _, r := range slices.Concat(roles.Global, roles.Domain) {
+		if strings.TrimSpace(r.Description) == "" {
+			return errors.Newf("role %s: a role carries a description, one or two plain sentences saying what the role is for", r.Name)
+		}
+	}
+
+	return nil
+}
+
+// validateGrantGrammar checks one role's authored grants for what needs no
+// collection: every grant names a resource; a dotted field resource is a
+// bare mechanical grant, with no Fields or Condition; and no
+// (permission, resource, condition) triple is written twice.
+func validateGrantGrammar(r *Role) error {
+	seen := make(authoredGrants)
+	for perm, grants := range r.Permissions {
+		for _, grant := range grants {
+			if grant.Resource == "" {
+				return errors.Newf("role %s: a %s grant names no resource", r.Name, perm)
+			}
+			if strings.ContainsRune(string(grant.Resource), '.') && (len(grant.Fields) > 0 || grant.Condition != "") {
+				return errors.Newf("role %s: grant on %s: a dotted field resource takes no Fields or Condition — name the base resource and put fields in Fields", r.Name, grant.Resource)
+			}
+			if seen.note(perm, grant.Resource, grant.Condition) {
+				if grant.Condition == "" {
+					return errors.Newf("role %s: two unconditional %s grants on %s — merge their field sets into one grant", r.Name, perm, grant.Resource)
+				}
+
+				return errors.Newf("role %s: two %s grants on %s carry the same condition %q — merge their field sets into one grant; a further grant on a resource is for a different condition", r.Name, perm, grant.Resource, grant.Condition)
+			}
+		}
+	}
+
+	return nil
 }
 
 // grantSet is one role's grant rows: for each permission
@@ -377,23 +496,15 @@ func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared acc
 // a resource whose scope contradicts the declaration is rejected: it would be
 // provisioned into a partition the role's holders never look in.
 func expandRoleGrants(store PermissionCollection, r *Role, declared accesstypes.PermissionScope) (grantSet, error) {
+	if err := validateGrantGrammar(r); err != nil {
+		return nil, err
+	}
+
 	storePermissions := store.List()
 	desired := make(grantSet)
-	seen := make(authoredGrants)
 
 	for perm, grants := range r.Permissions {
 		for _, grant := range grants {
-			if strings.ContainsRune(string(grant.Resource), '.') && (len(grant.Fields) > 0 || grant.Condition != "") {
-				return nil, errors.Newf("role %s: grant on %s: a dotted field resource takes no Fields or Condition — name the base resource and put fields in Fields", r.Name, grant.Resource)
-			}
-			if seen.note(perm, grant.Resource, grant.Condition) {
-				if grant.Condition == "" {
-					return nil, errors.Newf("role %s: two unconditional %s grants on %s — merge their field sets into one grant", r.Name, perm, grant.Resource)
-				}
-
-				return nil, errors.Newf("role %s: two %s grants on %s carry the same condition %q — merge their field sets into one grant; a further grant on a resource is for a different condition", r.Name, perm, grant.Resource, grant.Condition)
-			}
-
 			if grant.Condition != "" {
 				if err := validateGrantCondition(store, r.Name, perm, grant); err != nil {
 					return nil, err

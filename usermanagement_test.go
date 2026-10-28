@@ -28,7 +28,7 @@ func seededManager(t *testing.T) (*userManager, *fakeStore) {
 		{tenant2Policy, "Viewer"},
 		{accesstypes.GlobalPolicyScope(), "Auditor"},
 	} {
-		if err := m.AddRole(ctx, seed.scope, seed.role); err != nil {
+		if err := m.AddRole(ctx, seed.scope, seed.role, aDescription); err != nil {
 			t.Fatalf("AddRole(%q, %q) error = %v", seed.scope, seed.role, err)
 		}
 	}
@@ -284,13 +284,13 @@ func Test_userManager_roles(t *testing.T) {
 		{
 			name: "AddRole creates the role in its domain only",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRole(ctx, tenant2Policy, "Editor")
+				return m.AddRole(ctx, tenant2Policy, "Editor", aDescription)
 			},
 			verify: func(ctx context.Context, t *testing.T, m *userManager) {
 				t.Helper()
-				for scope, want := range map[accesstypes.PolicyScope][]accesstypes.Role{
-					tenant1Policy: {"Editor", "Viewer"},
-					tenant2Policy: {"Editor", "Viewer"},
+				for scope, want := range map[accesstypes.PolicyScope][]RoleInfo{
+					tenant1Policy: {{Name: "Editor", Description: aDescription}, {Name: "Viewer", Description: aDescription}},
+					tenant2Policy: {{Name: "Editor", Description: aDescription}, {Name: "Viewer", Description: aDescription}},
 				} {
 					roles, err := m.Roles(ctx, scope)
 					if err != nil {
@@ -305,14 +305,21 @@ func Test_userManager_roles(t *testing.T) {
 		{
 			name: "AddRole rejects duplicates",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRole(ctx, tenant1Policy, "Editor")
+				return m.AddRole(ctx, tenant1Policy, "Editor", aDescription)
 			},
 			wantErr: true,
 		},
 		{
 			name: "AddRole rejects empty role",
 			op: func(ctx context.Context, m *userManager) error {
-				return m.AddRole(ctx, tenant1Policy, "")
+				return m.AddRole(ctx, tenant1Policy, "", aDescription)
+			},
+			wantErr: true,
+		},
+		{
+			name: "AddRole rejects a role without a description",
+			op: func(ctx context.Context, m *userManager) error {
+				return m.AddRole(ctx, tenant2Policy, "Editor", " \n")
 			},
 			wantErr: true,
 		},
@@ -593,3 +600,7 @@ func Test_userManager_AddRoleGrants(t *testing.T) {
 		})
 	}
 }
+
+// aDescription is the description the tests create custom roles with where
+// the text does not matter.
+const aDescription = "A custom role the tests create."

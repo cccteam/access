@@ -138,9 +138,10 @@ type UserManager interface {
 	// snapshot. At least one scope is required.
 	UserPermissions(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.UserPermissionCollection, error)
 
-	// AddRole creates a custom role held in scope. Errors if the role exists
-	// in scope, or its name is a default role's.
-	AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
+	// AddRole creates a custom role held in scope, with the description
+	// saying what it is for: one or two plain sentences, refused when empty.
+	// Errors if the role exists in scope, or its name is a default role's.
+	AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
 
 	// ResolveRole returns the role scope holds under name, matched without
 	// regard to case, in the spelling the store holds it: a default role of
@@ -153,10 +154,13 @@ type UserManager interface {
 	// the role file or AddRole gave the role.
 	ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error)
 
-	// Roles returns the roles that exist in scope, sorted: the default roles
-	// of scope's kind and the custom roles held in scope, and in every domain
-	// for one domain.
-	Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error)
+	// Roles returns the roles that exist in scope, sorted by name, each with
+	// its description: the default roles of scope's kind, described by the
+	// role file, and the custom roles held in scope, and in every domain for
+	// one domain, described as AddRole was told. A name is listed once
+	// however many places hold it: a default before a custom role it
+	// shadows, the scope's own custom role before one held in every domain.
+	Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error)
 
 	// DeleteRole removes a custom role held in scope with its grants. Returns
 	// false with an error if the role has members in scope, or is a default

@@ -39,7 +39,7 @@ The tables hold what is written at run time: custom roles, their grants, and rol
 
 The `access.Store` interface the two subpackages implement is sealed: only this module's stores satisfy it. The stores are thin; validation, change signaling and snapshot compilation live in the access package, one code path for every store. Both stores keep the same contract:
 
-- `Roles` holds custom roles only.
+- `Roles` holds custom roles only, each with the description it was created with.
 - `UserRoles` stands alone. A membership names its role by name alone, since a default role has no row to reference, so `InsertUserRole` writes by role name; the access package checks that the name resolves before it writes. An index led by the user (`{Prefix}{Store}UserRolesByUser`) serves `ListUserMemberships`, which lists every membership a user holds wherever it is held.
 - `RoleGrants` belongs to its custom role: interleaved in `Roles` on Spanner and a foreign key on PostgreSQL, both with cascading delete. A grant needs its role's row, and deleting a custom role deletes its grants.
 - `DeleteRole` refuses while memberships held in that scope still name the role, checked in the same transaction as the delete.
@@ -113,8 +113,8 @@ func main() {
     tenant1 := accesstypes.DomainScope("tenant1")
     tenant1Policy := tenant1.PolicyScope()
 
-    // Create a custom role and grant permissions
-    mgr.AddRole(ctx, tenant1Policy, "admin")
+    // Create a custom role, saying what it is for, and grant permissions
+    mgr.AddRole(ctx, tenant1Policy, "admin", "Administers the tenant.")
     mgr.AddRolePermissionResources(ctx, tenant1Policy, "admin", "Read", "documents", "documents.*")
 
     // Assign role to user
@@ -390,10 +390,12 @@ memberships held there and in every domain, default and custom roles alike.
 ### Role Management
 
 ```go
-mgr.AddRole(ctx, tenant1, "moderator")
+// A custom role is created with a description: one or two plain sentences
+// saying what it is for. A role without one is refused.
+mgr.AddRole(ctx, tenant1, "moderator", "Reviews and removes the tenant's posts.")
 deleted, err := mgr.DeleteRole(ctx, tenant1, "moderator") // scoped to tenant1
 
-roles, err := mgr.Roles(ctx, tenant1)
+roles, err := mgr.Roles(ctx, tenant1) // []access.RoleInfo: each role's name and description
 role, exists, err := mgr.ResolveRole(ctx, tenant1, "admin") // the spelling the store holds, matched without regard to case
 
 users, err := mgr.RoleUsers(ctx, tenant1, "admin")
@@ -401,16 +403,18 @@ mgr.AddRoleUsers(ctx, tenant1, "admin", "user1", "user2")
 mgr.DeleteRoleUsers(ctx, tenant1, "admin", "user1")
 
 // A custom role held in every domain exists in each tenant.
-mgr.AddRole(ctx, everyDomain, "Auditor")
+mgr.AddRole(ctx, everyDomain, "Auditor", "Reads every tenant's records without changing them.")
 users, err = mgr.RoleUsers(ctx, everyDomain, "Auditor")
 
 // Global-scope roles live in their own partition.
-mgr.AddRole(ctx, accesstypes.GlobalPolicyScope(), "SystemAdmin")
+mgr.AddRole(ctx, accesstypes.GlobalPolicyScope(), "SystemAdmin", "Administers the application itself.")
 ```
 
-`Roles` lists the roles that exist in a scope: the release's default roles of
-the scope's kind and the custom roles held there, and, for one domain, the
-custom roles held in every domain too. `ResolveRole` finds the role a scope holds
+`Roles` lists the roles that exist in a scope, each as its name and
+description (`RoleInfo`): the release's default roles of the scope's kind,
+described by the role file, and the custom roles held there, and, for one
+domain, the custom roles held in every domain too, described as `AddRole` was
+told. A name is listed once however many places hold it. `ResolveRole` finds the role a scope holds
 under a name, matched without regard to case, and returns it in the spelling the
 store holds: in one domain a domain default role, a custom role held in that
 domain, or a custom role held in every domain. The exact spelling wins when it
@@ -490,7 +494,9 @@ roles and memberships held in one tenant domain. `AddRoleUsersEveryDomain`,
 `DeleteRoleUsersEveryDomain` and `RoleUsersEveryDomain` address memberships
 held in every tenant domain. No handler addresses the global partition.
 `Roles` lists the domain's default roles and the custom roles held there or in
-every domain, and `RolePermissions` answers what a role holds in the domain,
+every domain, each as `{"name": ..., "description": ...}`; `AddRole` takes
+`roleName` and `description` in its body and refuses a role without a
+description; and `RolePermissions` answers what a role holds in the domain,
 read as the scope of a request, for default and custom roles alike.
 
 ## Default Roles
@@ -499,9 +505,18 @@ Default roles are policy that travels with the release. They are authored as a
 role file, JSON in the `RoleConfig` shape (see JSON Configuration), embedded in
 the application binary and handed to `New` through `WithDefaultRoles`. `New`
 parses the file and validates it against the collection the release declares:
-a file that does not parse, declares a role twice or at both scopes, grants
-what the collection does not declare, or carries a condition the vocabulary
-refuses fails `New`, so a release whose default roles are wrong does not start.
+a file that does not parse, names a role outside the grammar, leaves a role
+without a description, declares a role twice or at both scopes, grants what
+the collection does not declare, or carries a condition the vocabulary refuses
+fails `New`, so a release whose default roles are wrong does not start.
+
+Every role name follows one grammar: letters and digits starting with a
+capital letter, such as `Administrator` or `TenantAdministrator` — no
+underscore, hyphen, space or dot. The scope is never part of the name: a role
+is declared under its scope key, so `Administrator_Global` is refused where
+`Administrator` under `global` is meant. Every role carries a description, one
+or two plain sentences saying what the role is for, the way a cloud provider
+describes its roles; `Roles` returns it beside the name.
 
 The store holds no row for a default role. A global default role is held in the
 global partition and a domain default role in every tenant domain. A membership
@@ -578,7 +593,7 @@ role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 
 - A global default role is held in the global partition; a domain default role is held in every tenant domain, including a tenant created after the release started, with nothing written for it
 - A membership names a default role by name alone: a global default is assigned in the global partition, a domain default in one domain or in every domain
-- `Roles` and `ResolveRole` include the default roles of the scope's kind, and `RolePermissions` and `RoleGrants` answer a default role's grants from the file
+- `Roles` and `ResolveRole` include the default roles of the scope's kind, `Roles` with the file's description, and `RolePermissions` and `RoleGrants` answer a default role's grants from the file
 - `AddRole` refuses a default role's name, `DeleteRole` refuses a default role, and the grant methods refuse to change one; copy its grants into a custom role under another name to change them
 - A role whose file entry has no grants exists and holds nothing until a grant is authored
 - Validates resources, permissions, and conditions against the collection before the client starts, and refuses a grant on a resource whose scope is not its role's
@@ -688,6 +703,7 @@ client, err := access.New(store, access.WithDefaultRoles(collection, roles.File)
     "domain": [
       {
         "name": "Editor",
+        "description": "Writes and edits the documents of the tenant.",
         "permissions": {
           "List":   [{"resource": "Documents", "fields": ["title", "author"]}],
           "Read":   [{"resource": "Documents", "fields": ["title", "author", "body"]}],
@@ -697,6 +713,7 @@ client, err := access.New(store, access.WithDefaultRoles(collection, roles.File)
       },
       {
         "name": "Viewer",
+        "description": "Reads the documents of the tenant.",
         "permissions": {
           "List": [{"resource": "Documents", "fields": ["title", "author"]}],
           "Read": [{"resource": "Documents", "fields": ["title", "author", "body"]}]
@@ -707,16 +724,22 @@ client, err := access.New(store, access.WithDefaultRoles(collection, roles.File)
 }
 ```
 
-Each role is declared under exactly one scope key. A `global` role carries grants on
-global-scoped resources and is held in the global partition; a `domain` role carries
-grants on domain-scoped resources and is held in every tenant domain. A job function that
-needs both kinds of powers is two roles assigned to one user. Each grant names a base
+Each role is declared under exactly one scope key, with a `name` in the grammar (letters
+and digits starting with a capital letter; the scope is never part of the name) and a
+`description` saying what it is for. A `global` role carries grants on global-scoped
+resources and is held in the global partition; a `domain` role carries grants on
+domain-scoped resources and is held in every tenant domain. A job function that needs
+both kinds of powers is two roles assigned to one user. Each grant names a base
 `resource`, the `fields` it covers as their wire tags, and an optional `condition`; a role
 may carry several grants on one resource for one permission, each under its own condition.
 
 The file is decoded strictly: a key the shape does not declare is an error, since a
 misspelled key would otherwise silently drop the roles under it. `RoleFile.Parse` decodes
-it the way `New` does, for a test or a tool that wants the `RoleConfig`.
+it and checks its shape the way `New` does — the name grammar, the descriptions, each
+grant's grammar and condition syntax — with no permission collection, for a test or a tool
+that wants the `RoleConfig` or the refusals a release's start would give before it looks
+at the collection. `ValidateRoles` then checks what the file grants against the
+collection.
 
 ## License
 

@@ -80,9 +80,10 @@ type policyStore interface {
 	// held, as stored.
 	userMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error)
 
-	// Roles
-	addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
-	roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error)
+	// Roles. A custom role is created with the description its creator gave
+	// it, and listed with it.
+	addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
+	roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error)
 	// deleteRole removes the role and its grants, scoped to (scope, role).
 	deleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 	roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)

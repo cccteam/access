@@ -218,15 +218,19 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 	return userPermissions, nil
 }
 
-// AddRole creates a custom role held in scope. The scope is an opaque
-// partition label: its validity is the caller's business. A default role's
-// name is taken.
-func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+// AddRole creates a custom role held in scope, with the description saying
+// what it is for. The scope is an opaque partition label: its validity is
+// the caller's business. A default role's name is taken, and a role without
+// a description is refused.
+func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if role == "" {
 		return httpio.NewBadRequestMessage("role cannot be empty string")
+	}
+	if strings.TrimSpace(description) == "" {
+		return httpio.NewBadRequestMessagef("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role))
 	}
 	if u.defaults.exists(scope, role) {
 		return httpio.NewConflictMessagef("role %q is one of the release's default roles; a custom role cannot take its name", string(role))
@@ -245,21 +249,25 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 		return httpio.NewConflictMessagef("role %q differs only in case from the role %q held in scope %s; a directory names roles without regard to case, so one spelling is held", string(role), string(held), scope)
 	}
 
-	if err := u.store.addRole(ctx, scope, role); err != nil {
+	if err := u.store.addRole(ctx, scope, role, description); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// Roles returns the roles that exist in scope, sorted: the default roles of
-// scope's kind and the custom roles held in scope, and in every domain for
-// one domain.
-func (u *userManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
+// Roles returns the roles that exist in scope, sorted by name, each with its
+// description: the default roles of scope's kind, described by the role
+// file, and the custom roles held in scope, and in every domain for one
+// domain, described as AddRole was told. A name is listed once however many
+// places hold it, with the description of the first place that does: a
+// default before a custom role it shadows, the scope's own custom role
+// before one held in every domain.
+func (u *userManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	roles := u.defaults.names(scope)
+	roles := u.defaults.list(scope)
 	customs, err := u.store.roles(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -272,9 +280,25 @@ func (u *userManager) Roles(ctx context.Context, scope accesstypes.PolicyScope) 
 		}
 		roles = append(roles, everywhere...)
 	}
-	slices.Sort(roles)
 
-	return slices.Compact(roles), nil
+	return listedOnce(roles), nil
+}
+
+// listedOnce keeps the first entry of each name, in the order the places
+// were asked, and sorts the result by name.
+func listedOnce(roles []RoleInfo) []RoleInfo {
+	seen := make(map[accesstypes.Role]struct{}, len(roles))
+	once := make([]RoleInfo, 0, len(roles))
+	for _, role := range roles {
+		if _, dup := seen[role.Name]; dup {
+			continue
+		}
+		seen[role.Name] = struct{}{}
+		once = append(once, role)
+	}
+	slices.SortFunc(once, compareRoleInfo)
+
+	return once
 }
 
 // DeleteRole removes a custom role held in scope with its grants. It refuses
@@ -544,13 +568,13 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 	if err != nil {
 		return "", false, err
 	}
-	if slices.Contains(roles, accesstypes.Role(name)) {
-		return accesstypes.Role(name), true, nil
-	}
 	var matches []accesstypes.Role
 	for _, role := range roles {
-		if strings.EqualFold(string(role), name) {
-			matches = append(matches, role)
+		if role.Name == accesstypes.Role(name) {
+			return role.Name, true, nil
+		}
+		if strings.EqualFold(string(role.Name), name) {
+			matches = append(matches, role.Name)
 		}
 	}
 	switch len(matches) {

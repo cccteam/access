@@ -10,7 +10,8 @@
 // partition, one domain or every domain — never a distinguished domain value
 // — and the axis is the name of the axis the domain belongs to, "" for the
 // default axis, which is every scope today. The Roles table holds custom
-// roles only; a membership names a role by name alone, since the release's
+// roles only, each with the description its creator gave it; a membership
+// names a role by name alone, since the release's
 // default roles have no row, so UserRoles stands alone with an index led by
 // the user for the no-scope listing. Separate tables per store make
 // cross-store leakage structurally impossible: there is no store-key WHERE
@@ -42,17 +43,18 @@ const defaultPrefix = "Access"
 // Column and query-parameter names shared by the prepared statements and
 // mutations.
 const (
-	colKind       = "Kind"
-	colAxis       = "Axis"
-	colDomain     = "Domain"
-	colRole       = "Role"
-	colUser       = "User"
-	colPermission = "Permission"
-	colResource   = "Resource"
-	colField      = "Field"
-	colCondition  = "Condition"
-	colCreatedAt  = "CreatedAt"
-	colUpdatedAt  = "UpdatedAt"
+	colKind        = "Kind"
+	colAxis        = "Axis"
+	colDomain      = "Domain"
+	colRole        = "Role"
+	colDescription = "Description"
+	colUser        = "User"
+	colPermission  = "Permission"
+	colResource    = "Resource"
+	colField       = "Field"
+	colCondition   = "Condition"
+	colCreatedAt   = "CreatedAt"
+	colUpdatedAt   = "UpdatedAt"
 
 	paramKind   = "kind"
 	paramAxis   = "axis"
@@ -156,7 +158,7 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlDeleteRole:          fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role", names.roles),
 		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role LIMIT 1", names.userRoles),
 		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role", names.roles),
-		sqlListRoles:           fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain ORDER BY Role", names.roles),
+		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain ORDER BY Role", names.roles),
 		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND User = @user ORDER BY Role", names.userRoles),
 		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, Domain, Role FROM %s@{FORCE_INDEX=%s} WHERE User = @user ORDER BY Kind, Axis, Domain, Role", names.userRoles, names.userIndex),
 		sqlListRoleUsers:       fmt.Sprintf("SELECT User FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role ORDER BY User", names.userRoles),
@@ -185,6 +187,7 @@ func (s *Store) DDL() []string {
   Axis STRING(128) NOT NULL,
   Domain STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   %s,
 ) PRIMARY KEY (Kind, Axis, Domain, Role)`, n.roles, kindCheck(n.roles)),
@@ -386,28 +389,35 @@ func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope
 	return users, nil
 }
 
-// InsertRole creates the (scope, role) row; re-inserting an existing role is
-// a no-op.
-func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+// InsertRole creates the (scope, role) row with its description;
+// re-inserting an existing role is a no-op that leaves the stored description
+// as it is.
+func (s *Store) InsertRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	m := spanner.Insert(s.names.roles,
-		[]string{colKind, colAxis, colDomain, colRole, colUpdatedAt},
-		[]any{kind, axis, domain, string(role), spanner.CommitTimestamp})
+		[]string{colKind, colAxis, colDomain, colRole, colDescription, colUpdatedAt},
+		[]any{kind, axis, domain, string(role), description, spanner.CommitTimestamp})
 
 	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert role")
 }
 
-// ListRoles returns the scope's roles, sorted.
-func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
+// ListRoles returns the scope's roles with their descriptions, sorted by
+// name.
+func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.RoleRow, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	stmt := spanner.Statement{SQL: s.sqlListRoles, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain}}
-	values, err := s.queryStrings(ctx, stmt)
+	roles := make([]policy.RoleRow, 0)
+	err := s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var name, description string
+		if err := row.Columns(&name, &description); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		roles = append(roles, policy.RoleRow{Name: accesstypes.Role(name), Description: description})
+
+		return nil
+	})
 	if err != nil {
-		return nil, errors.Wrap(err, "roles")
-	}
-	roles := make([]accesstypes.Role, 0, len(values))
-	for _, v := range values {
-		roles = append(roles, accesstypes.Role(v))
+		return nil, errors.Wrap(err, "spanner.Client.Single().Query() roles")
 	}
 
 	return roles, nil

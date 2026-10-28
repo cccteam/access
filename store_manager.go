@@ -71,8 +71,8 @@ func (m *storeManager) userMemberships(ctx context.Context, user accesstypes.Use
 	return memberships, nil
 }
 
-func (m *storeManager) addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error {
-	if err := m.store.InsertRole(ctx, scope, role); err != nil {
+func (m *storeManager) addRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
+	if err := m.store.InsertRole(ctx, scope, role, description); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertRole(): role %q in scope %q", role, scope)
 	}
 	m.notifyPolicyChange()
@@ -80,10 +80,17 @@ func (m *storeManager) addRole(ctx context.Context, scope accesstypes.PolicyScop
 	return nil
 }
 
-func (m *storeManager) roles(ctx context.Context, scope accesstypes.PolicyScope) ([]accesstypes.Role, error) {
-	roles, err := m.store.ListRoles(ctx, scope)
+// roles lists the custom roles held in scope with their descriptions, in
+// the store's order (by name).
+func (m *storeManager) roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error) {
+	rows, err := m.store.ListRoles(ctx, scope)
 	if err != nil {
 		return nil, errors.Wrapf(err, "access.Store.ListRoles(): scope %q", scope)
+	}
+
+	roles := make([]RoleInfo, 0, len(rows))
+	for _, row := range rows {
+		roles = append(roles, RoleInfo{Name: row.Name, Description: row.Description})
 	}
 
 	return roles, nil

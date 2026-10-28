@@ -78,14 +78,16 @@ func (defaultsCollection) ConcealingKeys(accesstypes.PermissionScope, accesstype
 func readerRunnerFile() *RoleConfig {
 	return &RoleConfig{Roles: ScopedRoles{
 		Global: []*Role{{
-			Name: "Runner",
+			Name:        "Runner",
+			Description: "Runs the global method and reads the reports.",
 			Permissions: map[accesstypes.Permission][]Grant{
 				"Execute": {{Resource: "DoThing"}},
 				"Read":    {{Resource: "Reports"}},
 			},
 		}},
 		Domain: []*Role{{
-			Name: "Reader",
+			Name:        "Reader",
+			Description: "Reads widgets and their names.",
 			Permissions: map[accesstypes.Permission][]Grant{
 				"Read": {{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}}},
 			},

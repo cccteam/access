@@ -260,10 +260,10 @@ func TestHandlerClient_domainParamIsData(t *testing.T) {
 		expect func(manager *MockUserManager, domain accesstypes.Domain)
 	}{
 		{
-			name: "AddRole", method: http.MethodPost, body: `{"roleName": "Viewer"}`,
+			name: "AddRole", method: http.MethodPost, body: `{"roleName": "Viewer", "description": "Reads the records of the tenant."}`,
 			serve: (*HandlerClient).AddRole,
 			expect: func(manager *MockUserManager, domain accesstypes.Domain) {
-				manager.EXPECT().AddRole(gomock.Any(), accesstypes.DomainPolicyScope(domain), accesstypes.Role("Viewer")).Return(nil).Times(1)
+				manager.EXPECT().AddRole(gomock.Any(), accesstypes.DomainPolicyScope(domain), accesstypes.Role("Viewer"), "Reads the records of the tenant.").Return(nil).Times(1)
 			},
 		},
 		{
@@ -291,7 +291,7 @@ func TestHandlerClient_domainParamIsData(t *testing.T) {
 			name: "Roles", method: http.MethodGet,
 			serve: (*HandlerClient).Roles,
 			expect: func(manager *MockUserManager, domain accesstypes.Domain) {
-				manager.EXPECT().Roles(gomock.Any(), accesstypes.DomainPolicyScope(domain)).Return([]accesstypes.Role{"Viewer"}, nil).Times(1)
+				manager.EXPECT().Roles(gomock.Any(), accesstypes.DomainPolicyScope(domain)).Return([]RoleInfo{{Name: "Viewer", Description: "Reads the records of the tenant."}}, nil).Times(1)
 			},
 		},
 		{

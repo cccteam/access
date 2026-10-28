@@ -26,7 +26,7 @@ func TestClient_ForUser(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor", aDescription); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
 	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees"); err != nil {
@@ -106,7 +106,7 @@ func TestUserChecker_PermissionDigest(t *testing.T) {
 
 	tenant1 := accesstypes.DomainScope("tenant1")
 	manager := client.UserManager()
-	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Editor", aDescription); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
 	if err := manager.AddRolePermissionResources(ctx, tenant1.PolicyScope(), "Editor", "Read", "employees", "employees.name"); err != nil {
@@ -190,7 +190,7 @@ func TestUserChecker_HasGrants(t *testing.T) {
 		{scope: tenant1, role: "Chief", perm: "Read", res: "employees", users: []accesstypes.User{"erin"}},
 		{scope: global, role: "Auditor", perm: "List", res: "reports", users: []accesstypes.User{"erin", "hana"}},
 	} {
-		if err := manager.AddRole(ctx, seed.scope.PolicyScope(), seed.role); err != nil {
+		if err := manager.AddRole(ctx, seed.scope.PolicyScope(), seed.role, aDescription); err != nil {
 			t.Fatalf("AddRole() error = %v", err)
 		}
 		if err := manager.AddRolePermissionResources(ctx, seed.scope.PolicyScope(), seed.role, seed.perm, seed.res); err != nil {
@@ -200,7 +200,7 @@ func TestUserChecker_HasGrants(t *testing.T) {
 			t.Fatalf("AddRoleUsers() error = %v", err)
 		}
 	}
-	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Idler"); err != nil {
+	if err := manager.AddRole(ctx, tenant1.PolicyScope(), "Idler", aDescription); err != nil {
 		t.Fatalf("AddRole() error = %v", err)
 	}
 	if err := manager.AddRoleUsers(ctx, tenant1.PolicyScope(), "Idler", "gale"); err != nil {
