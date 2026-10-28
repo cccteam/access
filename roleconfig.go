@@ -112,11 +112,12 @@ type ScopedRoles struct {
 // Role is one default role as the file declares it: its name, what it is
 // for, and the permissions it grants.
 type Role struct {
-	// Name is the role's name, in the one grammar every role name follows:
-	// letters and digits starting with a capital letter, such as
-	// Administrator or TenantAdministrator — no underscore, hyphen, space or
-	// dot. The scope is never part of the name: a role is declared under its
-	// scope key, and a global and a domain role never share a name.
+	// Name is the role's name, in the one grammar every role name follows,
+	// custom roles created through AddRole included: letters and digits
+	// starting with a capital letter, such as Administrator or
+	// TenantAdministrator — no underscore, hyphen, space or dot. The scope is
+	// never part of the name: a role is declared under its scope key, and a
+	// global and a domain role never share a name.
 	Name accesstypes.Role `json:"name"`
 
 	// Description says what the role is for: one or two plain sentences,
@@ -319,9 +320,14 @@ func (d *defaultRoles) kind(scope accesstypes.PolicyScope) map[accesstypes.Role]
 	return d.domain
 }
 
-// roleNamePattern is the one grammar every role name follows: letters and
+// roleNamePattern is the one grammar every role name follows, a default
+// role's in the file and a custom role's at AddRole alike: letters and
 // digits starting with a capital letter.
 var roleNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// roleNameRule is the rule a name outside the grammar is refused with, in
+// the file and at AddRole alike, after "role NAME: ".
+const roleNameRule = "a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name"
 
 // validateRoleShape checks what a role file settles on its own, with no
 // permission collection: the names, the descriptions, and each grant's
@@ -366,7 +372,7 @@ func validateRoleNames(roles ScopedRoles) error {
 	check := func(list []*Role, kind string) error {
 		for _, r := range list {
 			if !roleNamePattern.MatchString(string(r.Name)) {
-				return errors.Newf("role %s: a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name", r.Name)
+				return errors.Newf("role %s: %s", r.Name, roleNameRule)
 			}
 			if prev, taken := seen[r.Name]; taken {
 				if prev == kind {

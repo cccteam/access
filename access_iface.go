@@ -140,7 +140,10 @@ type UserManager interface {
 
 	// AddRole creates a custom role held in scope, with the description
 	// saying what it is for: one or two plain sentences, refused when empty.
-	// Errors if the role exists in scope, or its name is a default role's.
+	// The name follows the one grammar every role name does, letters and
+	// digits starting with a capital letter (see Role), and a name outside it
+	// is refused. Errors if the role exists in scope, or its name is a
+	// default role's.
 	AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error
 
 	// ResolveRole returns the role scope holds under name, matched without

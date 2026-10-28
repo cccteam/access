@@ -228,9 +228,11 @@ func Test_userManager_defaults_Roles(t *testing.T) {
 }
 
 // Test_userManager_defaults_AddRole pins the names a custom role cannot take:
-// a default's of the scope's kind (a conflict), a name a custom role held in
-// every domain already answers to in one domain, and the empty name — and
-// that a role without a description, or with whitespace for one, is refused.
+// a name outside the grammar every role name follows (letters and digits
+// starting with a capital letter), a default's of the scope's kind (a
+// conflict), a name a custom role held in every domain already answers to in
+// one domain, and the empty name — and that a role without a description, or
+// with whitespace for one, is refused.
 func Test_userManager_defaults_AddRole(t *testing.T) {
 	t.Parallel()
 
@@ -246,13 +248,18 @@ func Test_userManager_defaults_AddRole(t *testing.T) {
 		{name: "a global default's name is refused in the global partition", scope: globalPolicy, role: globalDefault, description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a name held in every domain is refused in one domain", scope: tenant2Policy, role: "Everywhere", description: aDescription, wantErr: httpio.HasConflict},
 		{name: "the empty name is refused", scope: tenant1Policy, role: "", description: aDescription, wantErr: httpio.HasBadRequest},
+		{name: "a name with an underscore is outside the grammar", scope: tenant2Policy, role: "Tenant_Administrator", description: aDescription, wantErr: httpio.HasBadRequest},
+		{name: "a name starting lowercase is outside the grammar", scope: tenant2Policy, role: "moderator", description: aDescription, wantErr: httpio.HasBadRequest},
+		{name: "a name with a space is outside the grammar", scope: tenant2Policy, role: "Tenant Administrator", description: aDescription, wantErr: httpio.HasBadRequest},
+		{name: "a name with a dot is outside the grammar", scope: tenant2Policy, role: "Moderator.Domain", description: aDescription, wantErr: httpio.HasBadRequest},
+		{name: "a name in the grammar with digits after its capital letter is free", scope: tenant2Policy, role: "Tier2Reader", description: aDescription},
 		{name: "a role without a description is refused", scope: tenant2Policy, role: "Zed", description: "", wantErr: httpio.HasBadRequest},
 		{name: "a whitespace description is refused", scope: tenant2Policy, role: "Zed", description: " \t\n", wantErr: httpio.HasBadRequest},
 		{name: "a name held in another domain only is free", scope: tenant2Policy, role: "Zed", description: aDescription},
-		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToLower(string(domainDefault))), description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a domain default is refused", scope: tenant1Policy, role: accesstypes.Role(strings.ToUpper(string(domainDefault))), description: aDescription, wantErr: httpio.HasConflict},
 		{name: "a name differing only in case from a custom role held in the scope is refused", scope: tenant1Policy, role: "ZED", description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "everywhere", description: aDescription, wantErr: httpio.HasConflict},
-		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "zed", description: aDescription},
+		{name: "a name differing only in case from a custom role held in every domain is refused in one domain", scope: tenant2Policy, role: "EVERYWHERE", description: aDescription, wantErr: httpio.HasConflict},
+		{name: "a name differing only in case from a role held in another domain only is free", scope: tenant2Policy, role: "ZED", description: aDescription},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

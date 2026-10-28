@@ -220,14 +220,19 @@ func (u *userManager) UserPermissions(ctx context.Context, user accesstypes.User
 
 // AddRole creates a custom role held in scope, with the description saying
 // what it is for. The scope is an opaque partition label: its validity is
-// the caller's business. A default role's name is taken, and a role without
-// a description is refused.
+// the caller's business. The name follows the one grammar every role name
+// does — letters and digits starting with a capital letter — and a name
+// outside it is refused the way the role file refuses one; a default role's
+// name is taken, and a role without a description is refused.
 func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, description string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if role == "" {
 		return httpio.NewBadRequestMessage("role cannot be empty string")
+	}
+	if !roleNamePattern.MatchString(string(role)) {
+		return httpio.NewBadRequestMessagef("role %s: %s", string(role), roleNameRule)
 	}
 	if strings.TrimSpace(description) == "" {
 		return httpio.NewBadRequestMessagef("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role))

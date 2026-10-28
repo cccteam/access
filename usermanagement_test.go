@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -604,3 +605,25 @@ func Test_userManager_AddRoleGrants(t *testing.T) {
 // aDescription is the description the tests create custom roles with where
 // the text does not matter.
 const aDescription = "A custom role the tests create."
+
+// Test_userManager_AddRole_nameGrammar pins the words a custom role's name
+// outside the grammar is refused with: the role and the rule, the same
+// sentence the role file is refused with, as a bad request.
+func Test_userManager_AddRole_nameGrammar(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	m, store := seededManager(t)
+	rolesBefore := len(store.roles)
+
+	err := m.AddRole(ctx, tenant1Policy, "Tenant_Administrator", aDescription)
+	if !httpio.HasBadRequest(err) {
+		t.Fatalf("AddRole() error = %v, want a bad request", err)
+	}
+	want := "role Tenant_Administrator: a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name"
+	if got := httpio.Message(err); got != want {
+		t.Errorf("AddRole() message = %q, want %q", got, want)
+	}
+	if len(store.roles) != rolesBefore {
+		t.Errorf("AddRole() wrote a role row on a refused call")
+	}
+}

@@ -114,11 +114,11 @@ func main() {
     tenant1Policy := tenant1.PolicyScope()
 
     // Create a custom role, saying what it is for, and grant permissions
-    mgr.AddRole(ctx, tenant1Policy, "admin", "Administers the tenant.")
-    mgr.AddRolePermissionResources(ctx, tenant1Policy, "admin", "Read", "documents", "documents.*")
+    mgr.AddRole(ctx, tenant1Policy, "Administrator", "Administers the tenant.")
+    mgr.AddRolePermissionResources(ctx, tenant1Policy, "Administrator", "Read", "documents", "documents.*")
 
     // Assign role to user
-    mgr.AddUserRoles(ctx, tenant1Policy, "john.doe", "admin")
+    mgr.AddUserRoles(ctx, tenant1Policy, "john.doe", "Administrator")
 
     // Check permissions: one Decision per resource, from one policy snapshot.
     env := accesstypes.NewEnvironment() // per-request decision context
@@ -365,8 +365,8 @@ tenant1 := accesstypes.DomainPolicyScope("tenant1")
 tenant2 := accesstypes.DomainPolicyScope("tenant2")
 everyDomain := accesstypes.EveryDomainPolicyScope()
 
-mgr.AddUserRoles(ctx, tenant1, "john.doe", "admin", "editor")
-mgr.DeleteUserRoles(ctx, tenant1, "john.doe", "editor")
+mgr.AddUserRoles(ctx, tenant1, "john.doe", "Administrator", "Editor")
+mgr.DeleteUserRoles(ctx, tenant1, "john.doe", "Editor")
 
 // Held in every domain: john.doe is a Viewer in every tenant, including one
 // created after this call.
@@ -390,17 +390,19 @@ memberships held there and in every domain, default and custom roles alike.
 ### Role Management
 
 ```go
-// A custom role is created with a description: one or two plain sentences
-// saying what it is for. A role without one is refused.
-mgr.AddRole(ctx, tenant1, "moderator", "Reviews and removes the tenant's posts.")
-deleted, err := mgr.DeleteRole(ctx, tenant1, "moderator") // scoped to tenant1
+// A custom role's name follows the grammar every role name does (letters and
+// digits starting with a capital letter), and it is created with a
+// description: one or two plain sentences saying what it is for. A name
+// outside the grammar, or a role without a description, is refused.
+mgr.AddRole(ctx, tenant1, "Moderator", "Reviews and removes the tenant's posts.")
+deleted, err := mgr.DeleteRole(ctx, tenant1, "Moderator") // scoped to tenant1
 
 roles, err := mgr.Roles(ctx, tenant1) // []access.RoleInfo: each role's name and description
-role, exists, err := mgr.ResolveRole(ctx, tenant1, "admin") // the spelling the store holds, matched without regard to case
+role, exists, err := mgr.ResolveRole(ctx, tenant1, "administrator") // "Administrator": the spelling the store holds, matched without regard to case
 
-users, err := mgr.RoleUsers(ctx, tenant1, "admin")
-mgr.AddRoleUsers(ctx, tenant1, "admin", "user1", "user2")
-mgr.DeleteRoleUsers(ctx, tenant1, "admin", "user1")
+users, err := mgr.RoleUsers(ctx, tenant1, "Administrator")
+mgr.AddRoleUsers(ctx, tenant1, "Administrator", "user1", "user2")
+mgr.DeleteRoleUsers(ctx, tenant1, "Administrator", "user1")
 
 // A custom role held in every domain exists in each tenant.
 mgr.AddRole(ctx, everyDomain, "Auditor", "Reads every tenant's records without changing them.")
@@ -427,7 +429,10 @@ domain alone cannot be assigned in every domain.
 No two roles in a scope differ only in case: the role file is refused at `New`
 when it declares such a pair, and `AddRole` refuses a custom role whose name
 matches an existing role of the scope without regard to case, so a resolution
-is never ambiguous.
+is never ambiguous. `AddRole` also holds a custom role's name to the one grammar
+every role name follows — letters and digits starting with a capital letter, such
+as `Administrator` or `TenantAdministrator` (see Default Roles) — and refuses a
+name outside it with the same words the role file is refused with.
 
 A default role's name is taken: `AddRole` refuses it, and `DeleteRole` refuses
 to delete a default role. `DeleteRole` also refuses while users hold the role
@@ -438,20 +443,20 @@ through `EveryDomainPolicyScope()`, not through one domain.
 
 ```go
 // Resource- and field-specific permissions
-mgr.AddRolePermissionResources(ctx, tenant1, "editor", "Read", "documents", "documents.*")
-mgr.DeleteRolePermissionResources(ctx, tenant1, "editor", "Read", "documents.*")
+mgr.AddRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents", "documents.*")
+mgr.DeleteRolePermissionResources(ctx, tenant1, "Editor", "Read", "documents.*")
 
 // A scope-wide permission (not tied to any resource) is granted through the
 // base-name method — there is no resource value that means it.
-mgr.AddRolePermission(ctx, tenant1, "admin", "CreateUsers")
-mgr.DeleteRolePermission(ctx, tenant1, "admin", "CreateUsers")
+mgr.AddRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
+mgr.DeleteRolePermission(ctx, tenant1, "Administrator", "CreateUsers")
 
 // What the role holds where a request is, from the snapshot, inheritance
 // folded: the file's grants for a default role, the store's for a custom one.
-permissions, err := mgr.RolePermissions(ctx, accesstypes.DomainScope("tenant1"), "admin")
+permissions, err := mgr.RolePermissions(ctx, accesstypes.DomainScope("tenant1"), "Administrator")
 
 // The role's resource grants as held, with the conditions each is granted under.
-grants, err := mgr.RoleGrants(ctx, tenant1, "admin")
+grants, err := mgr.RoleGrants(ctx, tenant1, "Administrator")
 ```
 
 Grant writes enforce the resource shape fail-closed: at most one dot, both
@@ -510,10 +515,11 @@ without a description, declares a role twice or at both scopes, grants what
 the collection does not declare, or carries a condition the vocabulary refuses
 fails `New`, so a release whose default roles are wrong does not start.
 
-Every role name follows one grammar: letters and digits starting with a
-capital letter, such as `Administrator` or `TenantAdministrator` — no
-underscore, hyphen, space or dot. The scope is never part of the name: a role
-is declared under its scope key, so `Administrator_Global` is refused where
+Every role name follows one grammar, a default role's in the file and a custom
+role's given to `AddRole` alike: letters and digits starting with a capital
+letter, such as `Administrator` or `TenantAdministrator` — no underscore,
+hyphen, space or dot. The scope is never part of the name: a role is declared
+under its scope key, so `Administrator_Global` is refused where
 `Administrator` under `global` is meant. Every role carries a description, one
 or two plain sentences saying what the role is for, the way a cloud provider
 describes its roles; `Roles` returns it beside the name.

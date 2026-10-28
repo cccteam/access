@@ -47,6 +47,14 @@ func TestHandlerClient_AddRole(t *testing.T) {
 			want: `{"role":"Viewer","description":"Reads the records of the tenant."}`,
 		},
 		{
+			name:    "a name outside the grammar is refused",
+			wantErr: true,
+			args:    args{domain: "tenant1", body: `{"roleName" : "viewer", "description": "Reads the records of the tenant." }`},
+			prepare: func(user *MockUserManager) {
+				user.EXPECT().AddRole(gomock.Any(), accesstypes.DomainPolicyScope("tenant1"), accesstypes.Role("viewer"), "Reads the records of the tenant.").Return(httpio.NewBadRequestMessage("role viewer: a role name is letters and digits starting with a capital letter")).Times(1)
+			},
+		},
+		{
 			name:    "a role without a description is refused",
 			wantErr: true,
 			args:    args{domain: "tenant1", body: `{"roleName" : "Viewer" }`},
