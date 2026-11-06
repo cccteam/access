@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.1](https://github.com/cccteam/access/compare/v0.12.0...v0.12.1) (2026-11-06)
+
+
+### Features
+
+* **deps:** bump go-jose/v4 to v4.1.7 ([#241](https://github.com/cccteam/access/issues/241)) ([f42937b](https://github.com/cccteam/access/commit/f42937b7b6c5d6ff99bcd9eb432402d56db1d24b))
+
+
+### Code Upgrade
+
+* **deps:** bump the go-dependencies group across 1 directory with 6 updates ([#242](https://github.com/cccteam/access/issues/242)) ([725806e](https://github.com/cccteam/access/commit/725806e0a0b583e88d5183de7556e743b395ae8b))
+
 ## [0.12.0](https://github.com/cccteam/access/compare/v0.11.2...v0.12.0) (2026-10-28)
 
 
