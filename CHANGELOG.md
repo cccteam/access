@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.2](https://github.com/cccteam/access/compare/v0.12.1...v0.12.2) (2026-11-18)
+
+
+### Features
+
+* bump Go to 1.27.4 to fix GO-2026-6859 ([#247](https://github.com/cccteam/access/issues/247)) ([8c79dcd](https://github.com/cccteam/access/commit/8c79dcde97a5d0f5be500c448f8acb1432b1222a))
+
+
+### Code Upgrade
+
+* **deps:** bump the github-actions group across 1 directory with 4 updates ([#248](https://github.com/cccteam/access/issues/248)) ([43f8f2c](https://github.com/cccteam/access/commit/43f8f2cc589521b75de758bf921cf83efdc56259))
+* **deps:** bump the go-dependencies group across 1 directory with 2 updates ([#249](https://github.com/cccteam/access/issues/249)) ([c63b252](https://github.com/cccteam/access/commit/c63b25249f2e1e6a71e3e7b2f63d8c37eb0aa6ed))
+
 ## [0.12.1](https://github.com/cccteam/access/compare/v0.12.0...v0.12.1) (2026-11-06)
 
 
